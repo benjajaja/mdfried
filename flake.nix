@@ -12,9 +12,9 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         # We only need the nightly overlay in the devShell because .rs files are formatted with nightly.
-        overlays = [];
+        overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
-        rustNightly = pkgs.rust-bin.nightly."2024-08-27".default;
+        #rustNightly = pkgs.rust-bin.stable;
       in
       with pkgs;
       {
@@ -25,16 +25,22 @@
           cargoLock = {
             lockFile = ./Cargo.lock;
           };
-            (with darwin.apple_sdk.frameworks; [ AppKit Security Cocoa]);
         };
 
         devShell = mkShell {
+          nativeBuildInputs = [
+            freetype expat pkg-config
+          ];
           buildInputs = [
-            (rustNightly.override {
-              extensions = [ "rust-src" "rust-analyzer-preview" "rustfmt" "clippy" ];
-            })
+            #(rustNightly.override {
+              #extensions = [ "rust-src" "rust-analyzer-preview" "rustfmt" "clippy" ];
+            #})
+            rust-bin.stable.latest.default
             cargo-tarpaulin
             cargo-watch
+            #freetype
+            #expat
+            #fontconfig
           ];
         };
       });

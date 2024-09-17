@@ -6,7 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+comrak = "0.28.0"
 crossterm = "0.28.1"
+font-loader = "0.11.0"
+image = "0.25.2"
 ratatui = "0.28.1"
 ratatui-image = { path = "../ratatu-image", features = ["serde"] }
+rusttype = "0.9.3"
 
