@@ -8,7 +8,7 @@ use font_loader::system_fonts;
 use image::{GenericImage, ImageError, Pixel, Rgb, RgbImage, Rgba};
 use ratatui::{
     crossterm::event::{self, KeyCode, KeyEventKind},
-    layout::{Constraint, Layout, Rect},
+    layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Paragraph, Widget},
@@ -18,13 +18,17 @@ use ratatui::{
 use comrak::{
     arena_tree::{Node, NodeEdge},
     nodes::{Ast, NodeValue},
+    ExtensionOptions,
 };
 use comrak::{parse_document, Arena, Options};
 use ratatui_image::{picker::Picker, protocol::Protocol, Image, Resize};
 use rusttype::{point, Font, Scale};
 
 fn main() -> io::Result<()> {
-    let model = Model::new().map_err::<io::Error, _>(Error::into)?;
+    let text = read_file_to_str("./test.md")?;
+
+    let arena = Box::new(Arena::new());
+    let model = Model::new(&arena, &text).map_err::<io::Error, _>(Error::into)?;
 
     let mut terminal = ratatui::init();
     terminal.clear()?;
@@ -35,43 +39,48 @@ fn main() -> io::Result<()> {
 }
 
 struct Model<'a> {
-    text: String,
     bg: [u8; 3],
     scroll: i64,
-    // root: Box<&'a Node<'a, RefCell<Ast>>>,
+    root: Box<&'a Node<'a, RefCell<Ast>>>,
     picker: Picker,
     font: Font<'a>,
 }
 
 impl<'a> Model<'a> {
-    fn new() -> Result<Self, Error> {
-        let arena = Arena::new();
-        //let md = read_file_to_str("/home/gipsy/o/ratatu-image/README.md")?;
-        let text = read_file_to_str("./test.md")?;
-
-        let root = parse_document(&arena, &text, &Options::default());
+    fn new(arena: &'a Arena<Node<'a, RefCell<Ast>>>, text: &str) -> Result<Self, Error> {
+        let mut ext_options = ExtensionOptions::default();
+        ext_options.strikethrough = true;
+        let root = Box::new(parse_document(
+            &arena,
+            text,
+            &Options {
+                extension: ext_options,
+                ..Default::default()
+            },
+        ));
 
         let mut picker = Picker::from_query_stdio()
             .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, format!("{err}")))?;
 
         let property = system_fonts::FontPropertyBuilder::new()
-            .monospace()
-            //.family(name)
+            // .monospace()
             .family("ProFontWindows Nerd Font Mono")
             .build();
+
         let (font_data, _) =
             system_fonts::get(&property).ok_or("Could not get system fonts property")?;
 
+        println!("{:?}", &font_data[..50]);
         let font = Font::try_from_vec(font_data).ok_or(Error::NoFont)?;
 
         let bg = [0, 0, 50];
         picker.set_background_color(Some(image::Rgb(bg)));
 
         Ok(Model {
-            text,
+            // text,
             bg,
             scroll: 0,
-            // root: Box::new(root),
+            root,
             picker,
             font,
         })
@@ -103,9 +112,11 @@ fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
 
 fn view(model: &mut Model, frame: &mut Frame) {
     let area = frame.area();
-    let block = Block::default()
-        .title("Custom Background Block")
-        .style(Style::default().bg(Color::Rgb(model.bg[0], model.bg[1], model.bg[2])));
+    let block = Block::default().style(Style::default().bg(Color::Rgb(
+        model.bg[0],
+        model.bg[1],
+        model.bg[2],
+    )));
     frame.render_widget(block, area);
 
     let mut debug = vec![];
@@ -116,10 +127,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
     let mut y = 0;
     //let mut span = None;
 
-    let arena = Arena::new();
-    let root = parse_document(&arena, &model.text, &Options::default());
-
-    for edge in root.traverse() {
+    for edge in model.root.traverse() {
         match edge {
             NodeEdge::Start(node) => match node.data.borrow().value {
                 ref node_value => {
@@ -227,8 +235,8 @@ impl<'a> Header {
                 let bb_x = bounding_box.min.x as u32;
                 let bb_y = bounding_box.min.y as u32;
                 glyph.draw(|x, y, v| {
-                    let p_x = bb_x + x as u32;
-                    let p_y = bb_y + y as u32;
+                    let p_x = bb_x.saturating_add(x);
+                    let p_y = bb_y.saturating_add(y);
                     if p_x > max_x {
                         outside = true;
                     } else if p_y > max_y {
@@ -298,6 +306,7 @@ impl Widget for LinkImage {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)]
 enum Error {
     Io(io::Error),
     Image(image::ImageError),
