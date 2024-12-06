@@ -9,25 +9,24 @@ use clap::{arg, command, value_parser};
 use config::Config;
 use confy::ConfyError;
 use font_loader::system_fonts;
-use image::{GenericImage, ImageError, Pixel, Rgb, RgbImage, Rgba};
+use image::ImageError;
+use markdown::traverse;
 use ratatui::{
     crossterm::event::{self, KeyCode, KeyEventKind},
     layout::Rect,
-    style::{Color, Modifier, Style},
-    text::{Line, Span, Text},
+    style::{Color, Style},
     widgets::{Block, Paragraph, Widget},
     DefaultTerminal, Frame,
 };
 
-use comrak::{
-    arena_tree::{Node, NodeEdge},
-    nodes::{Ast, NodeValue},
-    ExtensionOptions,
-};
+use comrak::{arena_tree::Node, nodes::Ast, ExtensionOptions};
 use comrak::{parse_document, Arena, Options};
-use ratatui_image::{picker::Picker, protocol::Protocol, Image, Resize};
-use rusttype::{point, Font, Scale};
+use ratatui_image::{picker::Picker, Image};
+use rusttype::Font;
+use widget_sources::{WidgetSource, WidgetSourceData};
 mod config;
+mod markdown;
+mod widget_sources;
 
 fn main() -> io::Result<()> {
     let matches = command!() // requires `cargo` feature
@@ -159,7 +158,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
     frame.render_widget(block, area);
 
     if model.sources.len() == 0 {
-        traverse(model, area.width);
+        model.sources = traverse(model, area.width);
     }
     let mut y = model.scroll;
     for source in &model.sources {
@@ -187,234 +186,6 @@ fn render_lines<W: Widget>(widget: W, height: u16, scroll: i16, area: Rect, f: &
         }
     }
     scroll + (height as i16)
-}
-
-fn traverse<'a>(model: &mut Model<'a>, width: u16) {
-    let mut debug = vec![];
-    let mut lines = vec![];
-    let mut spans = vec![];
-    let mut style = Style::new();
-
-    let mut sources: Vec<WidgetSource<'a>> = vec![];
-
-    for edge in model.root.traverse() {
-        match edge {
-            NodeEdge::Start(node) => match node.data.borrow().value {
-                ref node_value => {
-                    if let CookedModifier::Raw(modifier) = modifier(&node_value) {
-                        style = style.add_modifier(modifier);
-                    }
-                }
-            },
-            NodeEdge::End(node) => {
-                debug.push(Line::from(format!("End {:?}", node.data.borrow().value)));
-                match node.data.borrow().value {
-                    NodeValue::Text(ref literal) => {
-                        let span = Span::from(literal.clone()).style(style);
-                        spans.push(span);
-                    }
-                    NodeValue::Heading(ref tier) => {
-                        let source = Header::source(
-                            &mut model.picker,
-                            &mut model.font,
-                            model.bg,
-                            width,
-                            spans,
-                            tier.level,
-                        )
-                        .unwrap(); // TODO don't
-                        sources.push(source);
-                        lines = vec![];
-                        spans = vec![];
-                    }
-                    NodeValue::Image(ref link) => {
-                        match LinkImage::source(
-                            &mut model.picker,
-                            width,
-                            model.basepath,
-                            link.url.as_str(),
-                        ) {
-                            Ok(source) => {
-                                sources.push(source);
-                            }
-                            Err(err) => {
-                                let text = Text::from(format!("[Image error: {err:?}]"));
-                                let height = text.height() as u16;
-                                sources.push(WidgetSource {
-                                    height,
-                                    source: WidgetSourceData::Text(text),
-                                });
-                            }
-                        }
-                        lines = vec![];
-                        spans = vec![];
-                    }
-                    NodeValue::Paragraph => {
-                        lines.push(Line::from(spans));
-                        lines.push(Line::default());
-                        let text = Text::from(lines);
-                        lines = vec![];
-                        spans = vec![];
-                        let height = text.height() as u16;
-                        sources.push(WidgetSource {
-                            height,
-                            source: WidgetSourceData::Text(text),
-                        });
-                    }
-                    NodeValue::LineBreak | NodeValue::SoftBreak => {
-                        lines.push(Line::from(spans));
-                        let text = Text::from(lines);
-                        lines = vec![];
-                        spans = vec![];
-                        let height = text.height() as u16;
-                        sources.push(WidgetSource {
-                            height,
-                            source: WidgetSourceData::Text(text),
-                        });
-                    }
-                    _ => {
-                        if let CookedModifier::Raw(modifier) = modifier(&node.data.borrow().value) {
-                            style = style.remove_modifier(modifier);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    model.sources = sources;
-}
-
-struct WidgetSource<'a> {
-    height: u16,
-    source: WidgetSourceData<'a>,
-}
-
-enum WidgetSourceData<'a> {
-    Image(Protocol),
-    Text(Text<'a>),
-}
-
-struct Header {
-    proto: Protocol,
-    height: u16,
-}
-
-impl<'a> Header {
-    fn source(
-        picker: &mut Picker,
-        font: &mut Font<'a>,
-        bg: [u8; 3],
-        width: u16,
-        spans: Vec<Span>,
-        tier: u8,
-    ) -> Result<WidgetSource<'a>, Error> {
-        let cell_height = 2;
-        let (font_width, font_height) = picker.font_size();
-        let img_width = (width * font_width) as u32;
-        let img_height = (cell_height * font_height) as u32;
-        let img: RgbImage = RgbImage::from_pixel(img_width, img_height, Rgb(bg));
-        let mut dyn_img = image::DynamicImage::ImageRgb8(img);
-
-        let s: String = spans.iter().map(|s| s.to_string()).collect();
-        let tier_scale = ((12 - tier) as f32) / 12.0f32;
-        let scale = Scale::uniform((font_height * cell_height) as f32 * tier_scale);
-        let v_metrics = font.v_metrics(scale);
-        let glyphs: Vec<_> = font
-            .layout(&s, scale, point(0.0, 0.0 + v_metrics.ascent))
-            .collect();
-
-        let max_x = img_width as i32;
-        let max_y = img_height as i32;
-        for glyph in glyphs {
-            if let Some(bounding_box) = glyph.pixel_bounding_box() {
-                let mut outside = false;
-                let bb_x = bounding_box.min.x;
-                let bb_y = bounding_box.min.y;
-                glyph.draw(|x, y, v| {
-                    let p_x = bb_x + (x as i32);
-                    let p_y = bb_y + (y as i32);
-                    if p_x >= max_x {
-                        outside = true;
-                    } else if p_y >= max_y {
-                        outside = true;
-                    } else {
-                        let u8v = (255.0 * v) as u8;
-                        let mut pixel = Rgba([bg[0], bg[1], bg[2], 255]);
-                        pixel.blend(&Rgba([u8v, u8v, u8v, u8v]));
-                        dyn_img.put_pixel(p_x as u32, p_y as u32, pixel);
-                    }
-                });
-                if outside {
-                    break;
-                }
-            }
-        }
-
-        let proto = picker
-            .new_protocol(
-                dyn_img,
-                Rect::new(0, 0, width, cell_height),
-                Resize::Fit(None),
-            )
-            .unwrap();
-
-        Ok(WidgetSource {
-            height: cell_height,
-            source: WidgetSourceData::Image(proto),
-        })
-    }
-}
-
-impl Widget for Header {
-    fn render(self, area: Rect, buf: &mut ratatui::prelude::Buffer)
-    where
-        Self: Sized,
-    {
-        let image = Image::new(&self.proto);
-        image.render(area, buf);
-    }
-}
-
-struct LinkImage {
-    proto: Protocol,
-    height: u16,
-}
-
-impl<'a> LinkImage {
-    fn source(
-        picker: &mut Picker,
-        width: u16,
-        basepath: Option<&Path>,
-        link: &str,
-    ) -> Result<WidgetSource<'a>, Error> {
-        let link: String = if basepath.is_some() && link.starts_with("./") {
-            let joined = basepath.unwrap().join(link);
-            joined.to_str().unwrap_or(link).to_owned()
-        } else {
-            link.to_string()
-        };
-        let dyn_img = image::ImageReader::open(link)?.decode()?;
-        let height: u16 = 10;
-
-        let proto = picker
-            .new_protocol(dyn_img, Rect::new(0, 0, width, height), Resize::Fit(None))
-            .unwrap();
-        Ok(WidgetSource {
-            height,
-            source: WidgetSourceData::Image(proto),
-        })
-    }
-}
-
-impl Widget for LinkImage {
-    fn render(self, area: Rect, buf: &mut ratatui::prelude::Buffer)
-    where
-        Self: Sized,
-    {
-        let image = Image::new(&self.proto);
-        image.render(area, buf);
-    }
 }
 
 #[derive(Debug)]
@@ -472,18 +243,4 @@ fn read_file_to_str(path: &str) -> io::Result<String> {
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
     Ok(contents)
-}
-
-enum CookedModifier {
-    None,
-    Raw(Modifier),
-}
-
-fn modifier(node_value: &NodeValue) -> CookedModifier {
-    match node_value {
-        NodeValue::Strong => CookedModifier::Raw(Modifier::BOLD),
-        NodeValue::Emph => CookedModifier::Raw(Modifier::ITALIC),
-        NodeValue::Strikethrough => CookedModifier::Raw(Modifier::CROSSED_OUT),
-        _ => CookedModifier::None,
-    }
 }
