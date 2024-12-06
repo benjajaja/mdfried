@@ -54,9 +54,7 @@ pub fn header_source<'a>(
             glyph.draw(|x, y, v| {
                 let p_x = bb_x + (x as i32);
                 let p_y = bb_y + (y as i32);
-                if p_x >= max_x {
-                    outside = true;
-                } else if p_y >= max_y {
+                if p_x >= max_x || p_y >= max_y {
                     outside = true;
                 } else {
                     let u8v = (255.0 * v) as u8;

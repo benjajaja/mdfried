@@ -24,13 +24,12 @@ pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> 
 
     for edge in model.root.traverse() {
         match edge {
-            NodeEdge::Start(node) => match node.data.borrow().value {
-                ref node_value => {
-                    if let CookedModifier::Raw(modifier) = modifier(&node_value) {
-                        style = style.add_modifier(modifier);
-                    }
+            NodeEdge::Start(node) => {
+                let node_value = &node.data.borrow().value;
+                if let CookedModifier::Raw(modifier) = modifier(node_value) {
+                    style = style.add_modifier(modifier);
                 }
-            },
+            }
             NodeEdge::End(node) => {
                 debug.push(Line::from(format!("End {:?}", node.data.borrow().value)));
                 match node.data.borrow().value {

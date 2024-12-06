@@ -11,13 +11,7 @@ pub struct Cli {
     pub filename: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Default, Debug, Serialize, Deserialize)]
 pub struct Config {
     pub font_family: Option<String>,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config { font_family: None }
-    }
 }

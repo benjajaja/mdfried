@@ -63,7 +63,7 @@ where
 struct Model<'a> {
     bg: [u8; 3],
     scroll: i16,
-    root: Box<&'a Node<'a, RefCell<Ast>>>,
+    root: &'a Node<'a, RefCell<Ast>>,
     picker: Picker,
     font: Font<'a>,
     basepath: Option<&'a Path>,
@@ -80,7 +80,7 @@ impl<'a> Model<'a> {
         let mut ext_options = ExtensionOptions::default();
         ext_options.strikethrough = true;
         let root = Box::new(parse_document(
-            &arena,
+            arena,
             text,
             &Options {
                 extension: ext_options,
@@ -108,7 +108,7 @@ impl<'a> Model<'a> {
         Ok(Model {
             bg,
             scroll: 0,
-            root,
+            root: &root,
             picker,
             font,
             basepath,
@@ -157,7 +157,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
     )));
     frame.render_widget(block, area);
 
-    if model.sources.len() == 0 {
+    if model.sources.is_empty() {
         model.sources = traverse(model, area.width);
     }
     let mut y = model.scroll;
@@ -168,7 +168,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
                 y = render_lines(p, source.height, y, area, frame);
             }
             WidgetSourceData::Image(proto) => {
-                let img = Image::new(&proto);
+                let img = Image::new(proto);
                 y = render_lines(img, source.height, y, area, frame);
             }
         }
@@ -179,7 +179,7 @@ fn render_lines<W: Widget>(widget: W, height: u16, scroll: i16, area: Rect, f: &
     if scroll >= 0 {
         let y = scroll as u16;
         if y < area.height && area.height - y > height {
-            let mut area = area.clone();
+            let mut area = area;
             area.y += y;
             area.height = height;
             f.render_widget(widget, area);
@@ -199,9 +199,9 @@ enum Error {
     NoFont,
 }
 
-impl Into<io::Error> for Error {
-    fn into(self) -> io::Error {
-        match self {
+impl From<Error> for io::Error {
+    fn from(value: Error) -> Self {
+        match value {
             Error::Io(io_err) => io_err,
             err => io::Error::new(io::ErrorKind::Other, format!("{err:?}")),
         }
