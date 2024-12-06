@@ -45,6 +45,7 @@ pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> 
                             width,
                             spans,
                             tier.level,
+                            model.deep_fry,
                         )
                         .unwrap(); // TODO don't
                         sources.push(source);
@@ -57,6 +58,7 @@ pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> 
                             width,
                             model.basepath,
                             link.url.as_str(),
+                            model.deep_fry,
                         ) {
                             Ok(source) => {
                                 sources.push(source);

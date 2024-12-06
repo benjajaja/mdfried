@@ -31,19 +31,24 @@ mod widget_sources;
 fn main() -> io::Result<()> {
     let matches = command!() // requires `cargo` feature
         .arg(arg!(<path> "The input markdown file path").value_parser(value_parser!(PathBuf)))
+        .arg(arg!(-d --deep "Extra deep fried images").value_parser(value_parser!(bool)))
         .get_matches();
 
     let path = matches.get_one::<PathBuf>("path").expect("required input");
+    let text = read_file_to_str(path.to_str().unwrap())?;
+    let basepath = path.parent();
 
     let config: Config = confy::load("mdcooked", None).map_err(map_to_io_error)?;
 
-    let text = read_file_to_str(path.to_str().unwrap())?;
-
-    let basepath = path.parent();
-
     let arena = Box::new(Arena::new());
-    let model =
-        Model::new(&arena, &text, &config, basepath).map_err::<io::Error, _>(Error::into)?;
+    let model = Model::new(
+        &arena,
+        &text,
+        &config,
+        basepath,
+        *matches.get_one("deep").unwrap_or(&false),
+    )
+    .map_err::<io::Error, _>(Error::into)?;
 
     let mut terminal = ratatui::init();
     terminal.clear()?;
@@ -68,6 +73,7 @@ struct Model<'a> {
     font: Font<'a>,
     basepath: Option<&'a Path>,
     sources: Vec<WidgetSource<'a>>,
+    deep_fry: bool,
 }
 
 impl<'a> Model<'a> {
@@ -76,6 +82,7 @@ impl<'a> Model<'a> {
         text: &str,
         config: &Config,
         basepath: Option<&'a Path>,
+        deep_fry: bool,
     ) -> Result<Self, Error> {
         let mut ext_options = ExtensionOptions::default();
         ext_options.strikethrough = true;
@@ -113,6 +120,7 @@ impl<'a> Model<'a> {
             font,
             basepath,
             sources: vec![],
+            deep_fry,
         })
     }
 }

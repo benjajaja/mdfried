@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use image::{GenericImage, Pixel, Rgb, RgbImage, Rgba};
+use image::{imageops, DynamicImage, GenericImage, Pixel, Rgb, RgbImage, Rgba};
 use ratatui::{
     layout::Rect,
     text::{Span, Text},
@@ -28,6 +28,7 @@ pub fn header_source<'a>(
     width: u16,
     spans: Vec<Span>,
     tier: u8,
+    deep_fry_meme: bool,
 ) -> Result<WidgetSource<'a>, Error> {
     let cell_height = 2;
     let (font_width, font_height) = picker.font_size();
@@ -69,6 +70,10 @@ pub fn header_source<'a>(
         }
     }
 
+    if deep_fry_meme {
+        dyn_img = deep_fry(dyn_img);
+    }
+
     let proto = picker
         .new_protocol(
             dyn_img,
@@ -88,6 +93,7 @@ pub fn image_source<'a>(
     width: u16,
     basepath: Option<&Path>,
     link: &str,
+    deep_fry_meme: bool,
 ) -> Result<WidgetSource<'a>, Error> {
     let link: String = if basepath.is_some() && link.starts_with("./") {
         let joined = basepath.unwrap().join(link);
@@ -95,7 +101,11 @@ pub fn image_source<'a>(
     } else {
         link.to_string()
     };
-    let dyn_img = image::ImageReader::open(link)?.decode()?;
+    let mut dyn_img = image::ImageReader::open(link)?.decode()?;
+    if deep_fry_meme {
+        dyn_img = deep_fry(dyn_img);
+    }
+
     let height: u16 = 10;
 
     let proto = picker
@@ -105,4 +115,23 @@ pub fn image_source<'a>(
         height,
         source: WidgetSourceData::Image(proto),
     })
+}
+
+fn deep_fry(mut dyn_img: DynamicImage) -> DynamicImage {
+    let width = dyn_img.width();
+    let height = dyn_img.height();
+    dyn_img = dyn_img.adjust_contrast(100.0);
+    dyn_img = dyn_img.huerotate(45);
+
+    // for x in 0..img_width {
+    // for y in 0..img_height {
+    // if let Some(pixel) = dyn_img.get_pixel_mut(x, y).0.iter_mut().next() {
+    // *pixel = (*pixel).saturating_add(rand::random::<u8>() % 50);
+    // }
+    // }
+    // }
+
+    dyn_img = dyn_img.resize(width / 4, height / 4, imageops::FilterType::Nearest);
+    dyn_img = dyn_img.resize(width, height, imageops::FilterType::Nearest);
+    dyn_img
 }
