@@ -63,11 +63,12 @@ where
 
 struct Model<'a> {
     bg: [u8; 3],
-    scroll: i64,
+    scroll: i16,
     root: Box<&'a Node<'a, RefCell<Ast>>>,
     picker: Picker,
     font: Font<'a>,
     basepath: Option<&'a Path>,
+    sources: Vec<WidgetSource<'a>>,
 }
 
 impl<'a> Model<'a> {
@@ -106,13 +107,13 @@ impl<'a> Model<'a> {
         picker.set_background_color(Some(image::Rgb(bg)));
 
         Ok(Model {
-            // text,
             bg,
             scroll: 0,
             root,
             picker,
             font,
             basepath,
+            sources: vec![],
         })
     }
 }
@@ -121,21 +122,29 @@ fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
     loop {
         terminal.draw(|frame| view(&mut model, frame))?;
 
-        if let event::Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press {
-                match key.code {
-                    KeyCode::Char('q') => {
-                        return Ok(());
+        match event::read()? {
+            event::Event::Key(key) => {
+                if key.kind == KeyEventKind::Press {
+                    match key.code {
+                        KeyCode::Char('q') => {
+                            return Ok(());
+                        }
+                        KeyCode::Char('j') => {
+                            model.scroll -= 1;
+                        }
+                        KeyCode::Char('k') => {
+                            model.scroll += 1;
+                        }
+                        _ => {}
                     }
-                    KeyCode::Char('j') => {
-                        model.scroll += 1;
-                    }
-                    KeyCode::Char('k') => {
-                        model.scroll -= 1;
-                    }
-                    _ => {}
                 }
             }
+            event::Event::Resize(_, _) => {
+                // TODO: do it now based on screen size?
+                // traverse(model, area.width);
+                model.sources = vec![];
+            }
+            _ => {}
         }
     }
 }
@@ -149,13 +158,44 @@ fn view(model: &mut Model, frame: &mut Frame) {
     )));
     frame.render_widget(block, area);
 
+    if model.sources.len() == 0 {
+        traverse(model, area.width);
+    }
+    let mut y = model.scroll;
+    for source in &model.sources {
+        match &source.source {
+            WidgetSourceData::Text(text) => {
+                let p = Paragraph::new(text.clone());
+                y = render_lines(p, source.height, y, area, frame);
+            }
+            WidgetSourceData::Image(proto) => {
+                let img = Image::new(&proto);
+                y = render_lines(img, source.height, y, area, frame);
+            }
+        }
+    }
+}
+
+fn render_lines<W: Widget>(widget: W, height: u16, scroll: i16, area: Rect, f: &mut Frame) -> i16 {
+    if scroll >= 0 {
+        let y = scroll as u16;
+        if y < area.height && area.height - y > height {
+            let mut area = area.clone();
+            area.y += y;
+            area.height = height;
+            f.render_widget(widget, area);
+        }
+    }
+    scroll + (height as i16)
+}
+
+fn traverse<'a>(model: &mut Model<'a>, width: u16) {
     let mut debug = vec![];
     let mut lines = vec![];
-    //let mut line: Option<Line> = None;
     let mut spans = vec![];
     let mut style = Style::new();
-    let mut y = 0;
-    //let mut span = None;
+
+    let mut sources: Vec<WidgetSource<'a>> = vec![];
 
     for edge in model.root.traverse() {
         match edge {
@@ -174,40 +214,40 @@ fn view(model: &mut Model, frame: &mut Frame) {
                         spans.push(span);
                     }
                     NodeValue::Heading(ref tier) => {
-                        let widget = Header::new(
+                        let source = Header::source(
                             &mut model.picker,
                             &mut model.font,
                             model.bg,
-                            area.width,
+                            width,
                             spans,
                             tier.level,
                         )
-                        .unwrap();
-                        let height = widget.height;
-                        y = render_lines(widget, height, y, area, frame);
+                        .unwrap(); // TODO don't
+                        sources.push(source);
                         lines = vec![];
                         spans = vec![];
                     }
                     NodeValue::Image(ref link) => {
-                        match LinkImage::new(
+                        match LinkImage::source(
                             &mut model.picker,
-                            area.width,
+                            width,
                             model.basepath,
                             link.url.as_str(),
                         ) {
-                            Ok(widget) => {
-                                let height = widget.height;
-                                y = render_lines(widget, height, y, area, frame);
-                                lines = vec![];
-                                spans = vec![];
+                            Ok(source) => {
+                                sources.push(source);
                             }
                             Err(err) => {
                                 let text = Text::from(format!("[Image error: {err:?}]"));
                                 let height = text.height() as u16;
-                                let p = Paragraph::new(text);
-                                y = render_lines(p, height, y, area, frame);
+                                sources.push(WidgetSource {
+                                    height,
+                                    source: WidgetSourceData::Text(text),
+                                });
                             }
                         }
+                        lines = vec![];
+                        spans = vec![];
                     }
                     NodeValue::Paragraph => {
                         lines.push(Line::from(spans));
@@ -216,8 +256,10 @@ fn view(model: &mut Model, frame: &mut Frame) {
                         lines = vec![];
                         spans = vec![];
                         let height = text.height() as u16;
-                        let p = Paragraph::new(text);
-                        y = render_lines(p, height, y, area, frame);
+                        sources.push(WidgetSource {
+                            height,
+                            source: WidgetSourceData::Text(text),
+                        });
                     }
                     NodeValue::LineBreak | NodeValue::SoftBreak => {
                         lines.push(Line::from(spans));
@@ -225,8 +267,10 @@ fn view(model: &mut Model, frame: &mut Frame) {
                         lines = vec![];
                         spans = vec![];
                         let height = text.height() as u16;
-                        let p = Paragraph::new(text);
-                        y = render_lines(p, height, y, area, frame);
+                        sources.push(WidgetSource {
+                            height,
+                            source: WidgetSourceData::Text(text),
+                        });
                     }
                     _ => {
                         if let CookedModifier::Raw(modifier) = modifier(&node.data.borrow().value) {
@@ -237,6 +281,18 @@ fn view(model: &mut Model, frame: &mut Frame) {
             }
         }
     }
+
+    model.sources = sources;
+}
+
+struct WidgetSource<'a> {
+    height: u16,
+    source: WidgetSourceData<'a>,
+}
+
+enum WidgetSourceData<'a> {
+    Image(Protocol),
+    Text(Text<'a>),
 }
 
 struct Header {
@@ -245,14 +301,14 @@ struct Header {
 }
 
 impl<'a> Header {
-    fn new(
+    fn source(
         picker: &mut Picker,
         font: &mut Font<'a>,
         bg: [u8; 3],
         width: u16,
         spans: Vec<Span>,
         tier: u8,
-    ) -> Result<Header, Error> {
+    ) -> Result<WidgetSource<'a>, Error> {
         let cell_height = 2;
         let (font_width, font_height) = picker.font_size();
         let img_width = (width * font_width) as u32;
@@ -260,8 +316,6 @@ impl<'a> Header {
         let img: RgbImage = RgbImage::from_pixel(img_width, img_height, Rgb(bg));
         let mut dyn_img = image::DynamicImage::ImageRgb8(img);
 
-        //let mut spans = spans.clone();
-        //spans.push(Span::raw(format!("#{tier}")));
         let s: String = spans.iter().map(|s| s.to_string()).collect();
         let tier_scale = ((12 - tier) as f32) / 12.0f32;
         let scale = Scale::uniform((font_height * cell_height) as f32 * tier_scale);
@@ -304,9 +358,10 @@ impl<'a> Header {
                 Resize::Fit(None),
             )
             .unwrap();
-        Ok(Header {
-            proto,
+
+        Ok(WidgetSource {
             height: cell_height,
+            source: WidgetSourceData::Image(proto),
         })
     }
 }
@@ -326,13 +381,13 @@ struct LinkImage {
     height: u16,
 }
 
-impl LinkImage {
-    fn new(
+impl<'a> LinkImage {
+    fn source(
         picker: &mut Picker,
         width: u16,
         basepath: Option<&Path>,
         link: &str,
-    ) -> Result<LinkImage, Error> {
+    ) -> Result<WidgetSource<'a>, Error> {
         let link: String = if basepath.is_some() && link.starts_with("./") {
             let joined = basepath.unwrap().join(link);
             joined.to_str().unwrap_or(link).to_owned()
@@ -345,7 +400,10 @@ impl LinkImage {
         let proto = picker
             .new_protocol(dyn_img, Rect::new(0, 0, width, height), Resize::Fit(None))
             .unwrap();
-        Ok(LinkImage { proto, height })
+        Ok(WidgetSource {
+            height,
+            source: WidgetSourceData::Image(proto),
+        })
     }
 }
 
@@ -407,16 +465,6 @@ impl From<clap::error::Error> for Error {
     fn from(value: clap::error::Error) -> Self {
         Self::Cli(value)
     }
-}
-
-fn render_lines<W: Widget>(widget: W, height: u16, y: u16, area: Rect, f: &mut Frame) -> u16 {
-    if y < area.height && area.height - y > height {
-        let mut area = area.clone();
-        area.y += y;
-        area.height = height;
-        f.render_widget(widget, area);
-    }
-    y + height
 }
 
 fn read_file_to_str(path: &str) -> io::Result<String> {
