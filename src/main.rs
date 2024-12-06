@@ -102,7 +102,7 @@ impl<'a> Model<'a> {
 
         let font = Font::try_from_vec(font_data).ok_or(Error::NoFont)?;
 
-        let bg = [0, 0, 50];
+        let bg = [0, 0, 0];
         picker.set_background_color(Some(image::Rgb(bg)));
 
         Ok(Model {
@@ -150,26 +150,27 @@ fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
 
 fn view(model: &mut Model, frame: &mut Frame) {
     let area = frame.area();
-    let block = Block::default().style(Style::default().bg(Color::Rgb(
+    let block = Block::bordered().style(Style::default().bg(Color::Rgb(
         model.bg[0],
         model.bg[1],
         model.bg[2],
     )));
+    let inner_area = block.inner(area);
     frame.render_widget(block, area);
 
     if model.sources.is_empty() {
-        model.sources = traverse(model, area.width);
+        model.sources = traverse(model, inner_area.width);
     }
     let mut y = model.scroll;
     for source in &model.sources {
         match &source.source {
             WidgetSourceData::Text(text) => {
                 let p = Paragraph::new(text.clone());
-                y = render_lines(p, source.height, y, area, frame);
+                y = render_lines(p, source.height, y, inner_area, frame);
             }
             WidgetSourceData::Image(proto) => {
                 let img = Image::new(proto);
-                y = render_lines(img, source.height, y, area, frame);
+                y = render_lines(img, source.height, y, inner_area, frame);
             }
         }
     }
