@@ -146,7 +146,9 @@ fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
                             model.scroll -= 1;
                         }
                         KeyCode::Char('k') => {
-                            model.scroll += 1;
+                            if model.scroll < 0 {
+                                model.scroll += 1;
+                            }
                         }
                         _ => {}
                     }
@@ -194,7 +196,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
 fn render_lines<W: Widget>(widget: W, height: u16, scroll: i16, area: Rect, f: &mut Frame) -> i16 {
     if scroll >= 0 {
         let y = scroll as u16;
-        if y < area.height && area.height - y > height {
+        if y <= area.height && area.height - y >= height {
             let mut area = area;
             area.y += y;
             area.height = height;
