@@ -17,7 +17,6 @@ enum CookedModifier {
 
 pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> {
     let mut debug = vec![];
-    let mut lines = vec![];
     let mut spans = vec![];
     let mut style = Style::new();
 
@@ -52,7 +51,6 @@ pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> 
                         )
                         .unwrap(); // TODO don't
                         sources.push(source);
-                        lines = vec![];
                         spans = vec![];
                     }
                     NodeValue::Image(ref link) => {
@@ -76,37 +74,32 @@ pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> 
                                 });
                             }
                         }
-                        lines = vec![];
                         spans = vec![];
                     }
                     NodeValue::Paragraph => {
-                        let wrapped_lines = wrap_spans(spans, width as usize);
+                        let mut wrapped_lines = wrap_spans(spans, width as usize);
+                        wrapped_lines.push(Line::default());
                         for line in wrapped_lines {
-                            lines.push(line);
+                            let text = Text::from(line);
+                            let height = text.height() as u16;
+                            sources.push(WidgetSource {
+                                height,
+                                source: WidgetSourceData::Text(text),
+                            });
                         }
-                        lines.push(Line::default());
-                        let text = Text::from(lines);
-                        lines = vec![];
                         spans = vec![];
-                        let height = text.height() as u16;
-                        sources.push(WidgetSource {
-                            height,
-                            source: WidgetSourceData::Text(text),
-                        });
                     }
                     NodeValue::LineBreak | NodeValue::SoftBreak => {
                         let wrapped_lines = wrap_spans(spans, width as usize);
                         for line in wrapped_lines {
-                            lines.push(line);
+                            let text = Text::from(line);
+                            let height = text.height() as u16;
+                            sources.push(WidgetSource {
+                                height,
+                                source: WidgetSourceData::Text(text),
+                            });
                         }
-                        let text = Text::from(lines);
-                        lines = vec![];
                         spans = vec![];
-                        let height = text.height() as u16;
-                        sources.push(WidgetSource {
-                            height,
-                            source: WidgetSourceData::Text(text),
-                        });
                     }
                     _ => {
                         if let CookedModifier::Raw(modifier) = modifier(&node.data.borrow().value) {

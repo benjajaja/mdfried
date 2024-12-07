@@ -158,15 +158,10 @@ fn deep_fry(mut dyn_img: DynamicImage) -> DynamicImage {
     dyn_img = dyn_img.adjust_contrast(100.0);
     dyn_img = dyn_img.huerotate(45);
 
-    // for x in 0..img_width {
-    // for y in 0..img_height {
-    // if let Some(pixel) = dyn_img.get_pixel_mut(x, y).0.iter_mut().next() {
-    // *pixel = (*pixel).saturating_add(rand::random::<u8>() % 50);
-    // }
-    // }
-    // }
-
-    dyn_img = dyn_img.resize(width / 4, height / 4, imageops::FilterType::Nearest);
+    let down_width = (width as f32 * 0.9) as u32;
+    let down_height = (height as f32 * 0.8) as u32;
+    dyn_img = dyn_img.resize(down_width, down_height, imageops::FilterType::Gaussian);
     dyn_img = dyn_img.resize(width, height, imageops::FilterType::Nearest);
+
     dyn_img
 }
