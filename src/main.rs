@@ -113,8 +113,8 @@ impl<'a> Model<'a> {
         let font = Font::try_from_vec(font_data).ok_or(Error::NoFont)?;
 
         let bg = match picker.protocol_type() {
-            ProtocolType::Kitty => None,
-            _ => Some([0, 0, 0, 255]),
+            ProtocolType::Sixel => Some([0, 0, 0, 255]),
+            _ => None,
         };
         picker.set_background_color(bg.map(image::Rgba));
 
