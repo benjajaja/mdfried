@@ -3,6 +3,7 @@ use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span, Text},
 };
+use reqwest::blocking::Client;
 
 use crate::{
     widget_sources::{header_source, image_source, WidgetSourceData},
@@ -21,6 +22,8 @@ pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> 
     let mut style = Style::new();
 
     let mut sources: Vec<WidgetSource<'a>> = vec![];
+
+    let mut client = Client::new();
 
     for edge in model.root.traverse() {
         match edge {
@@ -57,6 +60,7 @@ pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> 
                             &mut model.picker,
                             width,
                             model.basepath,
+                            &mut client,
                             link.url.as_str(),
                             model.deep_fry,
                         ) {

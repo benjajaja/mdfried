@@ -1,12 +1,18 @@
-use std::path::Path;
+use std::{io::Cursor, path::Path};
 
-use image::{imageops, DynamicImage, GenericImage, Pixel, Rgba, RgbaImage};
+use image::{
+    imageops, DynamicImage, GenericImage, ImageFormat, ImageReader, Pixel, Rgba, RgbaImage,
+};
 use ratatui::{
     layout::Rect,
     text::{Span, Text},
 };
 
 use ratatui_image::{picker::Picker, protocol::Protocol, Resize};
+use reqwest::{
+    blocking::Client,
+    header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE},
+};
 use rusttype::{point, Font, Scale};
 
 use crate::Error;
@@ -95,16 +101,42 @@ pub fn image_source<'a>(
     picker: &mut Picker,
     width: u16,
     basepath: Option<&Path>,
+    client: &mut Client,
     link: &str,
     deep_fry_meme: bool,
 ) -> Result<WidgetSource<'a>, Error> {
-    let link: String = if basepath.is_some() && link.starts_with("./") {
-        let joined = basepath.unwrap().join(link);
-        joined.to_str().unwrap_or(link).to_owned()
+    let mut dyn_img = if link.starts_with("https://") || link.starts_with("http://") {
+        let mut headers = HeaderMap::new();
+        headers.insert(ACCEPT, HeaderValue::from_static("image/png,image/jpg")); // or "image/jpeg"
+        let response = client.get(link).headers(headers).send()?;
+        if !response.status().is_success() {
+            return Err(Error::Msg("bad HTTP status".to_string()));
+        }
+        let ct = response
+            .headers()
+            .get(CONTENT_TYPE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        let bytes = response.bytes()?;
+        let format = match ct.as_str() {
+            "image/jpeg" => Ok(ImageFormat::Jpeg),
+            "image/png" => Ok(ImageFormat::Png),
+            "image/webp" => Ok(ImageFormat::WebP),
+            _ => Err(Error::Msg(format!("unhandled Content-Type: {ct}"))),
+        }?;
+
+        ImageReader::with_format(Cursor::new(bytes), format).decode()?
     } else {
-        link.to_string()
+        let link: String = if basepath.is_some() && link.starts_with("./") {
+            let joined = basepath.unwrap().join(link);
+            joined.to_str().unwrap_or(link).to_owned()
+        } else {
+            link.to_string()
+        };
+        ImageReader::open(link)?.decode()?
     };
-    let mut dyn_img = image::ImageReader::open(link)?.decode()?;
     if deep_fry_meme {
         dyn_img = deep_fry(dyn_img);
     }

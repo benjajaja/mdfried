@@ -213,6 +213,7 @@ enum Error {
     Config(ConfyError),
     Io(io::Error),
     Image(image::ImageError),
+    Download(reqwest::Error),
     Msg(String),
     NoFont,
 }
@@ -253,6 +254,12 @@ impl From<ConfyError> for Error {
 impl From<clap::error::Error> for Error {
     fn from(value: clap::error::Error) -> Self {
         Self::Cli(value)
+    }
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(value: reqwest::Error) -> Self {
+        Self::Download(value)
     }
 }
 
