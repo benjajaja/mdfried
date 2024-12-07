@@ -21,7 +21,10 @@ use ratatui::{
 
 use comrak::{arena_tree::Node, nodes::Ast, ExtensionOptions};
 use comrak::{parse_document, Arena, Options};
-use ratatui_image::{picker::Picker, Image};
+use ratatui_image::{
+    picker::{Picker, ProtocolType},
+    Image,
+};
 use rusttype::Font;
 use widget_sources::{WidgetSource, WidgetSourceData};
 mod config;
@@ -66,7 +69,7 @@ where
 }
 
 struct Model<'a> {
-    bg: [u8; 3],
+    bg: Option<[u8; 4]>,
     scroll: i16,
     root: &'a Node<'a, RefCell<Ast>>,
     picker: Picker,
@@ -109,8 +112,11 @@ impl<'a> Model<'a> {
 
         let font = Font::try_from_vec(font_data).ok_or(Error::NoFont)?;
 
-        let bg = [0, 0, 0];
-        picker.set_background_color(Some(image::Rgb(bg)));
+        let bg = match picker.protocol_type() {
+            ProtocolType::Kitty => None,
+            _ => Some([0, 0, 0, 255]),
+        };
+        picker.set_background_color(bg.map(image::Rgba));
 
         Ok(Model {
             bg,
@@ -158,20 +164,21 @@ fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
 
 fn view(model: &mut Model, frame: &mut Frame) {
     let area = frame.area();
-    let block = Block::bordered().style(Style::default().bg(Color::Rgb(
-        model.bg[0],
-        model.bg[1],
-        model.bg[2],
-    )));
+    let mut block = Block::bordered();
+    if let Some(bg) = model.bg {
+        block = block.style(Style::default().bg(Color::Rgb(bg[0], bg[1], bg[2])));
+    }
     let inner_area = block.inner(area);
     frame.render_widget(block, area);
 
     if model.sources.is_empty() {
         model.sources = traverse(model, inner_area.width);
     }
+
     let mut y = model.scroll;
-    for source in &model.sources {
-        match &source.source {
+    // eprintln!("view {y}");
+    for source in &mut model.sources {
+        match &mut source.source {
             WidgetSourceData::Text(text) => {
                 let p = Paragraph::new(text.clone());
                 y = render_lines(p, source.height, y, inner_area, frame);

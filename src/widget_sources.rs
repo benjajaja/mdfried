@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use image::{imageops, DynamicImage, GenericImage, Pixel, Rgb, RgbImage, Rgba};
+use image::{imageops, DynamicImage, GenericImage, Pixel, Rgba, RgbaImage};
 use ratatui::{
     layout::Rect,
     text::{Span, Text},
@@ -24,18 +24,21 @@ pub enum WidgetSourceData<'a> {
 pub fn header_source<'a>(
     picker: &mut Picker,
     font: &mut Font<'a>,
-    bg: [u8; 3],
+    bg: Option<[u8; 4]>,
     width: u16,
     spans: Vec<Span>,
     tier: u8,
     deep_fry_meme: bool,
 ) -> Result<WidgetSource<'a>, Error> {
+    static TRANSPARENT_BACKGROUND: [u8; 4] = [0, 0, 0, 0];
+    let bg = bg.unwrap_or(TRANSPARENT_BACKGROUND);
+
     let cell_height = 2;
     let (font_width, font_height) = picker.font_size();
     let img_width = (width * font_width) as u32;
     let img_height = (cell_height * font_height) as u32;
-    let img: RgbImage = RgbImage::from_pixel(img_width, img_height, Rgb(bg));
-    let mut dyn_img = image::DynamicImage::ImageRgb8(img);
+    let img: RgbaImage = RgbaImage::from_pixel(img_width, img_height, Rgba(bg));
+    let mut dyn_img = image::DynamicImage::ImageRgba8(img);
 
     let s: String = spans.iter().map(|s| s.to_string()).collect();
     let tier_scale = ((12 - tier) as f32) / 12.0f32;
@@ -59,7 +62,7 @@ pub fn header_source<'a>(
                     outside = true;
                 } else {
                     let u8v = (255.0 * v) as u8;
-                    let mut pixel = Rgba([bg[0], bg[1], bg[2], 255]);
+                    let mut pixel = Rgba(bg);
                     pixel.blend(&Rgba([u8v, u8v, u8v, u8v]));
                     dyn_img.put_pixel(p_x as u32, p_y as u32, pixel);
                 }
