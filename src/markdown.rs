@@ -80,7 +80,10 @@ pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> 
                         spans = vec![];
                     }
                     NodeValue::Paragraph => {
-                        lines.push(Line::from(spans));
+                        let wrapped_lines = wrap_spans(spans, width as usize);
+                        for line in wrapped_lines {
+                            lines.push(line);
+                        }
                         lines.push(Line::default());
                         let text = Text::from(lines);
                         lines = vec![];
@@ -92,7 +95,10 @@ pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> 
                         });
                     }
                     NodeValue::LineBreak | NodeValue::SoftBreak => {
-                        lines.push(Line::from(spans));
+                        let wrapped_lines = wrap_spans(spans, width as usize);
+                        for line in wrapped_lines {
+                            lines.push(line);
+                        }
                         let text = Text::from(lines);
                         lines = vec![];
                         spans = vec![];
@@ -122,4 +128,63 @@ fn modifier(node_value: &NodeValue) -> CookedModifier {
         NodeValue::Strikethrough => CookedModifier::Raw(Modifier::CROSSED_OUT),
         _ => CookedModifier::None,
     }
+}
+
+// This probably has bugs and doesn't handle multi-width characters properly.
+pub fn wrap_spans(spans: Vec<Span>, max_width: usize) -> Vec<Line> {
+    let mut result_lines = Vec::new();
+    let mut current_line = Vec::new();
+    let mut current_line_width = 0;
+
+    // Helper function to trim leading whitespace
+    fn trim_leading_whitespace(s: &str) -> &str {
+        s.trim_start()
+    }
+
+    for span in spans {
+        // Split the span content into words
+        let words: Vec<&str> = span.content.split_whitespace().collect();
+
+        for word in words {
+            let word_width = word.len();
+
+            // If adding this word would exceed max width, start a new line
+            if current_line_width + word_width + (if current_line_width > 0 { 1 } else { 0 })
+                > max_width
+            {
+                // Finalize and add current line if not empty
+                if !current_line.is_empty() {
+                    result_lines.push(Line::from(current_line));
+                    current_line = Vec::new();
+                    current_line_width = 0;
+                }
+            }
+
+            // Add word to current line (with space if not first word)
+            let word_to_add = if current_line_width > 0 {
+                format!(" {}", word)
+            } else {
+                word.to_string()
+            };
+
+            current_line_width += word_to_add.len();
+            current_line.push(Span::styled(word_to_add, span.style));
+        }
+    }
+
+    // Add any remaining line
+    if !current_line.is_empty() {
+        result_lines.push(Line::from(current_line));
+    }
+
+    // Remove leading whitespace from each line
+    result_lines.iter_mut().for_each(|line| {
+        if let Some(first_span) = line.spans.first_mut() {
+            first_span.content = trim_leading_whitespace(&first_span.content)
+                .to_string()
+                .into();
+        }
+    });
+
+    result_lines
 }
