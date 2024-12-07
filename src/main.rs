@@ -1,13 +1,16 @@
 use std::{
     cell::RefCell,
     fs::File,
+    i16,
     io::{self, Read},
     path::{Path, PathBuf},
+    u16,
 };
 
 use clap::{arg, command, value_parser};
 use config::Config;
 use confy::ConfyError;
+use crossterm::event::KeyModifiers;
 use font_loader::system_fonts;
 use image::ImageError;
 use markdown::traverse;
@@ -70,7 +73,7 @@ where
 
 struct Model<'a> {
     bg: Option<[u8; 4]>,
-    scroll: i16,
+    scroll: u16,
     root: &'a Node<'a, RefCell<Ast>>,
     picker: Picker,
     font: Font<'a>,
@@ -132,6 +135,9 @@ impl<'a> Model<'a> {
 }
 
 fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
+    let screen_height = terminal.size()?.height;
+    let page_scroll_count = screen_height / 2;
+
     loop {
         terminal.draw(|frame| view(&mut model, frame))?;
 
@@ -143,11 +149,21 @@ fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
                             return Ok(());
                         }
                         KeyCode::Char('j') => {
-                            model.scroll -= 1;
+                            model.scroll += 1;
                         }
                         KeyCode::Char('k') => {
-                            if model.scroll < 0 {
-                                model.scroll += 1;
+                            if model.scroll > 0 {
+                                model.scroll -= 1;
+                            }
+                        }
+                        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            model.scroll += page_scroll_count;
+                        }
+                        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            if page_scroll_count < model.scroll {
+                                model.scroll -= page_scroll_count;
+                            } else {
+                                model.scroll = 0;
                             }
                         }
                         _ => {}
@@ -165,45 +181,51 @@ fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
 }
 
 fn view(model: &mut Model, frame: &mut Frame) {
-    let area = frame.area();
+    let frame_area = frame.area();
     let mut block = Block::bordered();
     if let Some(bg) = model.bg {
         block = block.style(Style::default().bg(Color::Rgb(bg[0], bg[1], bg[2])));
     }
-    let inner_area = block.inner(area);
-    frame.render_widget(block, area);
+    let inner_area = block.inner(frame_area);
+    frame.render_widget(block, frame_area);
 
     if model.sources.is_empty() {
         model.sources = traverse(model, inner_area.width);
     }
 
-    let mut y = model.scroll;
-    // eprintln!("view {y}");
+    let mut y: i16 = 0 - (model.scroll as i16);
     for source in &mut model.sources {
-        match &mut source.source {
-            WidgetSourceData::Text(text) => {
-                let p = Paragraph::new(text.clone());
-                y = render_lines(p, source.height, y, inner_area, frame);
-            }
-            WidgetSourceData::Image(proto) => {
-                let img = Image::new(proto);
-                y = render_lines(img, source.height, y, inner_area, frame);
+        if y >= 0 {
+            match &mut source.source {
+                WidgetSourceData::Text(text) => {
+                    let p = Paragraph::new(text.clone());
+                    render_widget(p, source.height, y as u16, inner_area, frame);
+                }
+                WidgetSourceData::Image(proto) => {
+                    let img = Image::new(proto);
+                    render_widget(img, source.height, y as u16, inner_area, frame);
+                }
             }
         }
+        y += source.height as i16;
+        if y >= inner_area.height as i16 {
+            break;
+        }
     }
+
+    let status = Paragraph::new(format!("scroll: {}", model.scroll));
+    let mut status_area = frame_area;
+    status_area.y = frame_area.height - 1;
+    frame.render_widget(status, status_area)
 }
 
-fn render_lines<W: Widget>(widget: W, height: u16, scroll: i16, area: Rect, f: &mut Frame) -> i16 {
-    if scroll >= 0 {
-        let y = scroll as u16;
-        if y <= area.height && area.height - y >= height {
-            let mut area = area;
-            area.y += y;
-            area.height = height;
-            f.render_widget(widget, area);
-        }
+fn render_widget<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, f: &mut Frame) {
+    if source_height < area.height - y {
+        let mut widget_area = area;
+        widget_area.y += y;
+        widget_area.height = widget_area.height.min(source_height);
+        f.render_widget(widget, widget_area);
     }
-    scroll + (height as i16)
 }
 
 #[derive(Debug)]
