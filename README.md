@@ -6,3 +6,5 @@ _YES!_ You can have **cooked _and_ fried** widgets!
 
 `mdfried` is a terminal markdown viewer that renders headers as bigger text then normal.
 Images are also shown.
+
+![Sample image](./assets/screenshot_1.png)

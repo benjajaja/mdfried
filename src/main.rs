@@ -374,11 +374,6 @@ fn view(model: &mut Model, frame: &mut Frame) {
             break;
         }
     }
-
-    let status = Paragraph::new(format!("scroll: {}", model.scroll));
-    let mut status_area = frame_area;
-    status_area.y = frame_area.height - 1;
-    frame.render_widget(status, status_area)
 }
 
 fn render_widget<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, f: &mut Frame) {
