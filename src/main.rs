@@ -117,9 +117,11 @@ impl<'a> Model<'a> {
 
         let bg = match picker.protocol_type() {
             ProtocolType::Sixel => Some([0, 0, 0, 255]),
-            _ => None,
+            _ => {
+                picker.set_background_color([0, 0, 0, 0]);
+                None
+            }
         };
-        picker.set_background_color(bg.map(image::Rgba));
 
         Ok(Model {
             bg,
