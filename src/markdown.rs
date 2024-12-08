@@ -1,6 +1,6 @@
 use comrak::{arena_tree::NodeEdge, nodes::NodeValue};
 use ratatui::{
-    style::{Modifier, Style},
+    style::{Modifier, Style, Stylize},
     text::{Line, Span, Text},
 };
 use reqwest::blocking::Client;
@@ -25,6 +25,12 @@ pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> 
                 let node_value = &node.data.borrow().value;
                 if let Some(modifier) = modifier(node_value) {
                     style = style.add_modifier(modifier);
+                }
+                match node.data.borrow().value {
+                    NodeValue::Code(_) => {
+                        style = style.on_dark_gray();
+                    }
+                    _ => {}
                 }
             }
             NodeEdge::End(node) => {
@@ -96,12 +102,17 @@ pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> 
                         }
                         spans = vec![];
                     }
+                    NodeValue::Code(ref node_code) => {
+                        let span = Span::from(node_code.literal.clone()).style(style);
+                        spans.push(span);
+                    }
                     _ => {
                         if let Some(modifier) = modifier(&node.data.borrow().value) {
                             style = style.remove_modifier(modifier);
                         }
                     }
                 }
+                style.bg = None;
             }
         }
     }
