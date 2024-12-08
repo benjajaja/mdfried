@@ -1,17 +1,20 @@
 use std::{
     cell::RefCell,
     fs::File,
-    i16,
-    io::{self, Read},
+    io::{self, stdout, Read},
     os::fd::IntoRawFd,
     path::{Path, PathBuf},
-    u16,
 };
 
 use clap::{arg, command, value_parser};
 use config::Config;
 use confy::ConfyError;
-use crossterm::{event::KeyModifiers, tty::IsTty};
+use crossterm::{
+    event::KeyModifiers,
+    execute,
+    terminal::{disable_raw_mode, LeaveAlternateScreen},
+    tty::IsTty,
+};
 use font_loader::system_fonts;
 use image::ImageError;
 use markdown::traverse;
@@ -35,7 +38,11 @@ mod config;
 mod markdown;
 mod widget_sources;
 
+const OK_END: &str = " ok.";
+
 fn main() -> io::Result<()> {
+    std::env::set_var("FONTCONFIG_LOG_LEVEL", "silent");
+
     let matches = command!() // requires `cargo` feature
         .arg(arg!([path] "The input markdown file path").value_parser(value_parser!(PathBuf)))
         .arg(arg!(-d --deep "Extra deep fried images").value_parser(value_parser!(bool)))
@@ -45,8 +52,9 @@ fn main() -> io::Result<()> {
         Some(path) => (read_file_to_str(path.to_str().unwrap())?, path.parent()),
         None if !io::stdin().is_tty() => {
             let mut text = String::new();
-            println!("reading from stdin");
+            print!("Reading stdin...");
             let _ = io::stdin().read_to_string(&mut text)?;
+            println!("{OK_END}");
             (text, None)
         }
         None => {
@@ -66,7 +74,7 @@ fn main() -> io::Result<()> {
     let arena = Box::new(Arena::new());
 
     if !io::stdin().is_tty() {
-        println!("unfreezing terminal");
+        print!("Setting stdin to /dev/tty...");
         // Close the current stdin so that ratatui-image can read stuff from tty stdin.
         unsafe {
             // Attempt to open /dev/tty which will give us a new stdin
@@ -81,8 +89,8 @@ fn main() -> io::Result<()> {
             // Close the original tty file descriptor
             libc::close(tty_fd);
         }
+        println!("{OK_END}");
     }
-    println!("cooking terminal");
 
     let model = Model::new(
         &arena,
@@ -94,7 +102,6 @@ fn main() -> io::Result<()> {
     .map_err::<io::Error, _>(Error::into)?;
 
     let mut terminal = ratatui::init();
-    println!("heating up the deep frier...");
     terminal.clear()?;
 
     let app_result = run(terminal, model);
@@ -128,23 +135,28 @@ impl<'a> Model<'a> {
         basepath: Option<&'a Path>,
         deep_fry: bool,
     ) -> Result<Self, Error> {
-        let mut ext_options = ExtensionOptions::default();
-        ext_options.strikethrough = true;
-        let root = Box::new(parse_document(
-            arena,
-            text,
-            &Options {
-                extension: ext_options,
-                ..Default::default()
-            },
-        ));
-
+        print!("Picking graphics protocol setup...");
         let mut picker = Picker::from_query_stdio().map_err(|err| Error::Msg(format!("{err}")))?;
+        println!("{OK_END}");
+
+        let mut loading_terminal = ratatui::init_with_options(ratatui::TerminalOptions {
+            viewport: ratatui::Viewport::Inline(3),
+        });
+        let screen_width = loading_terminal.size()?.width;
+        loading_terminal.clear()?;
+
+        loading_terminal.draw(|frame| {
+            frame.render_widget(Paragraph::new("Settings up fonts..."), frame.area());
+        })?;
 
         let mut fp_builder = system_fonts::FontPropertyBuilder::new();
-        if let Some(ref font_family) = config.font_family {
-            fp_builder = fp_builder.family(font_family);
-        }
+
+        let font_family = match config.font_family {
+            Some(ref font_family) => font_family,
+            None => "Arial",
+        };
+        fp_builder = fp_builder.family(font_family);
+
         let property = fp_builder.build();
 
         let (font_data, _) =
@@ -160,7 +172,23 @@ impl<'a> Model<'a> {
             }
         };
 
-        Ok(Model {
+        let mut ext_options = ExtensionOptions::default();
+        ext_options.strikethrough = true;
+
+        loading_terminal.draw(|frame| {
+            frame.render_widget(Paragraph::new("Parsing..."), frame.area());
+        })?;
+
+        let root = Box::new(parse_document(
+            arena,
+            text,
+            &Options {
+                extension: ext_options,
+                ..Default::default()
+            },
+        ));
+
+        let mut model = Model {
             bg,
             scroll: 0,
             root: &root,
@@ -169,15 +197,31 @@ impl<'a> Model<'a> {
             basepath,
             sources: vec![],
             deep_fry,
-        })
+        };
+
+        loading_terminal.draw(|frame| {
+            frame.render_widget(Paragraph::new("Processing..."), frame.area());
+        })?;
+
+        model.sources = traverse(&mut model, screen_width - 2); // TODO: adjust for no border
+
+        disable_raw_mode()?;
+        execute!(stdout(), LeaveAlternateScreen)?;
+        println!("{OK_END}");
+
+        Ok(model)
     }
 }
 
 fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
-    let screen_height = terminal.size()?.height;
-    let page_scroll_count = screen_height / 2;
+    let screen_size = terminal.size()?;
+    let page_scroll_count = screen_size.height / 2;
 
     loop {
+        if model.sources.is_empty() {
+            model.sources = traverse(&mut model, screen_size.width - 2); // TODO: adjust for no border
+        }
+
         terminal.draw(|frame| view(&mut model, frame))?;
 
         match event::read()? {
@@ -227,10 +271,6 @@ fn view(model: &mut Model, frame: &mut Frame) {
     }
     let inner_area = block.inner(frame_area);
     frame.render_widget(block, frame_area);
-
-    if model.sources.is_empty() {
-        model.sources = traverse(model, inner_area.width);
-    }
 
     let mut y: i16 = 0 - (model.scroll as i16);
     for source in &mut model.sources {
