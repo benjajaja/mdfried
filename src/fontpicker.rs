@@ -1,7 +1,7 @@
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use font_loader::system_fonts;
 use ratatui::{style::Stylize, text::Line, widgets::Paragraph};
-use ratatui_image::{picker::Picker, Image};
+use ratatui_image::{picker::Picker, protocol::Protocol, Image};
 use rusttype::Font;
 
 use crate::{
@@ -22,30 +22,34 @@ pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<String, E
         .map(|f| (f.clone(), f.to_ascii_lowercase()))
         .collect();
 
+    let mut last_rendered: Option<(String, Protocol)> = None;
+
     loop {
-        let font = if !input.is_empty() {
-            let fp_builder = system_fonts::FontPropertyBuilder::new().family(&input);
+        let first_match = find_first_match(&all_fonts, &input);
+
+        let (font, first_match) = if let Some((first_match, _)) = first_match {
+            let fp_builder = system_fonts::FontPropertyBuilder::new().family(&first_match);
             let property = fp_builder.build();
             let (font_data, _) =
                 system_fonts::get(&property).ok_or("Could not get system fonts property")?;
 
             let font = Font::try_from_vec(font_data).ok_or(Error::NoFont)?;
-            Some(font)
+            (Some(font), Some(first_match))
         } else {
-            None
+            (None, None)
         };
 
         terminal.draw(|f| {
             let area = f.area();
             let block = ratatui::widgets::Block::default()
-                .title("Enter font name:")
+                .title("Enter font name (Tab: complete, Esc: abort, Enter: confirm):")
                 .borders(ratatui::widgets::Borders::ALL);
             let inner_area = block.inner(area);
             f.render_widget(block, area);
 
-            if let Some(first_match) = find_first_match(&all_fonts, &input) {
+            if let Some(first_match) = first_match {
                 f.render_widget(
-                    Paragraph::new(Line::from(first_match.0.clone()).dark_gray()),
+                    Paragraph::new(Line::from(first_match.clone()).dark_gray()),
                     inner_area,
                 );
             }
@@ -55,18 +59,32 @@ pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<String, E
             );
 
             if let Some(mut font) = font {
-                let spans = vec!["The fox jumped over the goat or something".into()];
-                if let Ok(source) =
-                    header_source(picker, &mut font, bg, inner_area.width, spans, 1, false)
-                {
-                    if let WidgetSourceData::Image(mut proto) = source.source {
-                        let img = Image::new(&mut proto);
+                match &mut last_rendered {
+                    Some((last_input, ref mut proto)) if *last_input == input => {
+                        let img = Image::new(proto);
                         let mut area = inner_area;
-                        area.y = area.y + 1;
+                        area.y += 1;
                         area.height = 2;
                         f.render_widget(img, area);
                     }
+                    _ => {
+                        let spans = vec!["The fox jumped over the goat or something".into()];
+                        if let Ok(source) =
+                            header_source(picker, &mut font, bg, inner_area.width, spans, 1, false)
+                        {
+                            if let WidgetSourceData::Image(mut proto) = source.source {
+                                let img = Image::new(&mut proto);
+                                let mut area = inner_area;
+                                area.y += 1;
+                                area.height = 2;
+                                f.render_widget(img, area);
+                                last_rendered = Some((input.clone(), proto));
+                            }
+                        }
+                    }
                 }
+            } else {
+                last_rendered = None;
             }
         })?;
         if event::poll(std::time::Duration::from_millis(100))? {
