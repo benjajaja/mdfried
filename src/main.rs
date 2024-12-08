@@ -55,7 +55,9 @@ fn main() -> io::Result<()> {
         .arg(arg!(-d --deep "Extra deep fried images").value_parser(value_parser!(bool)))
         .get_matches();
 
-    let (text, basepath) = match matches.get_one::<PathBuf>("path") {
+    let path = matches.get_one::<PathBuf>("path");
+
+    let (text, basepath) = match path {
         Some(path) => (read_file_to_str(path.to_str().unwrap())?, path.parent()),
         None if !io::stdin().is_tty() => {
             let mut text = String::new();
@@ -102,6 +104,7 @@ fn main() -> io::Result<()> {
     match Model::new(
         &arena,
         &text,
+        path.cloned(),
         config,
         basepath,
         *matches.get_one("deep").unwrap_or(&false),
@@ -133,6 +136,8 @@ where
 }
 
 struct Model<'a> {
+    arena: &'a Arena<Node<'a, RefCell<Ast>>>,
+    original_file_path: Option<PathBuf>,
     bg: Option<[u8; 4]>,
     scroll: u16,
     root: &'a Node<'a, RefCell<Ast>>,
@@ -147,6 +152,7 @@ impl<'a> Model<'a> {
     fn new(
         arena: &'a Arena<Node<'a, RefCell<Ast>>>,
         text: &str,
+        original_file_path: Option<PathBuf>,
         config: Config,
         basepath: Option<&'a Path>,
         deep_fry: bool,
@@ -214,9 +220,6 @@ impl<'a> Model<'a> {
 
         let font = Font::try_from_vec(font_data).ok_or(Error::NoFont)?;
 
-        let mut ext_options = ExtensionOptions::default();
-        ext_options.strikethrough = true;
-
         let mut loading_terminal = ratatui::init_with_options(ratatui::TerminalOptions {
             viewport: ratatui::Viewport::Inline(1),
         });
@@ -227,6 +230,8 @@ impl<'a> Model<'a> {
             frame.render_widget(Paragraph::new("Parsing..."), frame.area());
         })?;
 
+        let mut ext_options = ExtensionOptions::default();
+        ext_options.strikethrough = true;
         let root = Box::new(parse_document(
             arena,
             text,
@@ -237,6 +242,8 @@ impl<'a> Model<'a> {
         ));
 
         let mut model = Model {
+            arena,
+            original_file_path,
             bg,
             scroll: 0,
             root: &root,
@@ -261,6 +268,31 @@ impl<'a> Model<'a> {
     }
 }
 
+fn model_reload(model: &mut Model) -> Result<(), Error> {
+    if let Some(original_file_path) = &model.original_file_path {
+        model.sources = vec![];
+
+        let text = read_file_to_str(
+            original_file_path
+                .to_str()
+                .ok_or(Error::Msg("could not convert original_file_path".into()))?,
+        )?;
+
+        let mut ext_options = ExtensionOptions::default();
+        ext_options.strikethrough = true;
+        let root = Box::new(parse_document(
+            model.arena,
+            &text,
+            &Options {
+                extension: ext_options,
+                ..Default::default()
+            },
+        ));
+        model.root = &root;
+    }
+    Ok(())
+}
+
 fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
     let screen_size = terminal.size()?;
     let page_scroll_count = screen_size.height / 2;
@@ -278,6 +310,9 @@ fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
                     match key.code {
                         KeyCode::Char('q') => {
                             return Ok(());
+                        }
+                        KeyCode::Char('r') => {
+                            model_reload(&mut model)?;
                         }
                         KeyCode::Char('j') => {
                             model.scroll += 1;
