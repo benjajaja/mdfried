@@ -1,10 +1,6 @@
-use std::io::Stdout;
-
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use font_loader::system_fonts;
-use ratatui::{
-    backend::CrosstermBackend, style::Stylize, text::Line, widgets::Paragraph, Terminal,
-};
+use ratatui::{style::Stylize, text::Line, widgets::Paragraph};
 use ratatui_image::{picker::Picker, Image};
 use rusttype::Font;
 
@@ -13,11 +9,12 @@ use crate::{
     Error,
 };
 
-pub fn pick_a_font(
-    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    picker: &mut Picker,
-    bg: Option<[u8; 4]>,
-) -> Result<String, Error> {
+pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<String, Error> {
+    let mut terminal = ratatui::init_with_options(ratatui::TerminalOptions {
+        viewport: ratatui::Viewport::Inline(6),
+    });
+    terminal.clear()?;
+
     let mut input = String::new();
 
     let all_fonts: Vec<(String, String)> = system_fonts::query_all()
@@ -95,20 +92,23 @@ pub fn pick_a_font(
                         }
                     }
                     KeyCode::Enter => {
-                        // Finalize input on Enter
-                        break;
+                        if let Some(first_match) = find_first_match(&all_fonts, &input) {
+                            terminal.clear()?;
+                            ratatui::restore();
+                            return Ok(first_match.0);
+                        }
                     }
                     KeyCode::Esc => {
                         // Exit on Escape
-                        input.clear();
-                        break;
+                        terminal.clear()?;
+                        ratatui::restore();
+                        return Err(Error::Msg("Font setup aborted by user".into()));
                     }
                     _ => {}
                 }
             }
         }
     }
-    Ok(input)
 }
 
 fn find_first_match(all_fonts: &Vec<(String, String)>, input: &str) -> Option<(String, String)> {

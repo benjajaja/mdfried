@@ -4,6 +4,7 @@ use std::{
     io::{self, stdout, Read},
     os::fd::IntoRawFd,
     path::{Path, PathBuf},
+    process,
 };
 
 use clap::{arg, command, value_parser};
@@ -35,7 +36,7 @@ use ratatui_image::{
 use rusttype::Font;
 use widget_sources::{WidgetSource, WidgetSourceData};
 
-use crate::fontpicker::pick_a_font;
+use crate::fontpicker::set_up_font;
 mod config;
 mod fontpicker;
 mod markdown;
@@ -43,11 +44,14 @@ mod widget_sources;
 
 const OK_END: &str = " ok.";
 
+const CONFIG: (&str, Option<&str>) = ("mdfried", Some("config"));
+
 fn main() -> io::Result<()> {
     std::env::set_var("FONTCONFIG_LOG_LEVEL", "silent");
 
     let matches = command!() // requires `cargo` feature
         .arg(arg!([path] "The input markdown file path").value_parser(value_parser!(PathBuf)))
+        .arg(arg!(-s --setup "Force font setup").value_parser(value_parser!(bool)))
         .arg(arg!(-d --deep "Extra deep fried images").value_parser(value_parser!(bool)))
         .get_matches();
 
@@ -72,7 +76,7 @@ fn main() -> io::Result<()> {
         return Err(Error::Msg("input is empty".into()).into());
     }
 
-    let config: Config = confy::load("mdfried", None).map_err(map_to_io_error)?;
+    let config: Config = confy::load(CONFIG.0, CONFIG.1).map_err(map_to_io_error)?;
 
     let arena = Box::new(Arena::new());
 
@@ -95,21 +99,30 @@ fn main() -> io::Result<()> {
         println!("{OK_END}");
     }
 
-    let model = Model::new(
+    match Model::new(
         &arena,
         &text,
         config,
         basepath,
         *matches.get_one("deep").unwrap_or(&false),
-    )
-    .map_err::<io::Error, _>(Error::into)?;
+        *matches.get_one("setup").unwrap_or(&false),
+    ) {
+        Err(err) => match err {
+            Error::Msg(ref msg) => {
+                println!("Startup error: {msg}");
+                process::exit(1);
+            }
+            err => Err(err.into()),
+        },
+        Ok(model) => {
+            let mut terminal = ratatui::init();
+            terminal.clear()?;
 
-    let mut terminal = ratatui::init();
-    terminal.clear()?;
-
-    let app_result = run(terminal, model);
-    ratatui::restore();
-    app_result.map_err(Error::into)
+            let app_result = run(terminal, model);
+            ratatui::restore();
+            app_result.map_err(Error::into)
+        }
+    }
 }
 
 fn map_to_io_error<I>(err: I) -> io::Error
@@ -137,8 +150,9 @@ impl<'a> Model<'a> {
         config: Config,
         basepath: Option<&'a Path>,
         deep_fry: bool,
+        force_font_setup: bool,
     ) -> Result<Self, Error> {
-        print!("Picking graphics protocol setup...");
+        print!("Detecting supported graphics protocols...");
         let mut picker = Picker::from_query_stdio().map_err(|err| Error::Msg(format!("{err}")))?;
         println!("{OK_END}");
 
@@ -150,21 +164,11 @@ impl<'a> Model<'a> {
             }
         };
 
-        let mut loading_terminal = ratatui::init_with_options(ratatui::TerminalOptions {
-            viewport: ratatui::Viewport::Inline(6),
-        });
-        let screen_width = loading_terminal.size()?.width;
-        loading_terminal.clear()?;
-
-        loading_terminal.draw(|frame| {
-            frame.render_widget(Paragraph::new("Settings up fonts..."), frame.area());
-        })?;
-
         let mut fp_builder = system_fonts::FontPropertyBuilder::new();
 
         let all_fonts = system_fonts::query_all();
 
-        let font_family = config.font_family.and_then(|font_family| {
+        let config_font_family = config.font_family.and_then(|font_family| {
             // Ensure this font exists
             if all_fonts.contains(&font_family) {
                 return Some(font_family);
@@ -172,10 +176,33 @@ impl<'a> Model<'a> {
             None
         });
 
-        let font_family = if let Some(font_family) = font_family {
+        let font_family = if let Some(mut font_family) = config_font_family {
+            if force_font_setup {
+                println!("Entering forced font setup");
+                match set_up_font(&mut picker, bg) {
+                    Ok(setup_font_family) => {
+                        let new_config = Config {
+                            font_family: Some(font_family.clone()),
+                        };
+                        confy::store(CONFIG.0, CONFIG.1, new_config)?;
+                        font_family = setup_font_family;
+                    }
+                    Err(err) => return Err(err),
+                }
+            }
             font_family
         } else {
-            pick_a_font(&mut loading_terminal, &mut picker, bg)?
+            println!("Entering one-time font setup");
+            match set_up_font(&mut picker, bg) {
+                Ok(font_family) => {
+                    let new_config = Config {
+                        font_family: Some(font_family.clone()),
+                    };
+                    confy::store(CONFIG.0, CONFIG.1, new_config)?;
+                    font_family
+                }
+                Err(err) => return Err(err),
+            }
         };
 
         fp_builder = fp_builder.family(&font_family);
@@ -189,6 +216,12 @@ impl<'a> Model<'a> {
 
         let mut ext_options = ExtensionOptions::default();
         ext_options.strikethrough = true;
+
+        let mut loading_terminal = ratatui::init_with_options(ratatui::TerminalOptions {
+            viewport: ratatui::Viewport::Inline(1),
+        });
+        let screen_width = loading_terminal.size()?.width;
+        loading_terminal.clear()?;
 
         loading_terminal.draw(|frame| {
             frame.render_widget(Paragraph::new("Parsing..."), frame.area());
