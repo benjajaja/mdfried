@@ -3,6 +3,7 @@ use std::{
     fs::File,
     i16,
     io::{self, Read},
+    os::fd::IntoRawFd,
     path::{Path, PathBuf},
     u16,
 };
@@ -10,7 +11,7 @@ use std::{
 use clap::{arg, command, value_parser};
 use config::Config;
 use confy::ConfyError;
-use crossterm::event::KeyModifiers;
+use crossterm::{event::KeyModifiers, tty::IsTty};
 use font_loader::system_fonts;
 use image::ImageError;
 use markdown::traverse;
@@ -36,17 +37,53 @@ mod widget_sources;
 
 fn main() -> io::Result<()> {
     let matches = command!() // requires `cargo` feature
-        .arg(arg!(<path> "The input markdown file path").value_parser(value_parser!(PathBuf)))
+        .arg(arg!([path] "The input markdown file path").value_parser(value_parser!(PathBuf)))
         .arg(arg!(-d --deep "Extra deep fried images").value_parser(value_parser!(bool)))
         .get_matches();
 
-    let path = matches.get_one::<PathBuf>("path").expect("required input");
-    let text = read_file_to_str(path.to_str().unwrap())?;
-    let basepath = path.parent();
+    let (text, basepath) = match matches.get_one::<PathBuf>("path") {
+        Some(path) => (read_file_to_str(path.to_str().unwrap())?, path.parent()),
+        None if !io::stdin().is_tty() => {
+            let mut text = String::new();
+            println!("reading from stdin");
+            let _ = io::stdin().read_to_string(&mut text)?;
+            (text, None)
+        }
+        None => {
+            return Err(Error::Msg(
+                "no input file path provided, and no stdin pipe detected".into(),
+            )
+            .into())
+        }
+    };
+
+    if text.is_empty() {
+        return Err(Error::Msg("input is empty".into()).into());
+    }
 
     let config: Config = confy::load("mdcooked", None).map_err(map_to_io_error)?;
 
     let arena = Box::new(Arena::new());
+
+    if !io::stdin().is_tty() {
+        println!("unfreezing terminal");
+        // Close the current stdin so that ratatui-image can read stuff from tty stdin.
+        unsafe {
+            // Attempt to open /dev/tty which will give us a new stdin
+            let tty = File::open("/dev/tty")?;
+
+            // Get the file descriptor for /dev/tty
+            let tty_fd = tty.into_raw_fd();
+
+            // Duplicate the tty file descriptor to stdin (file descriptor 0)
+            libc::dup2(tty_fd, libc::STDIN_FILENO);
+
+            // Close the original tty file descriptor
+            libc::close(tty_fd);
+        }
+    }
+    println!("cooking terminal");
+
     let model = Model::new(
         &arena,
         &text,
@@ -101,8 +138,7 @@ impl<'a> Model<'a> {
             },
         ));
 
-        let mut picker = Picker::from_query_stdio()
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, format!("{err}")))?;
+        let mut picker = Picker::from_query_stdio().map_err(|err| Error::Msg(format!("{err}")))?;
 
         let mut fp_builder = system_fonts::FontPropertyBuilder::new();
         if let Some(ref font_family) = config.font_family {

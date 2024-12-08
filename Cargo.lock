@@ -1415,6 +1415,7 @@ dependencies = [
  "crossterm",
  "font-loader",
  "image",
+ "libc",
  "ratatui",
  "ratatui-image",
  "reqwest",
