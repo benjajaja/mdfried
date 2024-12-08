@@ -10,11 +10,6 @@ use crate::{
     Model, WidgetSource,
 };
 
-enum CookedModifier {
-    None,
-    Raw(Modifier),
-}
-
 pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> {
     let mut debug = vec![];
     let mut spans = vec![];
@@ -28,7 +23,7 @@ pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> 
         match edge {
             NodeEdge::Start(node) => {
                 let node_value = &node.data.borrow().value;
-                if let CookedModifier::Raw(modifier) = modifier(node_value) {
+                if let Some(modifier) = modifier(node_value) {
                     style = style.add_modifier(modifier);
                 }
             }
@@ -102,7 +97,7 @@ pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> 
                         spans = vec![];
                     }
                     _ => {
-                        if let CookedModifier::Raw(modifier) = modifier(&node.data.borrow().value) {
+                        if let Some(modifier) = modifier(&node.data.borrow().value) {
                             style = style.remove_modifier(modifier);
                         }
                     }
@@ -114,12 +109,12 @@ pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> 
     sources
 }
 
-fn modifier(node_value: &NodeValue) -> CookedModifier {
+fn modifier(node_value: &NodeValue) -> Option<Modifier> {
     match node_value {
-        NodeValue::Strong => CookedModifier::Raw(Modifier::BOLD),
-        NodeValue::Emph => CookedModifier::Raw(Modifier::ITALIC),
-        NodeValue::Strikethrough => CookedModifier::Raw(Modifier::CROSSED_OUT),
-        _ => CookedModifier::None,
+        NodeValue::Strong => Some(Modifier::BOLD),
+        NodeValue::Emph => Some(Modifier::ITALIC),
+        NodeValue::Strikethrough => Some(Modifier::CROSSED_OUT),
+        _ => None,
     }
 }
 

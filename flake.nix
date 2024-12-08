@@ -1,6 +1,6 @@
 {
-  description = "mdcooked";
-  nixConfig.bash-prompt = "\[mdcooked\]$ ";
+  description = "mdfried";
+  nixConfig.bash-prompt = "\[mdfried\]$ ";
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
@@ -19,7 +19,7 @@
       with pkgs;
       {
         packages.default = rustPlatform.buildRustPackage {
-          pname = "mdcooked";
+          pname = "mdfried";
           version = self.shortRev or self.dirtyShortRev;
           src = ./.;
           cargoLock = {

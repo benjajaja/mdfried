@@ -61,7 +61,7 @@ fn main() -> io::Result<()> {
         return Err(Error::Msg("input is empty".into()).into());
     }
 
-    let config: Config = confy::load("mdcooked", None).map_err(map_to_io_error)?;
+    let config: Config = confy::load("mdfried", None).map_err(map_to_io_error)?;
 
     let arena = Box::new(Arena::new());
 
@@ -94,6 +94,7 @@ fn main() -> io::Result<()> {
     .map_err::<io::Error, _>(Error::into)?;
 
     let mut terminal = ratatui::init();
+    println!("heating up the deep frier...");
     terminal.clear()?;
 
     let app_result = run(terminal, model);
