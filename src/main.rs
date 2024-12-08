@@ -34,7 +34,10 @@ use ratatui_image::{
 };
 use rusttype::Font;
 use widget_sources::{WidgetSource, WidgetSourceData};
+
+use crate::fontpicker::pick_a_font;
 mod config;
+mod fontpicker;
 mod markdown;
 mod widget_sources;
 
@@ -95,7 +98,7 @@ fn main() -> io::Result<()> {
     let model = Model::new(
         &arena,
         &text,
-        &config,
+        config,
         basepath,
         *matches.get_one("deep").unwrap_or(&false),
     )
@@ -131,7 +134,7 @@ impl<'a> Model<'a> {
     fn new(
         arena: &'a Arena<Node<'a, RefCell<Ast>>>,
         text: &str,
-        config: &Config,
+        config: Config,
         basepath: Option<&'a Path>,
         deep_fry: bool,
     ) -> Result<Self, Error> {
@@ -139,8 +142,16 @@ impl<'a> Model<'a> {
         let mut picker = Picker::from_query_stdio().map_err(|err| Error::Msg(format!("{err}")))?;
         println!("{OK_END}");
 
+        let bg = match picker.protocol_type() {
+            ProtocolType::Sixel => Some([0, 0, 0, 255]),
+            _ => {
+                picker.set_background_color([0, 0, 0, 0]);
+                None
+            }
+        };
+
         let mut loading_terminal = ratatui::init_with_options(ratatui::TerminalOptions {
-            viewport: ratatui::Viewport::Inline(3),
+            viewport: ratatui::Viewport::Inline(6),
         });
         let screen_width = loading_terminal.size()?.width;
         loading_terminal.clear()?;
@@ -151,11 +162,23 @@ impl<'a> Model<'a> {
 
         let mut fp_builder = system_fonts::FontPropertyBuilder::new();
 
-        let font_family = match config.font_family {
-            Some(ref font_family) => font_family,
-            None => "Arial",
+        let all_fonts = system_fonts::query_all();
+
+        let font_family = config.font_family.and_then(|font_family| {
+            // Ensure this font exists
+            if all_fonts.contains(&font_family) {
+                return Some(font_family);
+            }
+            None
+        });
+
+        let font_family = if let Some(font_family) = font_family {
+            font_family
+        } else {
+            pick_a_font(&mut loading_terminal, &mut picker, bg)?
         };
-        fp_builder = fp_builder.family(font_family);
+
+        fp_builder = fp_builder.family(&font_family);
 
         let property = fp_builder.build();
 
@@ -163,14 +186,6 @@ impl<'a> Model<'a> {
             system_fonts::get(&property).ok_or("Could not get system fonts property")?;
 
         let font = Font::try_from_vec(font_data).ok_or(Error::NoFont)?;
-
-        let bg = match picker.protocol_type() {
-            ProtocolType::Sixel => Some([0, 0, 0, 255]),
-            _ => {
-                picker.set_background_color([0, 0, 0, 0]);
-                None
-            }
-        };
 
         let mut ext_options = ExtensionOptions::default();
         ext_options.strikethrough = true;

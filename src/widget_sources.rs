@@ -54,23 +54,24 @@ pub fn header_source<'a>(
         .layout(&s, scale, point(0.0, 0.0 + v_metrics.ascent))
         .collect();
 
-    let max_x = img_width as i32;
-    let max_y = img_height as i32;
+    let max_x = img_width as u64;
+    let max_y = img_height as u64;
     for glyph in glyphs {
         if let Some(bounding_box) = glyph.pixel_bounding_box() {
             let mut outside = false;
-            let bb_x = bounding_box.min.x;
-            let bb_y = bounding_box.min.y;
+            let bb_x = bounding_box.min.x as u64;
+            let bb_y = bounding_box.min.y as u64;
             glyph.draw(|x, y, v| {
-                let p_x = bb_x + (x as i32);
-                let p_y = bb_y + (y as i32);
-                if p_x >= max_x || p_y >= max_y {
+                let p_x = bb_x.checked_add(x as u64);
+                let p_y = bb_y.checked_add(y as u64);
+                if p_x.is_none() || p_x.unwrap() >= max_x || p_y.is_none() || p_y.unwrap() >= max_y
+                {
                     outside = true;
                 } else {
                     let u8v = (255.0 * v) as u8;
                     let mut pixel = Rgba(bg);
                     pixel.blend(&Rgba([u8v, u8v, u8v, u8v]));
-                    dyn_img.put_pixel(p_x as u32, p_y as u32, pixel);
+                    dyn_img.put_pixel(p_x.unwrap() as u32, p_y.unwrap() as u32, pixel);
                 }
             });
             if outside {

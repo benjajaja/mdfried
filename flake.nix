@@ -14,7 +14,6 @@
         # We only need the nightly overlay in the devShell because .rs files are formatted with nightly.
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
-        #rustNightly = pkgs.rust-bin.stable;
       in
       with pkgs;
       {
@@ -32,15 +31,9 @@
             freetype expat pkg-config
           ];
           buildInputs = [
-            #(rustNightly.override {
-              #extensions = [ "rust-src" "rust-analyzer-preview" "rustfmt" "clippy" ];
-            #})
             rust-bin.stable.latest.default
             cargo-tarpaulin
             cargo-watch
-            #freetype
-            #expat
-            #fontconfig
           ];
         };
       });
