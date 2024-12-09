@@ -34,6 +34,7 @@ use ratatui_image::{
     Image,
 };
 use rusttype::Font;
+use serde::{Deserialize, Serialize};
 use widget_sources::{WidgetSource, WidgetSourceData};
 
 use crate::fontpicker::set_up_font;
@@ -145,7 +146,16 @@ struct Model<'a> {
     font: Font<'a>,
     basepath: Option<&'a Path>,
     sources: Vec<WidgetSource<'a>>,
+    padding: Padding,
     deep_fry: bool,
+}
+
+#[derive(Default, Debug, Serialize, Deserialize)]
+enum Padding {
+    None,
+    Border,
+    #[default]
+    Empty,
 }
 
 impl<'a> Model<'a> {
@@ -189,6 +199,7 @@ impl<'a> Model<'a> {
                     Ok(setup_font_family) => {
                         let new_config = Config {
                             font_family: Some(font_family.clone()),
+                            ..Default::default()
                         };
                         confy::store(CONFIG.0, CONFIG.1, new_config)?;
                         font_family = setup_font_family;
@@ -203,6 +214,7 @@ impl<'a> Model<'a> {
                 Ok(font_family) => {
                     let new_config = Config {
                         font_family: Some(font_family.clone()),
+                        ..Default::default()
                     };
                     confy::store(CONFIG.0, CONFIG.1, new_config)?;
                     font_family
@@ -251,6 +263,7 @@ impl<'a> Model<'a> {
             font,
             basepath,
             sources: vec![],
+            padding: Padding::Empty,
             deep_fry,
         };
 
@@ -258,7 +271,7 @@ impl<'a> Model<'a> {
             frame.render_widget(Paragraph::new("Processing..."), frame.area());
         })?;
 
-        model.sources = traverse(&mut model, screen_width - 2); // TODO: adjust for no border
+        model.sources = traverse(&mut model, screen_width);
 
         disable_raw_mode()?;
         execute!(stdout(), LeaveAlternateScreen)?;
@@ -299,7 +312,7 @@ fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
 
     loop {
         if model.sources.is_empty() {
-            model.sources = traverse(&mut model, screen_size.width - 2); // TODO: adjust for no border
+            model.sources = traverse(&mut model, screen_size.width);
         }
 
         terminal.draw(|frame| view(&mut model, frame))?;
@@ -348,7 +361,17 @@ fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
 
 fn view(model: &mut Model, frame: &mut Frame) {
     let frame_area = frame.area();
-    let mut block = Block::bordered();
+    let mut block = Block::new();
+    match model.padding {
+        Padding::Border => {
+            block = block.borders(ratatui::widgets::Borders::all());
+        }
+        Padding::Empty => {
+            block = block.padding(ratatui::widgets::Padding::horizontal(1));
+        }
+        _ => {}
+    }
+
     if let Some(bg) = model.bg {
         block = block.style(Style::default().bg(Color::Rgb(bg[0], bg[1], bg[2])));
     }

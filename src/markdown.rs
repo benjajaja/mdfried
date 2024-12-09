@@ -7,11 +7,16 @@ use reqwest::blocking::Client;
 
 use crate::{
     widget_sources::{header_source, image_source, WidgetSourceData},
-    Model, WidgetSource,
+    Model, Padding, WidgetSource,
 };
 
-pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> {
-    let mut debug = vec![];
+pub fn traverse<'a>(model: &mut Model<'a>, mut width: u16) -> Vec<WidgetSource<'a>> {
+    match model.padding {
+        Padding::Empty | Padding::Border => {
+            width -= 2;
+        }
+        _ => {}
+    }
     let mut spans = vec![];
     let mut style = Style::new();
 
@@ -34,7 +39,6 @@ pub fn traverse<'a>(model: &mut Model<'a>, width: u16) -> Vec<WidgetSource<'a>> 
                 }
             }
             NodeEdge::End(node) => {
-                debug.push(Line::from(format!("End {:?}", node.data.borrow().value)));
                 match node.data.borrow().value {
                     NodeValue::Text(ref literal) => {
                         let span = Span::from(literal.clone()).style(style);

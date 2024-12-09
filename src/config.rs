@@ -1,6 +1,8 @@
 use clap::{command, Parser};
 use serde::{Deserialize, Serialize};
 
+use crate::Padding;
+
 // #[command(version, about, long_about = None)]
 #[derive(Parser)]
 #[command(name = "mdfried")]
@@ -14,4 +16,5 @@ pub struct Cli {
 #[derive(Default, Debug, Serialize, Deserialize)]
 pub struct Config {
     pub font_family: Option<String>,
+    pub padding: Padding,
 }

@@ -142,7 +142,7 @@ pub fn image_source<'a>(
         dyn_img = deep_fry(dyn_img);
     }
 
-    let height: u16 = 15;
+    let height: u16 = 10;
 
     let proto = picker
         .new_protocol(dyn_img, Rect::new(0, 0, width, height), Resize::Fit(None))
