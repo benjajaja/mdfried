@@ -1,10 +1,14 @@
 use std::{
-    cell::RefCell,
     fs::File,
     io::{self, stdout, Read},
     os::fd::IntoRawFd,
     path::{Path, PathBuf},
     process,
+    sync::{
+        mpsc::{self, SendError},
+        Arc, RwLock,
+    },
+    thread,
 };
 
 use clap::{arg, command, value_parser};
@@ -18,7 +22,6 @@ use crossterm::{
 };
 use font_loader::system_fonts;
 use image::ImageError;
-use markdown::traverse;
 use ratatui::{
     crossterm::event::{self, KeyCode, KeyEventKind},
     layout::Rect,
@@ -27,8 +30,8 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 
-use comrak::{arena_tree::Node, nodes::Ast, ExtensionOptions};
-use comrak::{parse_document, Arena, Options};
+use comrak::Arena;
+use comrak::ExtensionOptions;
 use ratatui_image::{
     picker::{Picker, ProtocolType},
     Image,
@@ -37,7 +40,7 @@ use rusttype::Font;
 use serde::{Deserialize, Serialize};
 use widget_sources::{WidgetSource, WidgetSourceData};
 
-use crate::fontpicker::set_up_font;
+use crate::{fontpicker::set_up_font, markdown::Parser};
 mod config;
 mod fontpicker;
 mod markdown;
@@ -59,7 +62,10 @@ fn main() -> io::Result<()> {
     let path = matches.get_one::<PathBuf>("path");
 
     let (text, basepath) = match path {
-        Some(path) => (read_file_to_str(path.to_str().unwrap())?, path.parent()),
+        Some(path) => (
+            read_file_to_str(path.to_str().unwrap())?,
+            path.parent().map(Path::to_path_buf),
+        ),
         None if !io::stdin().is_tty() => {
             let mut text = String::new();
             print!("Reading stdin...");
@@ -81,8 +87,6 @@ fn main() -> io::Result<()> {
 
     let config: Config = confy::load(CONFIG.0, CONFIG.1).map_err(map_to_io_error)?;
 
-    let arena = Box::new(Arena::new());
-
     if !io::stdin().is_tty() {
         print!("Setting stdin to /dev/tty...");
         // Close the current stdin so that ratatui-image can read stuff from tty stdin.
@@ -103,7 +107,6 @@ fn main() -> io::Result<()> {
     }
 
     match Model::new(
-        &arena,
         &text,
         path.cloned(),
         config,
@@ -137,14 +140,12 @@ where
 }
 
 struct Model<'a> {
-    arena: &'a Arena<Node<'a, RefCell<Ast>>>,
     original_file_path: Option<PathBuf>,
     bg: Option<[u8; 4]>,
     scroll: u16,
-    root: &'a Node<'a, RefCell<Ast>>,
-    picker: Picker,
+    picker: Arc<RwLock<Picker>>,
     font: Font<'a>,
-    basepath: Option<&'a Path>,
+    basepath: Option<PathBuf>,
     sources: Vec<WidgetSource<'a>>,
     padding: Padding,
     deep_fry: bool,
@@ -160,11 +161,10 @@ enum Padding {
 
 impl<'a> Model<'a> {
     fn new(
-        arena: &'a Arena<Node<'a, RefCell<Ast>>>,
         text: &str,
         original_file_path: Option<PathBuf>,
         config: Config,
-        basepath: Option<&'a Path>,
+        basepath: Option<PathBuf>,
         deep_fry: bool,
         force_font_setup: bool,
     ) -> Result<Self, Error> {
@@ -242,23 +242,35 @@ impl<'a> Model<'a> {
             frame.render_widget(Paragraph::new("Parsing..."), frame.area());
         })?;
 
-        let mut ext_options = ExtensionOptions::default();
-        ext_options.strikethrough = true;
-        let root = Box::new(parse_document(
-            arena,
-            text,
-            &Options {
-                extension: ext_options,
-                ..Default::default()
-            },
-        ));
+        let picker = Arc::new(RwLock::new(picker));
+
+        let (tx, rx) = mpsc::channel();
+
+        let text_thread = text.to_string();
+        let thread_picker = picker.clone();
+        let thread_font = font.clone();
+        let thread_basepath = basepath.clone();
+
+        let thread_width = match Padding::Empty {
+            Padding::Empty | Padding::Border => screen_width - 2,
+            _ => screen_width,
+        };
+        thread::spawn(move || {
+            let arena = Box::new(Arena::new());
+            let parser = Parser::new(
+                &arena,
+                thread_picker,
+                thread_font,
+                bg.clone(),
+                thread_basepath,
+            );
+            parser.parse(&text_thread, thread_width, &tx.clone());
+        });
 
         let mut model = Model {
-            arena,
             original_file_path,
             bg,
             scroll: 0,
-            root: &root,
             picker,
             font,
             basepath,
@@ -267,11 +279,17 @@ impl<'a> Model<'a> {
             deep_fry,
         };
 
-        loading_terminal.draw(|frame| {
-            frame.render_widget(Paragraph::new("Processing..."), frame.area());
-        })?;
+        let mut sources = vec![];
+        let mut i = 0;
+        for received in rx {
+            sources.push(received);
+            loading_terminal.draw(|frame| {
+                frame.render_widget(Paragraph::new(format!("Processing ({i})...")), frame.area());
+            })?;
+            i += 1;
+        }
 
-        model.sources = traverse(&mut model, screen_width);
+        model.sources = sources;
 
         disable_raw_mode()?;
         execute!(stdout(), LeaveAlternateScreen)?;
@@ -293,15 +311,6 @@ fn model_reload(model: &mut Model) -> Result<(), Error> {
 
         let mut ext_options = ExtensionOptions::default();
         ext_options.strikethrough = true;
-        let root = Box::new(parse_document(
-            model.arena,
-            &text,
-            &Options {
-                extension: ext_options,
-                ..Default::default()
-            },
-        ));
-        model.root = &root;
     }
     Ok(())
 }
@@ -312,7 +321,12 @@ fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
 
     loop {
         if model.sources.is_empty() {
-            model.sources = traverse(&mut model, screen_size.width);
+            let (tx, rx) = mpsc::channel();
+            let mut sources = vec![];
+            for received in rx {
+                sources.push(received);
+            }
+            model.sources = sources;
         }
 
         terminal.draw(|frame| view(&mut model, frame))?;
@@ -418,6 +432,7 @@ enum Error {
     Download(reqwest::Error),
     Msg(String),
     NoFont,
+    Thread,
 }
 
 impl From<Error> for io::Error {
@@ -462,6 +477,12 @@ impl From<clap::error::Error> for Error {
 impl From<reqwest::Error> for Error {
     fn from(value: reqwest::Error) -> Self {
         Self::Download(value)
+    }
+}
+
+impl From<SendError<WidgetSource<'_>>> for Error {
+    fn from(_: SendError<WidgetSource<'_>>) -> Self {
+        Self::Thread
     }
 }
 

@@ -1,4 +1,4 @@
-use std::{io::Cursor, path::Path};
+use std::{io::Cursor, path::PathBuf};
 
 use image::{
     imageops, DynamicImage, GenericImage, ImageFormat, ImageReader, Pixel, Rgba, RgbaImage,
@@ -27,7 +27,7 @@ pub enum WidgetSourceData<'a> {
     Text(Text<'a>),
 }
 
-pub fn header_source<'a>(
+pub fn header_source<'a, 'b>(
     picker: &mut Picker,
     font: &mut Font<'a>,
     bg: Option<[u8; 4]>,
@@ -35,7 +35,7 @@ pub fn header_source<'a>(
     spans: Vec<Span>,
     tier: u8,
     deep_fry_meme: bool,
-) -> Result<WidgetSource<'a>, Error> {
+) -> Result<WidgetSource<'b>, Error> {
     static TRANSPARENT_BACKGROUND: [u8; 4] = [0, 0, 0, 0];
     let bg = bg.unwrap_or(TRANSPARENT_BACKGROUND);
 
@@ -101,7 +101,7 @@ pub fn header_source<'a>(
 pub fn image_source<'a>(
     picker: &mut Picker,
     width: u16,
-    basepath: Option<&Path>,
+    basepath: Option<PathBuf>,
     client: &mut Client,
     link: &str,
     deep_fry_meme: bool,
