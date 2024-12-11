@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use font_loader::system_fonts;
 use ratatui::{style::Stylize, text::Line, widgets::Paragraph};
@@ -58,7 +60,7 @@ pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<String, E
                 inner_area,
             );
 
-            if let Some(mut font) = font {
+            if let Some(font) = font {
                 match &mut last_rendered {
                     Some((last_input, ref mut proto)) if *last_input == input => {
                         let img = Image::new(proto);
@@ -69,9 +71,16 @@ pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<String, E
                     }
                     _ => {
                         let spans = vec!["The fox jumped over the goat or something".into()];
-                        if let Ok(source) =
-                            header_source(picker, &mut font, bg, inner_area.width, spans, 1, false)
-                        {
+                        if let Ok(source) = header_source(
+                            picker,
+                            Arc::new(font),
+                            bg,
+                            inner_area.width,
+                            0,
+                            Line::from(spans).to_string(),
+                            1,
+                            false,
+                        ) {
                             if let WidgetSourceData::Image(mut proto) = source.source {
                                 let img = Image::new(&mut proto);
                                 let mut area = inner_area;

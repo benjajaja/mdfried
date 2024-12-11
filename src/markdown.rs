@@ -1,175 +1,119 @@
-use std::{
-    cell::RefCell,
-    path::PathBuf,
-    sync::{mpsc::Sender, Arc, RwLock},
-};
+use std::sync::mpsc::Sender;
 
 use comrak::{
-    arena_tree::{Node, NodeEdge},
-    nodes::{Ast, NodeValue},
-    parse_document, Arena, ExtensionOptions, Options,
+    arena_tree::NodeEdge, nodes::NodeValue, parse_document, Arena, ExtensionOptions, Options,
 };
 use ratatui::{
     style::{Modifier, Style, Stylize},
     text::{Line, Span, Text},
 };
-use ratatui_image::picker::Picker;
-use reqwest::blocking::Client;
-use rusttype::Font;
 
-use crate::{
-    widget_sources::{header_source, image_source, WidgetSourceData},
-    Error, WidgetSource,
-};
+use crate::{widget_sources::WidgetSourceData, Error, Event, WidgetSource, WidthEvent};
 
-pub struct Parser<'a> {
-    arena: &'a Arena<Node<'a, RefCell<Ast>>>,
-    picker: Arc<RwLock<Picker>>,
-    font: Font<'a>,
-    bg: Option<[u8; 4]>,
-    basepath: Option<PathBuf>,
-}
+pub async fn parse<'b>(
+    text: &str,
+    width: u16,
+    tx: &Sender<WidthEvent<'b>>,
+    id: u16,
+) -> Result<(), Error> {
+    let mut ext_options = ExtensionOptions::default();
+    ext_options.strikethrough = true;
 
-impl<'a> Parser<'a> {
-    pub fn new(
-        arena: &'a Arena<Node<'a, RefCell<Ast>>>,
-        picker: Arc<RwLock<Picker>>,
-        font: Font<'a>,
-        bg: Option<[u8; 4]>,
-        basepath: Option<PathBuf>,
-    ) -> Self {
-        Self {
-            arena,
-            picker,
-            font,
-            bg,
-            basepath,
-        }
-    }
-    pub fn parse<'b>(
-        mut self,
-        text: &str,
-        width: u16,
-        tx: &Sender<WidgetSource<'b>>,
-    ) -> Result<(), Error> {
-        let mut ext_options = ExtensionOptions::default();
-        ext_options.strikethrough = true;
+    let arena = Arena::new();
 
-        let root = parse_document(
-            &self.arena,
-            &text,
-            &Options {
-                extension: ext_options,
-                ..Default::default()
-            },
-        );
+    let root = parse_document(
+        &arena,
+        text,
+        &Options {
+            extension: ext_options,
+            ..Default::default()
+        },
+    );
 
-        let mut spans = vec![];
-        let mut style = Style::new();
+    let mut spans = vec![];
+    let mut style = Style::new();
 
-        let mut client = Client::new();
-        let mut picker = self.picker.write().unwrap();
-
-        for edge in root.traverse() {
-            match edge {
-                NodeEdge::Start(node) => {
-                    let node_value = &node.data.borrow().value;
-                    if let Some(modifier) = modifier(node_value) {
-                        style = style.add_modifier(modifier);
-                    }
-                    match node.data.borrow().value {
-                        NodeValue::Code(_) => {
-                            style = style.on_dark_gray();
-                        }
-                        _ => {}
-                    }
+    let mut index = 0;
+    for edge in root.traverse() {
+        match edge {
+            NodeEdge::Start(node) => {
+                let node_value = &node.data.borrow().value;
+                if let Some(modifier) = modifier(node_value) {
+                    style = style.add_modifier(modifier);
                 }
-                NodeEdge::End(node) => {
-                    match node.data.borrow().value {
-                        NodeValue::Text(ref literal) => {
-                            let span = Span::from(literal.clone()).style(style);
-                            spans.push(span);
-                        }
-                        NodeValue::Heading(ref tier) => {
-                            let source = header_source(
-                                &mut picker,
-                                &mut self.font,
-                                self.bg,
-                                width,
-                                spans,
-                                tier.level,
-                                false,
-                            )
-                            .unwrap(); // TODO don't
-                            tx.send(source)?;
-                            // sources.push(source);
-                            spans = vec![];
-                        }
-                        NodeValue::Image(ref link) => {
-                            match image_source(
-                                &mut picker,
-                                width,
-                                self.basepath.clone(),
-                                &mut client,
-                                link.url.as_str(),
-                                false,
-                            ) {
-                                Ok(source) => {
-                                    // sources.push(source);
-                                    tx.send(source)?;
-                                }
-                                Err(err) => {
-                                    let text = Text::from(format!("[Image error: {err:?}]"));
-                                    let height = text.height() as u16;
-                                    tx.send(WidgetSource {
-                                        height,
-                                        source: WidgetSourceData::Text(text),
-                                    })?;
-                                }
-                            }
-                            spans = vec![];
-                        }
-                        NodeValue::Paragraph => {
-                            let mut wrapped_lines = wrap_spans(spans, width as usize);
-                            wrapped_lines.push(Line::default());
-                            for line in wrapped_lines {
-                                let text = Text::from(line);
-                                let height = text.height() as u16;
-                                tx.send(WidgetSource {
-                                    height,
-                                    source: WidgetSourceData::Text(text),
-                                })?;
-                            }
-                            spans = vec![];
-                        }
-                        NodeValue::LineBreak | NodeValue::SoftBreak => {
-                            let wrapped_lines = wrap_spans(spans, width as usize);
-                            for line in wrapped_lines {
-                                let text = Text::from(line);
-                                let height = text.height() as u16;
-                                tx.send(WidgetSource {
-                                    height,
-                                    source: WidgetSourceData::Text(text),
-                                })?;
-                            }
-                            spans = vec![];
-                        }
-                        NodeValue::Code(ref node_code) => {
-                            let span = Span::from(node_code.literal.clone()).style(style);
-                            spans.push(span);
-                        }
-                        _ => {
-                            if let Some(modifier) = modifier(&node.data.borrow().value) {
-                                style = style.remove_modifier(modifier);
-                            }
-                        }
-                    }
-                    style.bg = None;
+                if let NodeValue::Code(_) = node.data.borrow().value {
+                    style = style.on_dark_gray();
                 }
             }
+            NodeEdge::End(node) => {
+                match node.data.borrow().value {
+                    NodeValue::Text(ref literal) => {
+                        let span = Span::from(literal.clone()).style(style);
+                        spans.push(span);
+                    }
+                    NodeValue::Heading(ref tier) => {
+                        tx.send((id, Event::ParseHeader(index, tier.level, spans)))?;
+                        index += 1;
+                        spans = vec![];
+                    }
+                    NodeValue::Image(ref link) => {
+                        tx.send((
+                            id,
+                            Event::ParseImage(index, link.url.clone(), link.title.clone()),
+                        ))?;
+                        index += 1;
+                        spans = vec![];
+                    }
+                    NodeValue::Paragraph => {
+                        let mut wrapped_lines = wrap_spans(spans, width as usize);
+                        wrapped_lines.push(Line::default());
+                        for line in wrapped_lines {
+                            let text = Text::from(line);
+                            let height = text.height() as u16;
+                            tx.send((
+                                id,
+                                Event::Parsed(WidgetSource {
+                                    index,
+                                    height,
+                                    source: WidgetSourceData::Text(text),
+                                }),
+                            ))?;
+                            index += 1;
+                        }
+                        spans = vec![];
+                    }
+                    NodeValue::LineBreak | NodeValue::SoftBreak => {
+                        let wrapped_lines = wrap_spans(spans, width as usize);
+                        for line in wrapped_lines {
+                            let text = Text::from(line);
+                            let height = text.height() as u16;
+                            tx.send((
+                                id,
+                                Event::Parsed(WidgetSource {
+                                    index,
+                                    height,
+                                    source: WidgetSourceData::Text(text),
+                                }),
+                            ))?;
+                            index += 1;
+                        }
+                        spans = vec![];
+                    }
+                    NodeValue::Code(ref node_code) => {
+                        let span = Span::from(node_code.literal.clone()).style(style);
+                        spans.push(span);
+                    }
+                    _ => {
+                        if let Some(modifier) = modifier(&node.data.borrow().value) {
+                            style = style.remove_modifier(modifier);
+                        }
+                    }
+                }
+                style.bg = None;
+            }
         }
-        Ok(())
     }
+    Ok(())
 }
 
 fn modifier(node_value: &NodeValue) -> Option<Modifier> {

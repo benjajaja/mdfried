@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 confy = "0.6.1"
 comrak = "0.28.0"
-crossterm = "0.28.1"
+crossterm = { version = "0.28.1", features = ["event-stream"] }
 font-loader = "0.11.0"
 image = "0.25.2"
 ratatui = "^0.29.0"
@@ -16,6 +16,9 @@ ratatui-image = { path = "../ratatu-image", features = ["serde"] }
 rusttype = "0.9.3"
 serde = "^1.0"
 clap = { version = "4.5.21", features = ["cargo"] }
-reqwest = { version = "0.11", default-features = false, features = ["blocking", "rustls-tls"] }
+reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"] }
 libc = { version = "0.2", default-features = false }
+futures = "0.3.28"
+tokio = { version = "1.32.0", features = ["full"] }
+tokio-util = "0.7.9"
 

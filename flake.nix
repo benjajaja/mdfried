@@ -34,6 +34,7 @@
             rust-bin.stable.latest.default
             cargo-tarpaulin
             cargo-watch
+            pandoc # just for testing html-to-md piping
           ];
         };
       });

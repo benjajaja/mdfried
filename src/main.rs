@@ -1,56 +1,49 @@
 use std::{
     fs::File,
-    io::{self, stdout, Read},
+    io::{self, Read},
     os::fd::IntoRawFd,
     path::{Path, PathBuf},
-    process,
     sync::{
-        mpsc::{self, SendError},
-        Arc, RwLock,
+        mpsc::{self, Receiver, Sender},
+        Arc,
     },
-    thread,
+    time::Duration,
 };
 
 use clap::{arg, command, value_parser};
 use config::Config;
-use confy::ConfyError;
-use crossterm::{
-    event::KeyModifiers,
-    execute,
-    terminal::{disable_raw_mode, LeaveAlternateScreen},
-    tty::IsTty,
-};
-use font_loader::system_fonts;
-use image::ImageError;
+use crossterm::{event::KeyModifiers, tty::IsTty};
+use error::Error;
+use markdown::parse;
 use ratatui::{
     crossterm::event::{self, KeyCode, KeyEventKind},
     layout::Rect,
     style::{Color, Style},
+    text::{Line, Span, Text},
     widgets::{Block, Paragraph, Widget},
     DefaultTerminal, Frame,
 };
 
-use comrak::Arena;
 use comrak::ExtensionOptions;
-use ratatui_image::{
-    picker::{Picker, ProtocolType},
-    Image,
-};
-use rusttype::Font;
+use ratatui_image::Image;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use widget_sources::{WidgetSource, WidgetSourceData};
+use setup::setup_imagery;
+use widget_sources::{header_source, image_source, WidgetSource, WidgetSourceData};
 
-use crate::{fontpicker::set_up_font, markdown::Parser};
 mod config;
+mod error;
 mod fontpicker;
 mod markdown;
+mod setup;
 mod widget_sources;
 
 const OK_END: &str = " ok.";
 
 const CONFIG: (&str, Option<&str>) = ("mdfried", Some("config"));
 
-fn main() -> io::Result<()> {
+#[tokio::main]
+async fn main() -> io::Result<()> {
     std::env::set_var("FONTCONFIG_LOG_LEVEL", "silent");
 
     let matches = command!() // requires `cargo` feature
@@ -63,13 +56,13 @@ fn main() -> io::Result<()> {
 
     let (text, basepath) = match path {
         Some(path) => (
-            read_file_to_str(path.to_str().unwrap())?,
+            read_file_to_str(path.to_str().ok_or(Error::Msg("path error".into()))?)?,
             path.parent().map(Path::to_path_buf),
         ),
         None if !io::stdin().is_tty() => {
             let mut text = String::new();
             print!("Reading stdin...");
-            let _ = io::stdin().read_to_string(&mut text)?;
+            io::stdin().read_to_string(&mut text)?;
             println!("{OK_END}");
             (text, None)
         }
@@ -82,7 +75,7 @@ fn main() -> io::Result<()> {
     };
 
     if text.is_empty() {
-        return Err(Error::Msg("input is empty".into()).into());
+        return Err(Error::Msg("no input or emtpy".into()).into());
     }
 
     let config: Config = confy::load(CONFIG.0, CONFIG.1).map_err(map_to_io_error)?;
@@ -106,30 +99,86 @@ fn main() -> io::Result<()> {
         println!("{OK_END}");
     }
 
-    match Model::new(
-        &text,
-        path.cloned(),
-        config,
-        basepath,
-        *matches.get_one("deep").unwrap_or(&false),
-        *matches.get_one("setup").unwrap_or(&false),
-    ) {
-        Err(err) => match err {
-            Error::Msg(ref msg) => {
-                println!("Startup error: {msg}");
-                process::exit(1);
-            }
-            err => Err(err.into()),
-        },
-        Ok(model) => {
-            let mut terminal = ratatui::init();
-            terminal.clear()?;
+    let force_setup = *matches.get_one("setup").unwrap_or(&false);
+    let (mut picker, font, bg) = setup_imagery(config.font_family, force_setup)?;
 
-            let app_result = run(terminal, model);
-            ratatui::restore();
-            app_result.map_err(Error::into)
+    let (cmd_tx, cmd_rx) = mpsc::channel::<ImgCmd>();
+    let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
+
+    let _deep_fry = *matches.get_one("deep").unwrap_or(&false);
+
+    let event_image_tx = event_tx.clone();
+    let parse_handle = tokio::spawn(async move {
+        let basepath = basepath.clone();
+        let mut client = Client::new();
+        let arc_font = Arc::new(font);
+        for cmd in cmd_rx {
+            match cmd {
+                ImgCmd::Header(index, width, tier, text) => {
+                    let task_tx = event_image_tx.clone();
+                    let task_font = arc_font.clone();
+                    let source =
+                        header_source(&mut picker, task_font, bg, width, index, text, tier, false)?;
+                    task_tx.send((width, Event::Update(source)))?;
+                }
+                ImgCmd::UrlImage(index, width, url, title) => {
+                    match image_source(
+                        &mut picker,
+                        width,
+                        &basepath,
+                        &mut client,
+                        index,
+                        &url,
+                        false,
+                    )
+                    .await
+                    {
+                        Ok(source) => event_image_tx.send((width, Event::Update(source)))?,
+                        Err(Error::UnknownImage(index, link)) => event_image_tx.send((
+                            width,
+                            Event::Update(WidgetSource::image_unknown(index, link, title)),
+                        ))?,
+                        Err(_) => event_image_tx.send((
+                            width,
+                            Event::Update(WidgetSource::image_unknown(index, url, title)),
+                        ))?,
+                    }
+                }
+            };
         }
-    }
+        Ok(())
+    });
+
+    let (parse_tx, parse_rx) = mpsc::channel::<ParseCmd>();
+    let parse_handle2 = tokio::spawn(async move {
+        for ParseCmd { width, text } in parse_rx {
+            parse(&text, width, &event_tx, width).await?;
+        }
+        Ok(())
+    });
+
+    let model = Model::new(bg, path.cloned(), cmd_tx, parse_tx, event_rx)?;
+
+    let mut terminal = ratatui::init();
+    terminal.clear()?;
+
+    let inner_width = model.width(terminal.size()?.width);
+    model
+        .parse_tx
+        .send(ParseCmd {
+            width: inner_width,
+            text,
+        })
+        .map_err(Error::from)?;
+
+    let ui_handle = tokio::spawn(async move { run(terminal, model) });
+    let result = tokio::select! {
+        parse_res = parse_handle => parse_res?,
+        parse2_res = parse_handle2 => parse2_res?,
+        ui_res = ui_handle => ui_res?,
+    };
+    ratatui::restore();
+    Ok(result.map_err(Error::from)?)
 }
 
 fn map_to_io_error<I>(err: I) -> io::Error
@@ -139,16 +188,37 @@ where
     err.into().into()
 }
 
-struct Model<'a> {
+#[derive(Debug)]
+enum ImgCmd {
+    UrlImage(usize, u16, String, String),
+    Header(usize, u16, u8, String),
+}
+
+struct ParseCmd {
+    width: u16,
+    text: String,
+}
+
+#[derive(Debug)]
+enum Event<'a> {
+    Parsed(WidgetSource<'a>),
+    Update(WidgetSource<'a>),
+    ParseImage(usize, String, String),
+    ParseHeader(usize, u8, Vec<Span<'a>>),
+}
+
+// Just a width key, to discard events for stale screen widths.
+pub(crate) type WidthEvent<'a> = (u16, Event<'a>);
+
+struct Model<'a, 'b> {
     original_file_path: Option<PathBuf>,
     bg: Option<[u8; 4]>,
     scroll: u16,
-    picker: Arc<RwLock<Picker>>,
-    font: Font<'a>,
-    basepath: Option<PathBuf>,
     sources: Vec<WidgetSource<'a>>,
     padding: Padding,
-    deep_fry: bool,
+    tx: Sender<ImgCmd>,
+    parse_tx: Sender<ParseCmd>,
+    rx: Receiver<WidthEvent<'b>>,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -159,150 +229,40 @@ enum Padding {
     Empty,
 }
 
-impl<'a> Model<'a> {
-    fn new(
-        text: &str,
+impl Model<'_, '_> {
+    fn new<'a, 'b: 'a>(
+        bg: Option<[u8; 4]>,
         original_file_path: Option<PathBuf>,
-        config: Config,
-        basepath: Option<PathBuf>,
-        deep_fry: bool,
-        force_font_setup: bool,
-    ) -> Result<Self, Error> {
-        print!("Detecting supported graphics protocols...");
-        let mut picker = Picker::from_query_stdio().map_err(|err| Error::Msg(format!("{err}")))?;
-        println!("{OK_END}");
-
-        let bg = match picker.protocol_type() {
-            ProtocolType::Sixel => Some([0, 0, 0, 255]),
-            _ => {
-                picker.set_background_color([0, 0, 0, 0]);
-                None
-            }
-        };
-
-        let mut fp_builder = system_fonts::FontPropertyBuilder::new();
-
-        let all_fonts = system_fonts::query_all();
-
-        let config_font_family = config.font_family.and_then(|font_family| {
-            // Ensure this font exists
-            if all_fonts.contains(&font_family) {
-                return Some(font_family);
-            }
-            None
-        });
-
-        let font_family = if let Some(mut font_family) = config_font_family {
-            if force_font_setup {
-                println!("Entering forced font setup");
-                match set_up_font(&mut picker, bg) {
-                    Ok(setup_font_family) => {
-                        let new_config = Config {
-                            font_family: Some(font_family.clone()),
-                            ..Default::default()
-                        };
-                        confy::store(CONFIG.0, CONFIG.1, new_config)?;
-                        font_family = setup_font_family;
-                    }
-                    Err(err) => return Err(err),
-                }
-            }
-            font_family
-        } else {
-            println!("Entering one-time font setup");
-            match set_up_font(&mut picker, bg) {
-                Ok(font_family) => {
-                    let new_config = Config {
-                        font_family: Some(font_family.clone()),
-                        ..Default::default()
-                    };
-                    confy::store(CONFIG.0, CONFIG.1, new_config)?;
-                    font_family
-                }
-                Err(err) => return Err(err),
-            }
-        };
-
-        fp_builder = fp_builder.family(&font_family);
-
-        let property = fp_builder.build();
-
-        let (font_data, _) =
-            system_fonts::get(&property).ok_or("Could not get system fonts property")?;
-
-        let font = Font::try_from_vec(font_data).ok_or(Error::NoFont)?;
-
-        let mut loading_terminal = ratatui::init_with_options(ratatui::TerminalOptions {
-            viewport: ratatui::Viewport::Inline(1),
-        });
-        let screen_width = loading_terminal.size()?.width;
-        loading_terminal.clear()?;
-
-        loading_terminal.draw(|frame| {
-            frame.render_widget(Paragraph::new("Parsing..."), frame.area());
-        })?;
-
-        let picker = Arc::new(RwLock::new(picker));
-
-        let (tx, rx) = mpsc::channel();
-
-        let text_thread = text.to_string();
-        let thread_picker = picker.clone();
-        let thread_font = font.clone();
-        let thread_basepath = basepath.clone();
-
-        let thread_width = match Padding::Empty {
-            Padding::Empty | Padding::Border => screen_width - 2,
-            _ => screen_width,
-        };
-        thread::spawn(move || {
-            let arena = Box::new(Arena::new());
-            let parser = Parser::new(
-                &arena,
-                thread_picker,
-                thread_font,
-                bg.clone(),
-                thread_basepath,
-            );
-            parser.parse(&text_thread, thread_width, &tx.clone());
-        });
-
-        let mut model = Model {
+        tx: Sender<ImgCmd>,
+        parse_tx: Sender<ParseCmd>,
+        rx: Receiver<WidthEvent<'b>>,
+    ) -> Result<Model<'a, 'b>, Error> {
+        let model = Model {
             original_file_path,
             bg,
             scroll: 0,
-            picker,
-            font,
-            basepath,
             sources: vec![],
             padding: Padding::Empty,
-            deep_fry,
+            tx,
+            parse_tx,
+            rx,
         };
 
-        let mut sources = vec![];
-        let mut i = 0;
-        for received in rx {
-            sources.push(received);
-            loading_terminal.draw(|frame| {
-                frame.render_widget(Paragraph::new(format!("Processing ({i})...")), frame.area());
-            })?;
-            i += 1;
-        }
-
-        model.sources = sources;
-
-        disable_raw_mode()?;
-        execute!(stdout(), LeaveAlternateScreen)?;
-        println!("{OK_END}");
+        // model_reload(&mut model, screen_width)?;
 
         Ok(model)
     }
+
+    fn width(&self, screen_width: u16) -> u16 {
+        match self.padding {
+            Padding::None => screen_width,
+            Padding::Empty | Padding::Border => screen_width - 2,
+        }
+    }
 }
 
-fn model_reload(model: &mut Model) -> Result<(), Error> {
+fn model_reload<'a>(model: &mut Model<'a, 'a>, width: u16) -> Result<(), Error> {
     if let Some(original_file_path) = &model.original_file_path {
-        model.sources = vec![];
-
         let text = read_file_to_str(
             original_file_path
                 .to_str()
@@ -311,64 +271,139 @@ fn model_reload(model: &mut Model) -> Result<(), Error> {
 
         let mut ext_options = ExtensionOptions::default();
         ext_options.strikethrough = true;
+
+        model.sources = vec![];
+        model.scroll = 0;
+
+        let inner_width = model.width(width);
+        model.parse_tx.send(ParseCmd {
+            width: inner_width,
+            text,
+        })?;
     }
     Ok(())
 }
 
-fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
+fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<(), Error> {
     let screen_size = terminal.size()?;
     let page_scroll_count = screen_size.height / 2;
+    let mut screen_width = screen_size.width;
+    let mut inner_width = match model.padding {
+        Padding::None => screen_width,
+        Padding::Empty | Padding::Border => screen_width - 2,
+    };
+
+    terminal.draw(|frame| view(&mut model, frame))?;
 
     loop {
-        if model.sources.is_empty() {
-            let (tx, rx) = mpsc::channel();
-            let mut sources = vec![];
-            for received in rx {
-                sources.push(received);
-            }
-            model.sources = sources;
-        }
-
-        terminal.draw(|frame| view(&mut model, frame))?;
-
-        match event::read()? {
-            event::Event::Key(key) => {
-                if key.kind == KeyEventKind::Press {
-                    match key.code {
-                        KeyCode::Char('q') => {
-                            return Ok(());
-                        }
-                        KeyCode::Char('r') => {
-                            model_reload(&mut model)?;
-                        }
-                        KeyCode::Char('j') => {
-                            model.scroll += 1;
-                        }
-                        KeyCode::Char('k') => {
-                            if model.scroll > 0 {
-                                model.scroll -= 1;
+        let mut had_events = false;
+        if let Ok((id, ev)) = model.rx.try_recv() {
+            if id == inner_width {
+                had_events = true;
+                match ev {
+                    Event::Parsed(source) => {
+                        model.sources.push(source);
+                    }
+                    Event::Update(update) => {
+                        let mut index = Some(update.index);
+                        for source in &mut model.sources {
+                            if source.index == update.index {
+                                *source = update;
+                                index = None;
+                                break;
                             }
                         }
-                        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                            model.scroll += page_scroll_count;
-                        }
-                        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                            if page_scroll_count < model.scroll {
-                                model.scroll -= page_scroll_count;
-                            } else {
-                                model.scroll = 0;
-                            }
-                        }
-                        _ => {}
+                        debug_assert!(
+                            index.is_none(),
+                            "Update {} not found anymore",
+                            index.unwrap()
+                        );
+                    }
+                    Event::ParseImage(index, url, title) => {
+                        model
+                            .tx
+                            .send(ImgCmd::UrlImage(index, inner_width, url, title))?;
+                        model.sources.push(WidgetSource {
+                            index,
+                            height: 10,
+                            source: WidgetSourceData::Text(Text::from("[image placeholder]")),
+                        });
+                    }
+                    Event::ParseHeader(index, tier, spans) => {
+                        let line = Line::from(spans);
+                        let inner_width = match model.padding {
+                            Padding::None => screen_width,
+                            Padding::Empty | Padding::Border => screen_width - 2,
+                        };
+                        model.tx.send(ImgCmd::Header(
+                            index,
+                            inner_width,
+                            tier,
+                            line.to_string(),
+                        ))?;
+                        model.sources.push(WidgetSource {
+                            index,
+                            height: 2,
+                            source: WidgetSourceData::Text(Text::from(line)),
+                        });
                     }
                 }
             }
-            event::Event::Resize(_, _) => {
-                // TODO: do it now based on screen size?
-                // traverse(model, area.width);
-                model.sources = vec![];
+        }
+
+        let mut had_input = false;
+        if event::poll(if had_events {
+            Duration::ZERO
+        } else {
+            Duration::from_millis(100)
+        })? {
+            had_input = true;
+            match event::read()? {
+                event::Event::Key(key) => {
+                    if key.kind == KeyEventKind::Press {
+                        match key.code {
+                            KeyCode::Char('q') => {
+                                return Ok(());
+                            }
+                            KeyCode::Char('r') => {
+                                model_reload(&mut model, screen_width)?;
+                            }
+                            KeyCode::Char('j') => {
+                                model.scroll += 1;
+                            }
+                            KeyCode::Char('k') => {
+                                if model.scroll > 0 {
+                                    model.scroll -= 1;
+                                }
+                            }
+                            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                model.scroll += page_scroll_count;
+                            }
+                            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                if page_scroll_count < model.scroll {
+                                    model.scroll -= page_scroll_count;
+                                } else {
+                                    model.scroll = 0;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                event::Event::Resize(width, _) => {
+                    screen_width = width;
+                    inner_width = match model.padding {
+                        Padding::None => screen_width,
+                        Padding::Empty | Padding::Border => screen_width - 2,
+                    };
+                    model_reload(&mut model, screen_width)?;
+                }
+                _ => {}
             }
-            _ => {}
+        }
+
+        if had_events || had_input {
+            terminal.draw(|frame| view(&mut model, frame))?;
         }
     }
 }
@@ -419,70 +454,6 @@ fn render_widget<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, f
         widget_area.y += y;
         widget_area.height = widget_area.height.min(source_height);
         f.render_widget(widget, widget_area);
-    }
-}
-
-#[derive(Debug)]
-#[allow(dead_code)]
-enum Error {
-    Cli(clap::error::Error),
-    Config(ConfyError),
-    Io(io::Error),
-    Image(image::ImageError),
-    Download(reqwest::Error),
-    Msg(String),
-    NoFont,
-    Thread,
-}
-
-impl From<Error> for io::Error {
-    fn from(value: Error) -> Self {
-        match value {
-            Error::Io(io_err) => io_err,
-            err => io::Error::new(io::ErrorKind::Other, format!("{err:?}")),
-        }
-    }
-}
-
-impl From<&str> for Error {
-    fn from(value: &str) -> Self {
-        Self::Msg(value.to_string())
-    }
-}
-
-impl From<ImageError> for Error {
-    fn from(value: image::ImageError) -> Self {
-        Self::Image(value)
-    }
-}
-
-impl From<std::io::Error> for Error {
-    fn from(value: std::io::Error) -> Self {
-        Self::Io(value)
-    }
-}
-
-impl From<ConfyError> for Error {
-    fn from(value: ConfyError) -> Self {
-        Self::Config(value)
-    }
-}
-
-impl From<clap::error::Error> for Error {
-    fn from(value: clap::error::Error) -> Self {
-        Self::Cli(value)
-    }
-}
-
-impl From<reqwest::Error> for Error {
-    fn from(value: reqwest::Error) -> Self {
-        Self::Download(value)
-    }
-}
-
-impl From<SendError<WidgetSource<'_>>> for Error {
-    fn from(_: SendError<WidgetSource<'_>>) -> Self {
-        Self::Thread
     }
 }
 

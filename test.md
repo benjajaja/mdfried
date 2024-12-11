@@ -17,12 +17,13 @@ Another paragraph now, which should get wrapped without breaking up words, nor w
 ###### Tier 6 heading
 
 Local image:
-
 ![image here](./assets/NixOS.png)
 
 URL image:
-
 ![URL image here](https://picsum.photos/300/200)
+
+Broken image link:
+![borken lenk](https://example.com/404)
 
 ### Can it render emojis? 🤣 No.
 
