@@ -33,53 +33,40 @@ pub async fn parse<'b>(
     let mut spans = vec![];
     let mut style = Style::new();
 
-    let mut index = 0;
+    let mut sender = SendTracker { id, tx, index: 0 };
     for edge in root.traverse() {
         match edge {
             NodeEdge::Start(node) => {
                 let node_value = &node.data.borrow().value;
-                if let Some(modifier) = modifier(node_value) {
-                    style = style.add_modifier(modifier);
-                }
-                if let NodeValue::Code(_) = node.data.borrow().value {
-                    style = style.on_dark_gray();
-                }
+                style = modifier(style, node_value);
             }
             NodeEdge::End(node) => {
-                match node.data.borrow().value {
+                let node_value = &node.data.borrow().value;
+                match node_value {
                     NodeValue::Text(ref literal) => {
                         let span = Span::from(literal.clone()).style(style);
                         spans.push(span);
                     }
                     NodeValue::Heading(ref tier) => {
-                        tx.send((id, Event::ParseHeader(index, tier.level, spans)))?;
-                        index += 1;
+                        sender.send_event(Event::ParseHeader(sender.index, tier.level, spans))?;
                         spans = vec![];
                     }
                     NodeValue::Image(ref link) => {
-                        tx.send((
-                            id,
-                            Event::ParseImage(index, link.url.clone(), link.title.clone()),
+                        sender.send_event(Event::ParseImage(
+                            sender.index,
+                            link.url.clone(),
+                            link.title.clone(),
                         ))?;
-                        index += 1;
                         spans = vec![];
                     }
                     NodeValue::Paragraph => {
-                        let mut wrapped_lines = wrap_spans(spans, width as usize);
-                        wrapped_lines.push(Line::default());
+                        let wrapped_lines = wrap_spans(spans, width as usize);
                         for line in wrapped_lines {
                             let text = Text::from(line);
                             let height = text.height() as u16;
-                            tx.send((
-                                id,
-                                Event::Parsed(WidgetSource {
-                                    index,
-                                    height,
-                                    source: WidgetSourceData::Text(text),
-                                }),
-                            ))?;
-                            index += 1;
+                            sender.send_parsed(WidgetSourceData::Text(text), height)?;
                         }
+                        sender.send_parsed(WidgetSourceData::Text(Text::default()), 1)?;
                         spans = vec![];
                     }
                     NodeValue::LineBreak | NodeValue::SoftBreak => {
@@ -87,26 +74,29 @@ pub async fn parse<'b>(
                         for line in wrapped_lines {
                             let text = Text::from(line);
                             let height = text.height() as u16;
-                            tx.send((
-                                id,
-                                Event::Parsed(WidgetSource {
-                                    index,
-                                    height,
-                                    source: WidgetSourceData::Text(text),
-                                }),
-                            ))?;
-                            index += 1;
+                            sender.send_parsed(WidgetSourceData::Text(text), height)?;
                         }
                         spans = vec![];
                     }
-                    NodeValue::Code(ref node_code) => {
-                        let span = Span::from(node_code.literal.clone()).style(style);
+                    NodeValue::Code(ref code) => {
+                        let span = Span::from(code.literal.clone()).style(style);
                         spans.push(span);
                     }
-                    _ => {
-                        if let Some(modifier) = modifier(&node.data.borrow().value) {
-                            style = style.remove_modifier(modifier);
+                    NodeValue::CodeBlock(ref codeblock) => {
+                        let mut splits: Vec<&str> = codeblock.literal.split("\n").collect();
+                        if splits.last().map_or(false, |s| s.is_empty()) {
+                            splits.pop();
                         }
+                        for line in splits {
+                            let text = Text::from(Line::from(line.to_string())).style(style);
+                            let height = text.height() as u16;
+                            sender.send_parsed(WidgetSourceData::CodeBlock(text), height)?;
+                        }
+                        sender.send_parsed(WidgetSourceData::Text(Text::default()), 1)?;
+                        spans = vec![];
+                    }
+                    _ => {
+                        style = Style::default();
                     }
                 }
                 style.bg = None;
@@ -116,16 +106,39 @@ pub async fn parse<'b>(
     Ok(())
 }
 
-fn modifier(node_value: &NodeValue) -> Option<Modifier> {
-    match node_value {
-        NodeValue::Strong => Some(Modifier::BOLD),
-        NodeValue::Emph => Some(Modifier::ITALIC),
-        NodeValue::Strikethrough => Some(Modifier::CROSSED_OUT),
-        _ => None,
+// Just so that we don't miss an `index += 1`.
+struct SendTracker<'a, 'b> {
+    id: u16,
+    index: usize,
+    tx: &'a Sender<WidthEvent<'b>>,
+}
+
+impl<'a, 'b> SendTracker<'a, 'b> {
+    fn send_parsed(&mut self, source: WidgetSourceData<'b>, height: u16) -> Result<(), Error> {
+        self.send_event(Event::Parsed(WidgetSource {
+            index: self.index,
+            height,
+            source,
+        }))
+    }
+    fn send_event(&mut self, ev: Event<'b>) -> Result<(), Error> {
+        self.tx.send((self.id, ev))?;
+        self.index += 1;
+        Ok(())
     }
 }
 
-// This probably has bugs and doesn't handle multi-width characters properly.
+fn modifier(style: Style, node_value: &NodeValue) -> Style {
+    match node_value {
+        NodeValue::Strong => style.add_modifier(Modifier::BOLD),
+        NodeValue::Emph => style.add_modifier(Modifier::ITALIC),
+        NodeValue::Strikethrough => style.add_modifier(Modifier::CROSSED_OUT),
+        NodeValue::Code(_) | NodeValue::CodeBlock(_) => style.on_dark_gray(),
+        _ => style,
+    }
+}
+
+// This probably has bugs and doesn't handle multi-width characters properly. Generated with AI.
 pub fn wrap_spans(spans: Vec<Span>, max_width: usize) -> Vec<Line> {
     let mut result_lines = Vec::new();
     let mut current_line = Vec::new();

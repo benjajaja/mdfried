@@ -24,6 +24,7 @@ pub struct WidgetSource<'a> {
 pub enum WidgetSourceData<'a> {
     Image(Protocol),
     Text(Text<'a>),
+    CodeBlock(Text<'a>),
 }
 
 impl Debug for WidgetSourceData<'_> {
@@ -31,6 +32,7 @@ impl Debug for WidgetSourceData<'_> {
         match self {
             Self::Image(_) => f.debug_tuple("Image").finish(),
             Self::Text(arg0) => f.debug_tuple("Text").field(arg0).finish(),
+            Self::CodeBlock(arg0) => f.debug_tuple("CodeBlock").field(arg0).finish(),
         }
     }
 }

@@ -18,7 +18,7 @@ use markdown::parse;
 use ratatui::{
     crossterm::event::{self, KeyCode, KeyEventKind},
     layout::Rect,
-    style::{Color, Style},
+    style::{Color, Style, Stylize},
     text::{Line, Span, Text},
     widgets::{Block, Paragraph, Widget},
     DefaultTerminal, Frame,
@@ -438,6 +438,10 @@ fn view(model: &mut Model, frame: &mut Frame) {
                 WidgetSourceData::Image(proto) => {
                     let img = Image::new(proto);
                     render_widget(img, source.height, y as u16, inner_area, frame);
+                }
+                WidgetSourceData::CodeBlock(text) => {
+                    let p = Paragraph::new(text.clone()).on_dark_gray();
+                    render_widget(p, source.height, y as u16, inner_area, frame);
                 }
             }
         }
