@@ -2,8 +2,14 @@
 name = "mdfried"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+authors = ["Benjamin Große <ste3ls@gmail.com>"]
+description = "A markdown viewer for the terminal that renders images and big headers"
+repository = "https://github.com/benjajaja/mdfried"
+homepage = "https://github.com/benjajaja/mdfried"
+readme = "README.md"
+license = "GPLv3"
+exclude = ["assets/*"]
+rust-version = "1.81.0"
 
 [dependencies]
 confy = "0.6.1"
