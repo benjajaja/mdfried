@@ -5,7 +5,7 @@ use comrak::{
 };
 use ratatui::{
     style::{Modifier, Style, Stylize},
-    text::{Line, Span, Text},
+    text::{Line, Span, Text, ToSpan},
 };
 
 use crate::{widget_sources::WidgetSourceData, Error, Event, WidgetSource, WidthEvent};
@@ -78,6 +78,12 @@ pub async fn parse<'b>(
                         }
                         spans = vec![];
                     }
+                    NodeValue::Link(ref link) => {
+                        let inner = Line::from(spans);
+                        let span = Span::from(format!("[{}]({})", inner.to_string(), link.url))
+                            .style(modifier(style, node_value));
+                        spans = vec![span];
+                    }
                     NodeValue::Code(ref code) => {
                         let span = Span::from(code.literal.clone()).style(style);
                         spans.push(span);
@@ -95,11 +101,9 @@ pub async fn parse<'b>(
                         sender.send_parsed(WidgetSourceData::Text(Text::default()), 1)?;
                         spans = vec![];
                     }
-                    _ => {
-                        style = Style::default();
-                    }
+                    _ => {}
                 }
-                style.bg = None;
+                style = Style::default();
             }
         }
     }
@@ -134,6 +138,7 @@ fn modifier(style: Style, node_value: &NodeValue) -> Style {
         NodeValue::Emph => style.add_modifier(Modifier::ITALIC),
         NodeValue::Strikethrough => style.add_modifier(Modifier::CROSSED_OUT),
         NodeValue::Code(_) | NodeValue::CodeBlock(_) => style.on_dark_gray(),
+        NodeValue::Link(_) => style.blue().underlined(),
         _ => style,
     }
 }
