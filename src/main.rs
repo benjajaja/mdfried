@@ -12,7 +12,10 @@ use std::{
 
 use clap::{arg, command, value_parser};
 use config::Config;
-use crossterm::{event::KeyModifiers, tty::IsTty};
+use crossterm::{
+    event::{DisableMouseCapture, EnableMouseCapture, KeyModifiers, MouseEventKind},
+    tty::IsTty,
+};
 use error::Error;
 use markdown::parse;
 use ratatui::{
@@ -160,6 +163,7 @@ async fn main() -> io::Result<()> {
     let model = Model::new(bg, path.cloned(), cmd_tx, parse_tx, event_rx)?;
 
     let mut terminal = ratatui::init();
+    crossterm::execute!(std::io::stderr(), EnableMouseCapture)?;
     terminal.clear()?;
 
     let inner_width = model.width(terminal.size()?.width);
@@ -177,6 +181,7 @@ async fn main() -> io::Result<()> {
         parse2_res = parse_handle2 => parse2_res?,
         ui_res = ui_handle => ui_res?,
     };
+    crossterm::execute!(std::io::stderr(), DisableMouseCapture)?;
     ratatui::restore();
     Ok(result.map_err(Error::from)?)
 }
@@ -398,6 +403,19 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                     };
                     model_reload(&mut model, screen_width)?;
                 }
+                event::Event::Mouse(mouse) => match mouse.kind {
+                    MouseEventKind::ScrollUp => {
+                        if model.scroll > 0 {
+                            if let Some(yea) = model.scroll.checked_sub(2) {
+                                model.scroll = yea;
+                            }
+                        }
+                    }
+                    MouseEventKind::ScrollDown => {
+                        model.scroll += 2;
+                    }
+                    _ => {}
+                },
                 _ => {}
             }
         }
