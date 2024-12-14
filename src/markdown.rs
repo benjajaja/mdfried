@@ -5,7 +5,7 @@ use comrak::{
 };
 use ratatui::{
     style::{Modifier, Style, Stylize},
-    text::{Line, Span, Text, ToSpan},
+    text::{Line, Span, Text},
 };
 
 use crate::{widget_sources::WidgetSourceData, Error, Event, WidgetSource, WidthEvent};
@@ -148,6 +148,7 @@ pub fn wrap_spans(spans: Vec<Span>, max_width: usize) -> Vec<Line> {
     let mut result_lines = Vec::new();
     let mut current_line = Vec::new();
     let mut current_line_width = 0;
+    let mut current_style = Style::default();
 
     // Helper function to trim leading whitespace
     fn trim_leading_whitespace(s: &str) -> &str {
@@ -174,14 +175,16 @@ pub fn wrap_spans(spans: Vec<Span>, max_width: usize) -> Vec<Line> {
             }
 
             // Add word to current line (with space if not first word)
-            let word_to_add = if current_line_width > 0 {
-                format!(" {}", word)
-            } else {
-                word.to_string()
-            };
-
-            current_line_width += word_to_add.len();
-            current_line.push(Span::styled(word_to_add, span.style));
+            if current_line_width > 0 {
+                if span.style == current_style {
+                    current_line.push(Span::style(" ".into(), current_style));
+                } else {
+                    current_line.push(Span::from(" "));
+                }
+            }
+            current_line_width += word.len();
+            current_line.push(Span::styled(word.to_string(), span.style));
+            current_style = span.style;
         }
     }
 
