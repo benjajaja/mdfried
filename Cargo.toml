@@ -7,7 +7,7 @@ description = "A markdown viewer for the terminal that renders images and big he
 repository = "https://github.com/benjajaja/mdfried"
 homepage = "https://github.com/benjajaja/mdfried"
 readme = "README.md"
-license = "GPLv3"
+license = "GPL-3.0-or-later"
 exclude = ["assets/*"]
 rust-version = "1.81.0"
 

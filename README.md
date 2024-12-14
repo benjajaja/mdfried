@@ -7,10 +7,14 @@ _YES!_ You can **cook _and_ fry** your `tty`! ~Run before it's too late!~
 > With `ratatui`🐁, it's in raw mode, but it "cooks" for you.
 
 `mdfried` is a markdown viewer for the terminal that renders headers as bigger text than normal.
-Images are also shown.
+
+### How?
+
+By rendering the headers as images, and using one of several terminal graphics protocols: Sixels,
+Kitty, or iTerm2.
 
 See [ratatui-image](https://github.com/benjajaja/ratatui-image?tab=readme-ov-file#compatibility-matrix)
-to see if your terminal does even have graphics support.
+to see if your terminal does even have graphics support, and for further details.
 
 In general, Kitty, WezTerm, iTerm2, foot, `xterm -ti vt340`, _should_ work.
 
@@ -24,6 +28,7 @@ In general, Kitty, WezTerm, iTerm2, foot, `xterm -ti vt340`, _should_ work.
 
 # Installation
 
+- `cargo install mdfried`
 - Clone repo and `cargo install --path .`
 - There is a `flake.nix` which _might_ work
 

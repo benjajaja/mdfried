@@ -80,7 +80,7 @@ pub async fn parse<'b>(
                     }
                     NodeValue::Link(ref link) => {
                         let inner = Line::from(spans);
-                        let span = Span::from(format!("[{}]({})", inner.to_string(), link.url))
+                        let span = Span::from(format!("[{}]({})", inner, link.url))
                             .style(modifier(style, node_value));
                         spans = vec![span];
                     }
