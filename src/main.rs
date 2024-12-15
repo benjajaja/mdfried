@@ -153,7 +153,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
                         header_source(&mut picker, task_font, bg, width, index, text, tier, false)?;
                     task_tx.send((width, Event::Update(source)))?;
                 }
-                ImgCmd::UrlImage(index, width, url, title) => {
+                ImgCmd::UrlImage(index, width, url, text, _title) => {
                     match image_source(
                         &mut picker,
                         width,
@@ -168,11 +168,11 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
                         Ok(source) => event_image_tx.send((width, Event::Update(source)))?,
                         Err(Error::UnknownImage(index, link)) => event_image_tx.send((
                             width,
-                            Event::Update(WidgetSource::image_unknown(index, link, title)),
+                            Event::Update(WidgetSource::image_unknown(index, link, text)),
                         ))?,
                         Err(_) => event_image_tx.send((
                             width,
-                            Event::Update(WidgetSource::image_unknown(index, url, title)),
+                            Event::Update(WidgetSource::image_unknown(index, url, text)),
                         ))?,
                     }
                 }
@@ -217,7 +217,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
 
 #[derive(Debug)]
 enum ImgCmd {
-    UrlImage(usize, u16, String, String),
+    UrlImage(usize, u16, String, String, String),
     Header(usize, u16, u8, String),
 }
 
@@ -230,7 +230,7 @@ struct ParseCmd {
 enum Event<'a> {
     Parsed(WidgetSource<'a>),
     Update(WidgetSource<'a>),
-    ParseImage(usize, String, String),
+    ParseImage(usize, String, String, String),
     ParseHeader(usize, u8, Vec<Span<'a>>),
 }
 
@@ -346,14 +346,20 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                             index.unwrap()
                         );
                     }
-                    Event::ParseImage(index, url, title) => {
-                        model
-                            .tx
-                            .send(ImgCmd::UrlImage(index, inner_width, url, title))?;
+                    Event::ParseImage(index, url, text, title) => {
+                        model.tx.send(ImgCmd::UrlImage(
+                            index,
+                            inner_width,
+                            url.clone(),
+                            text,
+                            title,
+                        ))?;
                         model.sources.push(WidgetSource {
                             index,
-                            height: 10,
-                            source: WidgetSourceData::Text(Text::from("[image placeholder]")),
+                            height: 1,
+                            source: WidgetSourceData::Text(Text::from(format!(
+                                "![Loading...]({url})"
+                            ))),
                         });
                     }
                     Event::ParseHeader(index, tier, spans) => {
@@ -478,6 +484,17 @@ fn view(model: &mut Model, frame: &mut Frame) {
                 WidgetSourceData::Image(proto) => {
                     let img = Image::new(proto);
                     render_widget(img, source.height, y as u16, inner_area, frame);
+                }
+                WidgetSourceData::BrokenImage(url, text) => {
+                    let spans = vec![
+                        Span::from(format!("![{text}](")).red(),
+                        Span::from(url.clone()).blue(),
+                        Span::from(")").red(),
+                    ];
+                    let text = Text::from(Line::from(spans));
+                    let height = text.height();
+                    let p = Paragraph::new(text);
+                    render_widget(p, height as u16, y as u16, inner_area, frame);
                 }
                 WidgetSourceData::CodeBlock(text) => {
                     let p = Paragraph::new(text.clone()).on_dark_gray();

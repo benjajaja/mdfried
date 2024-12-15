@@ -52,9 +52,17 @@ pub async fn parse<'b>(
                         spans = vec![];
                     }
                     NodeValue::Image(ref link) => {
+                        let text = if spans.len() == 1 {
+                            spans.first().map(|s| s.to_string())
+                        } else {
+                            None
+                        }
+                        .unwrap_or("".to_string());
+
                         sender.send_event(Event::ParseImage(
                             sender.index,
                             link.url.clone(),
+                            text,
                             link.title.clone(),
                         ))?;
                         spans = vec![];

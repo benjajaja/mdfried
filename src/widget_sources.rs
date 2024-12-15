@@ -23,6 +23,7 @@ pub struct WidgetSource<'a> {
 
 pub enum WidgetSourceData<'a> {
     Image(Protocol),
+    BrokenImage(String, String),
     Text(Text<'a>),
     CodeBlock(Text<'a>),
 }
@@ -31,6 +32,7 @@ impl Debug for WidgetSourceData<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Image(_) => f.debug_tuple("Image").finish(),
+            Self::BrokenImage(_, _) => f.debug_tuple("BrokenImage").finish(),
             Self::Text(arg0) => f.debug_tuple("Text").field(arg0).finish(),
             Self::CodeBlock(arg0) => f.debug_tuple("CodeBlock").field(arg0).finish(),
         }
@@ -38,11 +40,11 @@ impl Debug for WidgetSourceData<'_> {
 }
 
 impl<'a> WidgetSource<'a> {
-    pub fn image_unknown(index: usize, url: String, title: String) -> WidgetSource<'a> {
+    pub fn image_unknown(index: usize, url: String, text: String) -> WidgetSource<'a> {
         WidgetSource {
             index,
             height: 1,
-            source: WidgetSourceData::Text(format!("![{title}]({url})").into()),
+            source: WidgetSourceData::BrokenImage(url, text),
         }
     }
 }
@@ -160,10 +162,16 @@ pub async fn image_source<'a>(
         dyn_img = deep_fry(dyn_img);
     }
 
-    let height: u16 = 10;
+    let max_height: u16 = 20;
+    let max_width: u16 = (max_height * 3 / 2).min(width);
 
-    let proto = picker.new_protocol(dyn_img, Rect::new(0, 0, width, height), Resize::Fit(None))?;
+    let proto = picker.new_protocol(
+        dyn_img,
+        Rect::new(0, 0, max_width, max_height),
+        Resize::Fit(None),
+    )?;
 
+    let height = proto.area().height;
     Ok(WidgetSource {
         index,
         height,
