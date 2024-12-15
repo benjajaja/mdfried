@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-use clap::{arg, command, value_parser};
+use clap::{arg, command, value_parser, ArgMatches};
 use config::Config;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture, KeyModifiers, MouseEventKind},
@@ -47,41 +47,66 @@ const CONFIG: (&str, Option<&str>) = ("mdfried", Some("config"));
 
 #[tokio::main]
 async fn main() -> io::Result<()> {
-    std::env::set_var("FONTCONFIG_LOG_LEVEL", "silent");
-
-    let matches = command!() // requires `cargo` feature
-        .arg(arg!([path] "The input markdown file path").value_parser(value_parser!(PathBuf)))
+    let mut cmd = command!() // requires `cargo` feature
+        .arg(
+            arg!([path] "The markdown file path, or '-' for stdin")
+                .value_parser(value_parser!(PathBuf)),
+        )
         .arg(arg!(-s --setup "Force font setup").value_parser(value_parser!(bool)))
-        .arg(arg!(-d --deep "Extra deep fried images").value_parser(value_parser!(bool)))
-        .get_matches();
+        .arg(arg!(-d --deep "Extra deep fried images").value_parser(value_parser!(bool)));
+    let matches = cmd.get_matches_mut();
 
+    match start(&matches).await {
+        Err(Error::UsageError(msg)) => {
+            if let Some(msg) = msg {
+                println!("Usage error: {msg}");
+                println!("");
+            }
+            cmd.write_help(&mut std::io::stdout())?;
+        }
+        Err(Error::UserAbort(msg)) => {
+            println!("Abort: {msg}");
+        }
+        Err(err) => eprintln!("{err}"),
+        _ => {}
+    };
+    Ok(())
+}
+
+async fn start(matches: &ArgMatches) -> Result<(), Error> {
     let path = matches.get_one::<PathBuf>("path");
 
     let (text, basepath) = match path {
-        Some(path) => (
-            read_file_to_str(path.to_str().ok_or(Error::Msg("path error".into()))?)?,
-            path.parent().map(Path::to_path_buf),
-        ),
-        None if !io::stdin().is_tty() => {
+        Some(path) if path.as_os_str() == "-" => {
             let mut text = String::new();
             print!("Reading stdin...");
             io::stdin().read_to_string(&mut text)?;
             println!("{OK_END}");
             (text, None)
         }
+        Some(path) => (
+            read_file_to_str(path.to_str().ok_or(Error::Path(path.to_owned()))?)?,
+            path.parent().map(Path::to_path_buf),
+        ),
         None => {
-            return Err(Error::Msg(
-                "no input file path provided, and no stdin pipe detected".into(),
-            )
-            .into())
+            if io::stdin().is_tty() {
+                return Err(Error::UsageError(Some(
+                    "no path nor '-', and stdin is a tty (not a pipe)",
+                )));
+            }
+            let mut text = String::new();
+            print!("Reading stdin...");
+            io::stdin().read_to_string(&mut text)?;
+            println!("{OK_END}");
+            (text, None)
         }
     };
 
     if text.is_empty() {
-        return Err(Error::Msg("no input or emtpy".into()).into());
+        return Err(Error::UsageError(Some("no input or emtpy")));
     }
 
-    let config: Config = confy::load(CONFIG.0, CONFIG.1).map_err(map_to_io_error)?;
+    let config: Config = confy::load(CONFIG.0, CONFIG.1)?;
 
     if !io::stdin().is_tty() {
         print!("Setting stdin to /dev/tty...");
@@ -103,7 +128,11 @@ async fn main() -> io::Result<()> {
     }
 
     let force_setup = *matches.get_one("setup").unwrap_or(&false);
-    let (mut picker, font, bg) = setup_imagery(config.font_family, force_setup)?;
+    let (mut picker, font, bg) = match setup_imagery(config.font_family, force_setup) {
+        Ok(Some((picker, font, bg))) => (picker, font, bg),
+        Ok(None) => return Err(Error::UserAbort("cancelled setup")),
+        Err(err) => return Err(err),
+    };
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<ImgCmd>();
     let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
@@ -186,13 +215,6 @@ async fn main() -> io::Result<()> {
     Ok(result.map_err(Error::from)?)
 }
 
-fn map_to_io_error<I>(err: I) -> io::Error
-where
-    I: Into<Error>,
-{
-    err.into().into()
-}
-
 #[derive(Debug)]
 enum ImgCmd {
     UrlImage(usize, u16, String, String),
@@ -271,7 +293,7 @@ fn model_reload<'a>(model: &mut Model<'a, 'a>, width: u16) -> Result<(), Error> 
         let text = read_file_to_str(
             original_file_path
                 .to_str()
-                .ok_or(Error::Msg("could not convert original_file_path".into()))?,
+                .ok_or(Error::Path(original_file_path.to_path_buf()))?,
         )?;
 
         let mut ext_options = ExtensionOptions::default();

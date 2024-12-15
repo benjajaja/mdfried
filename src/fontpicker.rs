@@ -11,7 +11,7 @@ use crate::{
     Error,
 };
 
-pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<String, Error> {
+pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<Option<String>, Error> {
     let mut terminal = ratatui::init_with_options(ratatui::TerminalOptions {
         viewport: ratatui::Viewport::Inline(6),
     });
@@ -32,8 +32,7 @@ pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<String, E
         let (font, first_match) = if let Some((first_match, _)) = first_match {
             let fp_builder = system_fonts::FontPropertyBuilder::new().family(&first_match);
             let property = fp_builder.build();
-            let (font_data, _) =
-                system_fonts::get(&property).ok_or("Could not get system fonts property")?;
+            let (font_data, _) = system_fonts::get(&property).ok_or(Error::NoFont)?;
 
             let font = Font::try_from_vec(font_data).ok_or(Error::NoFont)?;
             (Some(font), Some(first_match))
@@ -122,14 +121,14 @@ pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<String, E
                         if let Some(first_match) = find_first_match(&all_fonts, &input) {
                             terminal.clear()?;
                             ratatui::restore();
-                            return Ok(first_match.0);
+                            return Ok(Some(first_match.0));
                         }
                     }
                     KeyCode::Esc => {
                         // Exit on Escape
                         terminal.clear()?;
                         ratatui::restore();
-                        return Err(Error::Msg("Font setup aborted by user".into()));
+                        return Ok(None);
                     }
                     _ => {}
                 }

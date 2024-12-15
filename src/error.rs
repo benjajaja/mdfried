@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{io, sync::mpsc::SendError};
+use std::{io, path::PathBuf, sync::mpsc::SendError};
 
 use confy::ConfyError;
 use image::ImageError;
@@ -10,13 +10,15 @@ use crate::{ImgCmd, ParseCmd, WidthEvent};
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum Error {
+    UsageError(Option<&'static str>),
+    UserAbort(&'static str),
     Cli(clap::error::Error),
     Config(ConfyError),
     Io(io::Error),
     Image(image::ImageError),
     Protocol(ratatui_image::errors::Errors),
     Download(reqwest::Error),
-    Msg(String),
+    Path(PathBuf),
     NoFont,
     Thread,
     UnknownImage(usize, String),
@@ -25,15 +27,17 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Error::UsageError(_) => write!(f, "Bad arguments"), // Never shown to user, just a signal.
+            Error::UserAbort(msg) => write!(f, "Aborted by user ({msg})"),
             Error::Cli(err) => write!(f, "Command line argument error: {err}"),
             Error::Config(err) => write!(f, "Configuration error: {err}"),
             Error::Io(err) => write!(f, "I/O error: {err}"),
             Error::Image(err) => write!(f, "Image manipulation error: {err}"),
             Error::Protocol(err) => write!(f, "Terminal graphics error: {err}"),
             Error::Download(err) => write!(f, "HTTP request error: {err}"),
-            Error::Msg(err) => write!(f, "Error: {err}"),
-            Error::NoFont => write!(f, "Error: no font available"),
-            Error::Thread => write!(f, "Error: thread error"),
+            Error::Path(path_str) => write!(f, "Path error: \"{path_str:?}\""),
+            Error::NoFont => write!(f, "No font available"),
+            Error::Thread => write!(f, "Thread error"),
             Error::UnknownImage(_, url) => write!(f, "Unknown image format: {url}"),
         }
     }
@@ -45,12 +49,6 @@ impl From<Error> for io::Error {
             Error::Io(io_err) => io_err,
             err => io::Error::new(io::ErrorKind::Other, format!("{err:?}")),
         }
-    }
-}
-
-impl From<&str> for Error {
-    fn from(value: &str) -> Self {
-        Self::Msg(value.to_string())
     }
 }
 
