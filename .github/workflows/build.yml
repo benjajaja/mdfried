@@ -1,0 +1,27 @@
+name: Build and Test Flake ❄️
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v24
+
+      - name: Build Flake
+        run: |
+          nix flake show
+          nix build .#defaultPackage
+
+      - name: Run Tests
+        run: |
+          nix flake check

@@ -11,31 +11,45 @@
   outputs = { self, nixpkgs, flake-utils, rust-overlay, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        # We only need the nightly overlay in the devShell because .rs files are formatted with nightly.
         overlays = [ (import rust-overlay) ];
         pkgs = import nixpkgs { inherit system overlays; };
       in
       with pkgs;
       {
-        packages.default = rustPlatform.buildRustPackage {
+        packages.defaultPackage = rustPlatform.buildRustPackage {
           pname = "mdfried";
           version = self.shortRev or self.dirtyShortRev;
           src = ./.;
-          cargoLock = {
-            lockFile = ./Cargo.lock;
-          };
+          cargoLock.lockFile = ./Cargo.lock;
+          nativeBuildInputs = [
+            cmake
+            file
+            freetype
+            pkg-config
+          ];
+          buildInputs = [
+            freetype
+            expat
+            rust-bin.stable.latest.default
+          ];
+          doCheck = true;
         };
 
-        devShell = mkShell {
+        devShells.default = mkShell {
           nativeBuildInputs = [
-            freetype expat pkg-config
+            cmake
+            file
+            freetype
+            expat
+            pkg-config
           ];
           buildInputs = [
             rust-bin.stable.latest.default
             cargo-tarpaulin
             cargo-watch
-            pandoc # just for testing html-to-md piping
           ];
         };
+
+        checks.test = self.packages.${system}.defaultPackage;
       });
 }
