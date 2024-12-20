@@ -3,14 +3,14 @@ use std::{fmt::Debug, io::Cursor, path::PathBuf, sync::Arc};
 use image::{
     imageops, DynamicImage, GenericImage, ImageFormat, ImageReader, Pixel, Rgba, RgbaImage,
 };
-use ratatui::{layout::Rect, text::Text};
+use ratatui::{layout::Rect, text::Line};
 
 use ratatui_image::{picker::Picker, protocol::Protocol, Resize};
 use reqwest::{
     header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE},
     Client,
 };
-use rusttype::{point, Font, Scale};
+use rusttype::{point, Font, PositionedGlyph, Scale};
 
 use crate::Error;
 
@@ -24,8 +24,8 @@ pub struct WidgetSource<'a> {
 pub enum WidgetSourceData<'a> {
     Image(Protocol),
     BrokenImage(String, String),
-    Text(Text<'a>),
-    CodeBlock(Text<'a>),
+    Line(Line<'a>),
+    CodeBlock(Line<'a>),
 }
 
 impl Debug for WidgetSourceData<'_> {
@@ -33,7 +33,7 @@ impl Debug for WidgetSourceData<'_> {
         match self {
             Self::Image(_) => f.debug_tuple("Image").finish(),
             Self::BrokenImage(_, _) => f.debug_tuple("BrokenImage").finish(),
-            Self::Text(arg0) => f.debug_tuple("Text").field(arg0).finish(),
+            Self::Line(arg0) => f.debug_tuple("Text").field(arg0).finish(),
             Self::CodeBlock(arg0) => f.debug_tuple("CodeBlock").field(arg0).finish(),
         }
     }
@@ -58,63 +58,106 @@ pub fn header_source<'a>(
     text: String,
     tier: u8,
     deep_fry_meme: bool,
-) -> Result<WidgetSource<'a>, Error> {
+) -> Result<Vec<WidgetSource<'a>>, Error> {
     static TRANSPARENT_BACKGROUND: [u8; 4] = [0, 0, 0, 0];
     let bg = bg.unwrap_or(TRANSPARENT_BACKGROUND);
 
-    let cell_height = 2;
+    const HEADER_ROW_COUNT: u16 = 2;
     let (font_width, font_height) = picker.font_size();
     let img_width = (width * font_width) as u32;
-    let img_height = (cell_height * font_height) as u32;
-    let img: RgbaImage = RgbaImage::from_pixel(img_width, img_height, Rgba(bg));
-    let mut dyn_img = image::DynamicImage::ImageRgba8(img);
+    let img_height = (HEADER_ROW_COUNT * font_height) as u32;
 
     let tier_scale = ((12 - tier) as f32) / 12.0f32;
-    let scale = Scale::uniform((font_height * cell_height) as f32 * tier_scale);
+    let scale = Scale::uniform((font_height * HEADER_ROW_COUNT) as f32 * tier_scale);
     let v_metrics = font.v_metrics(scale);
-    let glyphs: Vec<_> = font
-        .layout(&text, scale, point(0.0, 0.0 + v_metrics.ascent))
-        .collect();
 
-    let max_x = img_width as u64;
-    let max_y = img_height as u64;
-    for glyph in glyphs {
-        if let Some(bounding_box) = glyph.pixel_bounding_box() {
-            let mut outside = false;
-            let bb_x = bounding_box.min.x as u64;
-            let bb_y = bounding_box.min.y as u64;
-            glyph.draw(
-                |x, y, v| match (bb_x.checked_add(x as u64), bb_y.checked_add(y as u64)) {
-                    (Some(p_x), Some(p_y)) if p_x < max_x && p_y < max_y => {
-                        let u8v = (255.0 * v) as u8;
-                        let mut pixel = Rgba(bg);
-                        pixel.blend(&Rgba([u8v, u8v, u8v, u8v]));
-                        dyn_img.put_pixel(p_x as u32, p_y as u32, pixel);
-                    }
-                    _ => outside = true,
-                },
-            );
-            if outside {
-                break;
-            }
+    let words = text.split_whitespace();
+
+    let mut lines = vec![];
+    let mut current_line = String::new();
+    let mut glyphs_line: Vec<PositionedGlyph> = vec![];
+    for word in words {
+        let mut maybe_current_line = current_line.clone();
+        if !maybe_current_line.is_empty() {
+            maybe_current_line.push(' ');
+        }
+        maybe_current_line.push_str(word);
+
+        glyphs_line = font
+            .layout(
+                &maybe_current_line,
+                scale,
+                point(0.0, 0.0 + v_metrics.ascent),
+            )
+            .collect();
+
+        let width = glyphs_line
+            .last()
+            .and_then(|g| g.pixel_bounding_box())
+            .map(|bb| bb.max.x)
+            .unwrap_or(0) as u32;
+
+        if width <= img_width {
+            current_line = maybe_current_line;
+        } else {
+            glyphs_line = font
+                .layout(&current_line, scale, point(0.0, 0.0 + v_metrics.ascent))
+                .collect();
+            lines.push(glyphs_line);
+            glyphs_line = vec![];
+            current_line = word.to_string();
         }
     }
 
-    if deep_fry_meme {
-        dyn_img = deep_fry(dyn_img);
+    if !current_line.is_empty() {
+        lines.push(glyphs_line);
     }
 
-    let proto = picker.new_protocol(
-        dyn_img,
-        Rect::new(0, 0, width, cell_height),
-        Resize::Fit(None),
-    )?;
+    let mut sources = vec![];
 
-    Ok(WidgetSource {
-        index,
-        height: cell_height,
-        source: WidgetSourceData::Image(proto),
-    })
+    let max_x = img_width;
+    let max_y = img_height;
+    for word_glyphs in lines {
+        let img: RgbaImage = RgbaImage::from_pixel(img_width, img_height, Rgba(bg));
+        let mut dyn_img = image::DynamicImage::ImageRgba8(img);
+
+        for glyph in word_glyphs {
+            if let Some(bounding_box) = glyph.pixel_bounding_box() {
+                let mut outside = false;
+                let bb_x = bounding_box.min.x as u32;
+                let bb_y = bounding_box.min.y as u32;
+                glyph.draw(|x, y, v| match (bb_x.checked_add(x), bb_y.checked_add(y)) {
+                    (Some(p_x), Some(p_y)) if (p_x) < max_x && p_y < max_y => {
+                        let u8v = (255.0 * v) as u8;
+                        let mut pixel = Rgba(bg);
+                        pixel.blend(&Rgba([u8v, u8v, u8v, u8v]));
+                        dyn_img.put_pixel(p_x, p_y, pixel);
+                    }
+                    _ => outside = true,
+                });
+                if outside {
+                    break;
+                }
+            }
+        }
+
+        if deep_fry_meme {
+            dyn_img = deep_fry(dyn_img);
+        }
+
+        let proto = picker.new_protocol(
+            dyn_img,
+            Rect::new(0, 0, width, HEADER_ROW_COUNT),
+            Resize::Fit(None),
+        )?;
+        sources.push(WidgetSource {
+            index,
+            height: HEADER_ROW_COUNT,
+            source: WidgetSourceData::Image(proto),
+        });
+    }
+
+    Ok(sources)
 }
 
 pub async fn image_source<'a>(

@@ -5,17 +5,12 @@ use comrak::{
 };
 use ratatui::{
     style::{Modifier, Style, Stylize},
-    text::{Line, Span, Text},
+    text::{Line, Span},
 };
 
 use crate::{widget_sources::WidgetSourceData, Error, Event, WidgetSource, WidthEvent};
 
-pub async fn parse<'b>(
-    text: &str,
-    width: u16,
-    tx: &Sender<WidthEvent<'b>>,
-    id: u16,
-) -> Result<(), Error> {
+pub async fn parse<'b>(text: &str, width: u16, tx: &Sender<WidthEvent<'b>>) -> Result<(), Error> {
     let mut ext_options = ExtensionOptions::default();
     ext_options.strikethrough = true;
 
@@ -33,7 +28,11 @@ pub async fn parse<'b>(
     let mut spans = vec![];
     let mut style = Style::new();
 
-    let mut sender = SendTracker { id, tx, index: 0 };
+    let mut sender = SendTracker {
+        width,
+        tx,
+        index: 0,
+    };
     for edge in root.traverse() {
         match edge {
             NodeEdge::Start(node) => {
@@ -70,19 +69,15 @@ pub async fn parse<'b>(
                     NodeValue::Paragraph => {
                         let wrapped_lines = wrap_spans(spans, width as usize);
                         for line in wrapped_lines {
-                            let text = Text::from(line);
-                            let height = text.height() as u16;
-                            sender.send_parsed(WidgetSourceData::Text(text), height)?;
+                            sender.send_parse(WidgetSourceData::Line(line), 1)?;
                         }
-                        sender.send_parsed(WidgetSourceData::Text(Text::default()), 1)?;
+                        sender.send_parse(WidgetSourceData::Line(Line::default()), 1)?;
                         spans = vec![];
                     }
                     NodeValue::LineBreak | NodeValue::SoftBreak => {
                         let wrapped_lines = wrap_spans(spans, width as usize);
                         for line in wrapped_lines {
-                            let text = Text::from(line);
-                            let height = text.height() as u16;
-                            sender.send_parsed(WidgetSourceData::Text(text), height)?;
+                            sender.send_parse(WidgetSourceData::Line(line), 1)?;
                         }
                         spans = vec![];
                     }
@@ -102,11 +97,10 @@ pub async fn parse<'b>(
                             splits.pop();
                         }
                         for line in splits {
-                            let text = Text::from(Line::from(line.to_string())).style(style);
-                            let height = text.height() as u16;
-                            sender.send_parsed(WidgetSourceData::CodeBlock(text), height)?;
+                            let line = Line::from(line.to_string()).style(style).on_dark_gray();
+                            sender.send_parse(WidgetSourceData::CodeBlock(line), 1)?;
                         }
-                        sender.send_parsed(WidgetSourceData::Text(Text::default()), 1)?;
+                        sender.send_parse(WidgetSourceData::Line(Line::default()), 1)?;
                         spans = vec![];
                     }
                     _ => {}
@@ -120,13 +114,13 @@ pub async fn parse<'b>(
 
 // Just so that we don't miss an `index += 1`.
 struct SendTracker<'a, 'b> {
-    id: u16,
+    width: u16,
     index: usize,
     tx: &'a Sender<WidthEvent<'b>>,
 }
 
-impl<'a, 'b> SendTracker<'a, 'b> {
-    fn send_parsed(&mut self, source: WidgetSourceData<'b>, height: u16) -> Result<(), Error> {
+impl<'b> SendTracker<'_, 'b> {
+    fn send_parse(&mut self, source: WidgetSourceData<'b>, height: u16) -> Result<(), Error> {
         self.send_event(Event::Parsed(WidgetSource {
             index: self.index,
             height,
@@ -134,7 +128,7 @@ impl<'a, 'b> SendTracker<'a, 'b> {
         }))
     }
     fn send_event(&mut self, ev: Event<'b>) -> Result<(), Error> {
-        self.tx.send((self.id, ev))?;
+        self.tx.send((self.width, ev))?;
         self.index += 1;
         Ok(())
     }

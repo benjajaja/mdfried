@@ -70,7 +70,7 @@ pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<Option<St
                     }
                     _ => {
                         let spans = vec!["The fox jumped over the goat or something".into()];
-                        if let Ok(source) = header_source(
+                        if let Ok(sources) = header_source(
                             picker,
                             Arc::new(font),
                             bg,
@@ -80,13 +80,15 @@ pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<Option<St
                             1,
                             false,
                         ) {
-                            if let WidgetSourceData::Image(mut proto) = source.source {
-                                let img = Image::new(&mut proto);
-                                let mut area = inner_area;
-                                area.y += 1;
-                                area.height = 2;
-                                f.render_widget(img, area);
-                                last_rendered = Some((input.clone(), proto));
+                            if let Some(source) = sources.into_iter().next() {
+                                if let WidgetSourceData::Image(mut proto) = source.source {
+                                    let img = Image::new(&mut proto);
+                                    let mut area = inner_area;
+                                    area.y += 1;
+                                    area.height = 2;
+                                    f.render_widget(img, area);
+                                    last_rendered = Some((input.clone(), proto));
+                                }
                             }
                         }
                     }

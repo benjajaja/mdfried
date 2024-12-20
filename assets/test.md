@@ -25,7 +25,13 @@ URL image:
 Broken image link:
 ![borken lenk](https://example.com/404)
 
+# Looooooooooooooooong heading, so long that it will never fit a reasonably large terminal. No I don't care how big your monitor is.
+
+---
+
 ### Can it render emojis? 🤣 No.
+
+---
 
 ### Unwrapped looooong paragraph:
 

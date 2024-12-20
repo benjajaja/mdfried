@@ -57,10 +57,10 @@ async fn main() -> io::Result<()> {
     let matches = cmd.get_matches_mut();
 
     match start(&matches).await {
-        Err(Error::UsageError(msg)) => {
+        Err(Error::Usage(msg)) => {
             if let Some(msg) = msg {
                 println!("Usage error: {msg}");
-                println!("");
+                println!();
             }
             cmd.write_help(&mut std::io::stdout())?;
         }
@@ -90,7 +90,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
         ),
         None => {
             if io::stdin().is_tty() {
-                return Err(Error::UsageError(Some(
+                return Err(Error::Usage(Some(
                     "no path nor '-', and stdin is a tty (not a pipe)",
                 )));
             }
@@ -103,7 +103,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
     };
 
     if text.is_empty() {
-        return Err(Error::UsageError(Some("no input or emtpy")));
+        return Err(Error::Usage(Some("no input or emtpy")));
     }
 
     let config: Config = confy::load(CONFIG.0, CONFIG.1)?;
@@ -149,9 +149,19 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
                 ImgCmd::Header(index, width, tier, text) => {
                     let task_tx = event_image_tx.clone();
                     let task_font = arc_font.clone();
-                    let source =
-                        header_source(&mut picker, task_font, bg, width, index, text, tier, false)?;
-                    task_tx.send((width, Event::Update(source)))?;
+                    task_tx.send((
+                        width,
+                        Event::Update(header_source(
+                            &mut picker,
+                            task_font,
+                            bg,
+                            width,
+                            index,
+                            text,
+                            tier,
+                            false,
+                        )?),
+                    ))?;
                 }
                 ImgCmd::UrlImage(index, width, url, text, _title) => {
                     match image_source(
@@ -165,14 +175,14 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
                     )
                     .await
                     {
-                        Ok(source) => event_image_tx.send((width, Event::Update(source)))?,
+                        Ok(source) => event_image_tx.send((width, Event::Update(vec![source])))?,
                         Err(Error::UnknownImage(index, link)) => event_image_tx.send((
                             width,
-                            Event::Update(WidgetSource::image_unknown(index, link, text)),
+                            Event::Update(vec![WidgetSource::image_unknown(index, link, text)]),
                         ))?,
                         Err(_) => event_image_tx.send((
                             width,
-                            Event::Update(WidgetSource::image_unknown(index, url, text)),
+                            Event::Update(vec![WidgetSource::image_unknown(index, url, text)]),
                         ))?,
                     }
                 }
@@ -184,7 +194,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
     let (parse_tx, parse_rx) = mpsc::channel::<ParseCmd>();
     let parse_handle2 = tokio::spawn(async move {
         for ParseCmd { width, text } in parse_rx {
-            parse(&text, width, &event_tx, width).await?;
+            parse(&text, width, &event_tx).await?;
         }
         Ok(())
     });
@@ -212,7 +222,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
     };
     crossterm::execute!(std::io::stderr(), DisableMouseCapture)?;
     ratatui::restore();
-    Ok(result.map_err(Error::from)?)
+    result.map_err(Error::from)
 }
 
 #[derive(Debug)]
@@ -229,7 +239,7 @@ struct ParseCmd {
 #[derive(Debug)]
 enum Event<'a> {
     Parsed(WidgetSource<'a>),
-    Update(WidgetSource<'a>),
+    Update(Vec<WidgetSource<'a>>),
     ParseImage(usize, String, String, String),
     ParseHeader(usize, u8, Vec<Span<'a>>),
 }
@@ -331,20 +341,31 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                     Event::Parsed(source) => {
                         model.sources.push(source);
                     }
-                    Event::Update(update) => {
-                        let mut index = Some(update.index);
-                        for source in &mut model.sources {
-                            if source.index == update.index {
-                                *source = update;
-                                index = None;
-                                break;
+                    Event::Update(updates) => {
+                        if let Some(index) = updates.first().map(|s| s.index) {
+                            let mut first_position = None;
+                            let mut i = 0;
+                            model.sources.retain(|w| {
+                                if w.index == index {
+                                    first_position = match first_position {
+                                        None => Some((i, i)),
+                                        Some((f, _)) => Some((f, i)),
+                                    };
+                                    return false;
+                                }
+                                i += 1;
+                                true
+                            });
+
+                            if let Some((from, to)) = first_position {
+                                model.sources.splice(from..to, updates);
                             }
+                            debug_assert!(
+                                first_position.is_some(),
+                                "Update #{:?} not found anymore",
+                                index,
+                            );
                         }
-                        debug_assert!(
-                            index.is_none(),
-                            "Update {} not found anymore",
-                            index.unwrap()
-                        );
                     }
                     Event::ParseImage(index, url, text, title) => {
                         model.tx.send(ImgCmd::UrlImage(
@@ -357,7 +378,7 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                         model.sources.push(WidgetSource {
                             index,
                             height: 1,
-                            source: WidgetSourceData::Text(Text::from(format!(
+                            source: WidgetSourceData::Line(Line::from(format!(
                                 "![Loading...]({url})"
                             ))),
                         });
@@ -377,7 +398,7 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                         model.sources.push(WidgetSource {
                             index,
                             height: 2,
-                            source: WidgetSourceData::Text(Text::from(line)),
+                            source: WidgetSourceData::Line(line),
                         });
                     }
                 }
@@ -477,8 +498,12 @@ fn view(model: &mut Model, frame: &mut Frame) {
     for source in &mut model.sources {
         if y >= 0 {
             match &mut source.source {
-                WidgetSourceData::Text(text) => {
+                WidgetSourceData::Line(text) => {
                     let p = Paragraph::new(text.clone());
+                    render_widget(p, source.height, y as u16, inner_area, frame);
+                }
+                WidgetSourceData::CodeBlock(text) => {
+                    let p = Paragraph::new(text.clone()).on_dark_gray();
                     render_widget(p, source.height, y as u16, inner_area, frame);
                 }
                 WidgetSourceData::Image(proto) => {
@@ -495,10 +520,6 @@ fn view(model: &mut Model, frame: &mut Frame) {
                     let height = text.height();
                     let p = Paragraph::new(text);
                     render_widget(p, height as u16, y as u16, inner_area, frame);
-                }
-                WidgetSourceData::CodeBlock(text) => {
-                    let p = Paragraph::new(text.clone()).on_dark_gray();
-                    render_widget(p, source.height, y as u16, inner_area, frame);
                 }
             }
         }

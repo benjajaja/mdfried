@@ -10,7 +10,7 @@ use crate::{ImgCmd, ParseCmd, WidthEvent};
 #[derive(Debug)]
 #[allow(dead_code)]
 pub enum Error {
-    UsageError(Option<&'static str>),
+    Usage(Option<&'static str>),
     UserAbort(&'static str),
     Cli(clap::error::Error),
     Config(ConfyError),
@@ -27,7 +27,7 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::UsageError(_) => write!(f, "Bad arguments"), // Never shown to user, just a signal.
+            Error::Usage(_) => write!(f, "Bad arguments"), // Never shown to user, just a signal.
             Error::UserAbort(msg) => write!(f, "Aborted by user ({msg})"),
             Error::Cli(err) => write!(f, "Command line argument error: {err}"),
             Error::Config(err) => write!(f, "Configuration error: {err}"),
