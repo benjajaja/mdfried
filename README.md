@@ -28,9 +28,8 @@ In general, Kitty, WezTerm, iTerm2, foot, `xterm -ti vt340`, _should_ work.
 
 # Installation
 
+- Use this repo as nix flake
 - `cargo install mdfried`
-- Clone repo and `cargo install --path .`
-- There is a `flake.nix` which _might_ work
 
 # Usage
 
@@ -45,18 +44,3 @@ font-setup again if the font is not right.
 
 Press `q` to quit. `j`/`k` to scroll by lines, `Ctrl-d`/`Ctrl-u` to scroll by pages. `r` reloads
 the file (if not using stdin pipe). Mouse scroll also works.
-
-# TODO (laundry list)
-
-### General
-
-- [ ] Extend README.md, documentation
-- [ ] Publish to crates.io
-- [ ] Fix `--deep` fried mode
-
-### Markdown elements
-
-- [ ] Blockquote
-- [ ] Lists
-- [ ] Tables
-- [ ] HRs
