@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use font_loader::system_fonts;
 use ratatui::{style::Stylize, text::Line, widgets::Paragraph};
@@ -7,6 +5,7 @@ use ratatui_image::{picker::Picker, protocol::Protocol, Image};
 use rusttype::Font;
 
 use crate::{
+    setup::Renderer,
     widget_sources::{header_source, WidgetSourceData},
     Error,
 };
@@ -71,9 +70,11 @@ pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<Option<St
                     _ => {
                         let spans = vec!["The fox jumped over the goat or something".into()];
                         if let Ok(sources) = header_source(
-                            picker,
-                            Arc::new(font),
-                            bg,
+                            &mut Renderer {
+                                picker: *picker,
+                                font,
+                                bg,
+                            },
                             inner_area.width,
                             0,
                             Line::from(spans).to_string(),

@@ -5,10 +5,16 @@ use rusttype::Font;
 
 use crate::{config::Config, error::Error, fontpicker::set_up_font, CONFIG};
 
-pub fn setup_imagery<'a>(
+pub struct Renderer<'a> {
+    pub picker: Picker,
+    pub font: Font<'a>,
+    pub bg: Option<[u8; 4]>,
+}
+
+pub fn setup_graphics<'a>(
     font_family: Option<String>,
     force_font_setup: bool,
-) -> Result<Option<(Picker, Font<'a>, Option<[u8; 4]>)>, Error> {
+) -> Result<Option<Renderer<'a>>, Error> {
     print!("Detecting supported graphics protocols...");
     let mut picker = Picker::from_query_stdio()?;
     println!(" {:?}.", picker.protocol_type());
@@ -73,5 +79,5 @@ pub fn setup_imagery<'a>(
     let (font_data, _) = system_fonts::get(&property).ok_or(Error::NoFont)?;
 
     let font = Font::try_from_vec(font_data).ok_or(Error::NoFont)?;
-    Ok(Some((picker, font, bg)))
+    Ok(Some(Renderer { picker, font, bg }))
 }

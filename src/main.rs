@@ -3,10 +3,7 @@ use std::{
     io::{self, Read},
     os::fd::IntoRawFd,
     path::{Path, PathBuf},
-    sync::{
-        mpsc::{self, Receiver, Sender},
-        Arc,
-    },
+    sync::mpsc::{self, Receiver, Sender},
     time::Duration,
 };
 
@@ -31,7 +28,7 @@ use comrak::ExtensionOptions;
 use ratatui_image::Image;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use setup::setup_imagery;
+use setup::setup_graphics;
 use widget_sources::{header_source, image_source, WidgetSource, WidgetSourceData};
 
 mod config;
@@ -128,11 +125,12 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
     }
 
     let force_setup = *matches.get_one("setup").unwrap_or(&false);
-    let (mut picker, font, bg) = match setup_imagery(config.font_family, force_setup) {
-        Ok(Some((picker, font, bg))) => (picker, font, bg),
+    let mut renderer = match setup_graphics(config.font_family, force_setup) {
+        Ok(Some(renderer)) => renderer,
         Ok(None) => return Err(Error::UserAbort("cancelled setup")),
         Err(err) => return Err(err),
     };
+    let bg = renderer.bg;
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<ImgCmd>();
     let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
@@ -143,18 +141,14 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
     let parse_handle = tokio::spawn(async move {
         let basepath = basepath.clone();
         let mut client = Client::new();
-        let arc_font = Arc::new(font);
         for cmd in cmd_rx {
             match cmd {
                 ImgCmd::Header(index, width, tier, text) => {
                     let task_tx = event_image_tx.clone();
-                    let task_font = arc_font.clone();
                     task_tx.send((
                         width,
                         Event::Update(header_source(
-                            &mut picker,
-                            task_font,
-                            bg,
+                            &mut renderer,
                             width,
                             index,
                             text,
@@ -165,7 +159,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
                 }
                 ImgCmd::UrlImage(index, width, url, text, _title) => {
                     match image_source(
-                        &mut picker,
+                        &mut renderer.picker,
                         width,
                         &basepath,
                         &mut client,

@@ -1,4 +1,4 @@
-use std::{fmt::Debug, io::Cursor, path::PathBuf, sync::Arc};
+use std::{fmt::Debug, io::Cursor, path::PathBuf};
 
 use image::{
     imageops, DynamicImage, GenericImage, ImageFormat, ImageReader, Pixel, Rgba, RgbaImage,
@@ -10,9 +10,9 @@ use reqwest::{
     header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE},
     Client,
 };
-use rusttype::{point, Font, PositionedGlyph, Scale};
+use rusttype::{point, PositionedGlyph, Scale};
 
-use crate::Error;
+use crate::{setup::Renderer, Error};
 
 #[derive(Debug)]
 pub struct WidgetSource<'a> {
@@ -50,9 +50,7 @@ impl<'a> WidgetSource<'a> {
 }
 
 pub fn header_source<'a>(
-    picker: &mut Picker,
-    font: Arc<Font<'_>>,
-    bg: Option<[u8; 4]>,
+    Renderer { picker, font, bg }: &mut Renderer<'a>,
     width: u16,
     index: usize,
     text: String,
