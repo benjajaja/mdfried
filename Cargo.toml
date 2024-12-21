@@ -28,3 +28,6 @@ futures = "0.3.28"
 tokio = { version = "1.32.0", features = ["full"] }
 tokio-util = "0.7.9"
 
+[package.metadata.release]
+sign-commit = true
+push = false

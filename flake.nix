@@ -35,6 +35,10 @@
           doCheck = true;
         };
 
+        checks = {
+          test = self.packages.${system}.defaultPackage;
+        };
+
         devShells.default = mkShell {
           nativeBuildInputs = [
             cmake
@@ -45,11 +49,11 @@
           ];
           buildInputs = [
             rust-bin.stable.latest.default
+            clippy
             cargo-tarpaulin
             cargo-watch
+            cargo-release
           ];
         };
-
-        checks.test = self.packages.${system}.defaultPackage;
       });
 }

@@ -26,8 +26,5 @@ jobs:
       - name: Build Flake
         run: |
           nix flake show
-          nix build .#defaultPackage
-
-      - name: Run Tests
-        run: |
-          nix flake check
+          nix build .#defaultPackage --print-build-logs
+          nix flake check --print-build-logs
