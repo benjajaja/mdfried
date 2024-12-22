@@ -30,6 +30,7 @@ In general, Kitty, WezTerm, iTerm2, foot, `xterm -ti vt340`, _should_ work.
 
 - Use this repo as nix flake
 - `cargo install mdfried`
+- `paru -S mdfried` on Arch Linux ([AUR](https://aur.archlinux.org/packages/mdfried))
 
 # Usage
 
