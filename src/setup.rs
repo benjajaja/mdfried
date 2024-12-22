@@ -1,17 +1,33 @@
 use font_loader::system_fonts;
 
-use ratatui_image::picker::{Picker, ProtocolType};
+use ratatui_image::{
+    picker::{Picker, ProtocolType},
+    FontSize,
+};
 use rusttype::Font;
 
 use crate::{config::Config, error::Error, fontpicker::set_up_font, CONFIG};
 
 pub struct Renderer<'a> {
     pub picker: Picker,
+    pub font_size: FontSize,
     pub font: Font<'a>,
     pub bg: Option<[u8; 4]>,
 }
 
-pub fn setup_graphics<'a>(
+impl<'a> Renderer<'a> {
+    pub fn new(picker: Picker, font: Font<'a>, bg: Option<[u8; 4]>) -> Self {
+        let font_size = picker.font_size();
+        Renderer {
+            picker,
+            font_size,
+            font,
+            bg,
+        }
+    }
+}
+
+pub async fn setup_graphics<'a>(
     font_family: Option<String>,
     force_font_setup: bool,
 ) -> Result<Option<Renderer<'a>>, Error> {
@@ -42,7 +58,7 @@ pub fn setup_graphics<'a>(
     let font_family = if let Some(mut font_family) = config_font_family {
         if force_font_setup {
             println!("Entering forced font setup");
-            match set_up_font(&mut picker, bg) {
+            match set_up_font(&mut picker, bg).await {
                 Ok(Some(setup_font_family)) => {
                     let new_config = Config {
                         font_family: Some(font_family.clone()),
@@ -58,7 +74,7 @@ pub fn setup_graphics<'a>(
         font_family
     } else {
         println!("Entering one-time font setup");
-        match set_up_font(&mut picker, bg) {
+        match set_up_font(&mut picker, bg).await {
             Ok(Some(font_family)) => {
                 let new_config = Config {
                     font_family: Some(font_family.clone()),
@@ -79,5 +95,5 @@ pub fn setup_graphics<'a>(
     let (font_data, _) = system_fonts::get(&property).ok_or(Error::NoFont)?;
 
     let font = Font::try_from_vec(font_data).ok_or(Error::NoFont)?;
-    Ok(Some(Renderer { picker, font, bg }))
+    Ok(Some(Renderer::new(picker, font, bg)))
 }

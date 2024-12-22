@@ -18,7 +18,7 @@ crossterm = { version = "0.28.1", features = ["event-stream"] }
 font-loader = "0.11.0"
 image = "0.25.2"
 ratatui = "^0.29.0"
-ratatui-image = { version = "4.0.2-dev", features = ["serde"] }
+ratatui-image = { version = "4.1.0", features = ["serde"] }
 rusttype = "0.9.3"
 serde = "^1.0"
 clap = { version = "4.5.21", features = ["cargo"] }

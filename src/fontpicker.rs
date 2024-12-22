@@ -10,7 +10,10 @@ use crate::{
     Error,
 };
 
-pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<Option<String>, Error> {
+pub async fn set_up_font(
+    picker: &mut Picker,
+    bg: Option<[u8; 4]>,
+) -> Result<Option<String>, Error> {
     let mut terminal = ratatui::init_with_options(ratatui::TerminalOptions {
         viewport: ratatui::Viewport::Inline(6),
     });
@@ -24,6 +27,7 @@ pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<Option<St
         .collect();
 
     let mut last_rendered: Option<(String, Protocol)> = None;
+    let mut inner_width = 0;
 
     loop {
         let first_match = find_first_match(&all_fonts, &input);
@@ -45,6 +49,7 @@ pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<Option<St
                 .title("Enter font name (Tab: complete, Esc: abort, Enter: confirm):")
                 .borders(ratatui::widgets::Borders::ALL);
             let inner_area = block.inner(area);
+            inner_width = inner_area.width;
             f.render_widget(block, area);
 
             if let Some(first_match) = first_match {
@@ -58,46 +63,38 @@ pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<Option<St
                 inner_area,
             );
 
-            if let Some(font) = font {
-                match &mut last_rendered {
-                    Some((last_input, ref mut proto)) if *last_input == input => {
-                        let img = Image::new(proto);
-                        let mut area = inner_area;
-                        area.y += 1;
-                        area.height = 2;
-                        f.render_widget(img, area);
-                    }
-                    _ => {
-                        let spans = vec!["The fox jumped over the goat or something".into()];
-                        if let Ok(sources) = header_source(
-                            &mut Renderer {
-                                picker: *picker,
-                                font,
-                                bg,
-                            },
-                            inner_area.width,
-                            0,
-                            Line::from(spans).to_string(),
-                            1,
-                            false,
-                        ) {
-                            if let Some(source) = sources.into_iter().next() {
-                                if let WidgetSourceData::Image(mut proto) = source.source {
-                                    let img = Image::new(&mut proto);
-                                    let mut area = inner_area;
-                                    area.y += 1;
-                                    area.height = 2;
-                                    f.render_widget(img, area);
-                                    last_rendered = Some((input.clone(), proto));
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                last_rendered = None;
+            if let Some((_, ref mut proto)) = last_rendered {
+                let img = Image::new(proto);
+                let mut area = inner_area;
+                area.y += 1;
+                area.height = 2;
+                f.render_widget(img, area);
             }
         })?;
+
+        if inner_width > 0 && (last_rendered.is_none() || last_rendered.clone().unwrap().0 != input)
+        {
+            if let Some(font) = font {
+                let spans = vec!["The fox jumped over the goat or something".into()];
+                let sources = header_source(
+                    &Renderer::new(*picker, font, bg),
+                    inner_width,
+                    0,
+                    Line::from(spans).to_string(),
+                    1,
+                    false,
+                )
+                .await?;
+
+                // Just render the first line if it got split.
+                if let Some(source) = sources.into_iter().next() {
+                    if let WidgetSourceData::Image(proto) = source.source {
+                        last_rendered = Some((input.clone(), proto));
+                    }
+                }
+            }
+        }
+
         if event::poll(std::time::Duration::from_millis(100))? {
             if let Event::Key(KeyEvent {
                 code, modifiers, ..

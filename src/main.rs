@@ -3,7 +3,10 @@ use std::{
     io::{self, Read},
     os::fd::IntoRawFd,
     path::{Path, PathBuf},
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -29,6 +32,7 @@ use ratatui_image::Image;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use setup::setup_graphics;
+use tokio::sync::RwLock;
 use widget_sources::{header_source, image_source, WidgetSource, WidgetSourceData};
 
 mod config;
@@ -125,60 +129,56 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
     }
 
     let force_setup = *matches.get_one("setup").unwrap_or(&false);
-    let mut renderer = match setup_graphics(config.font_family, force_setup) {
+    let renderer = match setup_graphics(config.font_family, force_setup).await {
         Ok(Some(renderer)) => renderer,
         Ok(None) => return Err(Error::UserAbort("cancelled setup")),
         Err(err) => return Err(err),
     };
+    let _deep_fry = *matches.get_one("deep").unwrap_or(&false);
+
     let bg = renderer.bg;
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<ImgCmd>();
     let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
 
-    let _deep_fry = *matches.get_one("deep").unwrap_or(&false);
-
     let event_image_tx = event_tx.clone();
     let parse_handle = tokio::spawn(async move {
         let basepath = basepath.clone();
-        let mut client = Client::new();
+        let client = Arc::new(RwLock::new(Client::new()));
+        let renderer = Arc::new(renderer);
         for cmd in cmd_rx {
             match cmd {
                 ImgCmd::Header(index, width, tier, text) => {
                     let task_tx = event_image_tx.clone();
-                    task_tx.send((
-                        width,
-                        Event::Update(header_source(
-                            &mut renderer,
-                            width,
-                            index,
-                            text,
-                            tier,
-                            false,
-                        )?),
-                    ))?;
+                    let r = renderer.clone();
+                    tokio::spawn(async move {
+                        let header = header_source(&r, width, index, text, tier, false).await?;
+                        task_tx.send((width, Event::Update(header)))?;
+                        Ok::<(), Error>(())
+                    });
                 }
                 ImgCmd::UrlImage(index, width, url, text, _title) => {
-                    match image_source(
-                        &mut renderer.picker,
-                        width,
-                        &basepath,
-                        &mut client,
-                        index,
-                        &url,
-                        false,
-                    )
-                    .await
-                    {
-                        Ok(source) => event_image_tx.send((width, Event::Update(vec![source])))?,
-                        Err(Error::UnknownImage(index, link)) => event_image_tx.send((
-                            width,
-                            Event::Update(vec![WidgetSource::image_unknown(index, link, text)]),
-                        ))?,
-                        Err(_) => event_image_tx.send((
-                            width,
-                            Event::Update(vec![WidgetSource::image_unknown(index, url, text)]),
-                        ))?,
-                    }
+                    let task_tx = event_image_tx.clone();
+                    let r = renderer.clone();
+                    let basepath = basepath.clone();
+                    let client = client.clone();
+                    tokio::spawn(async move {
+                        let picker = r.picker;
+                        match image_source(&picker, width, &basepath, client, index, &url, false)
+                            .await
+                        {
+                            Ok(source) => task_tx.send((width, Event::Update(vec![source])))?,
+                            Err(Error::UnknownImage(index, link)) => task_tx.send((
+                                width,
+                                Event::Update(vec![WidgetSource::image_unknown(index, link, text)]),
+                            ))?,
+                            Err(_) => task_tx.send((
+                                width,
+                                Event::Update(vec![WidgetSource::image_unknown(index, url, text)]),
+                            ))?,
+                        }
+                        Ok::<(), Error>(())
+                    });
                 }
             };
         }
@@ -328,74 +328,78 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
 
     loop {
         let mut had_events = false;
-        if let Ok((id, ev)) = model.rx.try_recv() {
-            if id == inner_width {
-                had_events = true;
-                match ev {
-                    Event::Parsed(source) => {
-                        model.sources.push(source);
-                    }
-                    Event::Update(updates) => {
-                        if let Some(index) = updates.first().map(|s| s.index) {
-                            let mut first_position = None;
-                            let mut i = 0;
-                            model.sources.retain(|w| {
-                                if w.index == index {
-                                    first_position = match first_position {
-                                        None => Some((i, i)),
-                                        Some((f, _)) => Some((f, i)),
-                                    };
-                                    return false;
-                                }
-                                i += 1;
-                                true
-                            });
+        loop {
+            if let Ok((id, ev)) = model.rx.try_recv() {
+                if id == inner_width {
+                    had_events = true;
+                    match ev {
+                        Event::Parsed(source) => {
+                            model.sources.push(source);
+                        }
+                        Event::Update(updates) => {
+                            if let Some(index) = updates.first().map(|s| s.index) {
+                                let mut first_position = None;
+                                let mut i = 0;
+                                model.sources.retain(|w| {
+                                    if w.index == index {
+                                        first_position = match first_position {
+                                            None => Some((i, i)),
+                                            Some((f, _)) => Some((f, i)),
+                                        };
+                                        return false;
+                                    }
+                                    i += 1;
+                                    true
+                                });
 
-                            if let Some((from, to)) = first_position {
-                                model.sources.splice(from..to, updates);
+                                if let Some((from, to)) = first_position {
+                                    model.sources.splice(from..to, updates);
+                                }
+                                debug_assert!(
+                                    first_position.is_some(),
+                                    "Update #{:?} not found anymore",
+                                    index,
+                                );
                             }
-                            debug_assert!(
-                                first_position.is_some(),
-                                "Update #{:?} not found anymore",
+                        }
+                        Event::ParseImage(index, url, text, title) => {
+                            model.tx.send(ImgCmd::UrlImage(
                                 index,
-                            );
+                                inner_width,
+                                url.clone(),
+                                text,
+                                title,
+                            ))?;
+                            model.sources.push(WidgetSource {
+                                index,
+                                height: 1,
+                                source: WidgetSourceData::Line(Line::from(format!(
+                                    "![Loading...]({url})"
+                                ))),
+                            });
+                        }
+                        Event::ParseHeader(index, tier, spans) => {
+                            let line = Line::from(spans);
+                            let inner_width = match model.padding {
+                                Padding::None => screen_width,
+                                Padding::Empty | Padding::Border => screen_width - 2,
+                            };
+                            model.tx.send(ImgCmd::Header(
+                                index,
+                                inner_width,
+                                tier,
+                                line.to_string(),
+                            ))?;
+                            model.sources.push(WidgetSource {
+                                index,
+                                height: 2,
+                                source: WidgetSourceData::Line(line),
+                            });
                         }
                     }
-                    Event::ParseImage(index, url, text, title) => {
-                        model.tx.send(ImgCmd::UrlImage(
-                            index,
-                            inner_width,
-                            url.clone(),
-                            text,
-                            title,
-                        ))?;
-                        model.sources.push(WidgetSource {
-                            index,
-                            height: 1,
-                            source: WidgetSourceData::Line(Line::from(format!(
-                                "![Loading...]({url})"
-                            ))),
-                        });
-                    }
-                    Event::ParseHeader(index, tier, spans) => {
-                        let line = Line::from(spans);
-                        let inner_width = match model.padding {
-                            Padding::None => screen_width,
-                            Padding::Empty | Padding::Border => screen_width - 2,
-                        };
-                        model.tx.send(ImgCmd::Header(
-                            index,
-                            inner_width,
-                            tier,
-                            line.to_string(),
-                        ))?;
-                        model.sources.push(WidgetSource {
-                            index,
-                            height: 2,
-                            source: WidgetSourceData::Line(line),
-                        });
-                    }
                 }
+            } else {
+                break;
             }
         }
 

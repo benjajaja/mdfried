@@ -1,4 +1,4 @@
-use std::{fmt::Debug, io::Cursor, path::PathBuf};
+use std::{fmt::Debug, io::Cursor, path::PathBuf, sync::Arc};
 
 use image::{
     imageops, DynamicImage, GenericImage, ImageFormat, ImageReader, Pixel, Rgba, RgbaImage,
@@ -11,6 +11,7 @@ use reqwest::{
     Client,
 };
 use rusttype::{point, PositionedGlyph, Scale};
+use tokio::sync::RwLock;
 
 use crate::{setup::Renderer, Error};
 
@@ -49,8 +50,8 @@ impl<'a> WidgetSource<'a> {
     }
 }
 
-pub fn header_source<'a>(
-    Renderer { picker, font, bg }: &mut Renderer<'a>,
+pub async fn header_source<'a>(
+    renderer: &Renderer<'a>,
     width: u16,
     index: usize,
     text: String,
@@ -58,16 +59,18 @@ pub fn header_source<'a>(
     deep_fry_meme: bool,
 ) -> Result<Vec<WidgetSource<'a>>, Error> {
     static TRANSPARENT_BACKGROUND: [u8; 4] = [0, 0, 0, 0];
-    let bg = bg.unwrap_or(TRANSPARENT_BACKGROUND);
+    let bg = renderer.bg.unwrap_or(TRANSPARENT_BACKGROUND);
 
     const HEADER_ROW_COUNT: u16 = 2;
-    let (font_width, font_height) = picker.font_size();
+    let (font_width, font_height) = renderer.font_size;
+
     let img_width = (width * font_width) as u32;
     let img_height = (HEADER_ROW_COUNT * font_height) as u32;
 
     let tier_scale = ((12 - tier) as f32) / 12.0f32;
     let scale = Scale::uniform((font_height * HEADER_ROW_COUNT) as f32 * tier_scale);
-    let v_metrics = font.v_metrics(scale);
+
+    let v_metrics = renderer.font.v_metrics(scale);
 
     let words = text.split_whitespace();
 
@@ -81,7 +84,8 @@ pub fn header_source<'a>(
         }
         maybe_current_line.push_str(word);
 
-        glyphs_line = font
+        glyphs_line = renderer
+            .font
             .layout(
                 &maybe_current_line,
                 scale,
@@ -98,7 +102,8 @@ pub fn header_source<'a>(
         if width <= img_width {
             current_line = maybe_current_line;
         } else {
-            glyphs_line = font
+            glyphs_line = renderer
+                .font
                 .layout(&current_line, scale, point(0.0, 0.0 + v_metrics.ascent))
                 .collect();
             lines.push(glyphs_line);
@@ -143,7 +148,7 @@ pub fn header_source<'a>(
             dyn_img = deep_fry(dyn_img);
         }
 
-        let proto = picker.new_protocol(
+        let proto = renderer.picker.new_protocol(
             dyn_img,
             Rect::new(0, 0, width, HEADER_ROW_COUNT),
             Resize::Fit(None),
@@ -159,10 +164,10 @@ pub fn header_source<'a>(
 }
 
 pub async fn image_source<'a>(
-    picker: &mut Picker,
+    picker: &Picker,
     width: u16,
     basepath: &Option<PathBuf>,
-    client: &mut Client,
+    client: Arc<RwLock<Client>>,
     index: usize,
     link: &str,
     deep_fry_meme: bool,
@@ -170,7 +175,9 @@ pub async fn image_source<'a>(
     let mut dyn_img = if link.starts_with("https://") || link.starts_with("http://") {
         let mut headers = HeaderMap::new();
         headers.insert(ACCEPT, HeaderValue::from_static("image/png,image/jpg")); // or "image/jpeg"
+        let client = client.read().await;
         let response = client.get(link).headers(headers).send().await?;
+        drop(client);
         if !response.status().is_success() {
             return Err(Error::UnknownImage(index, link.to_string()));
         }
