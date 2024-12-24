@@ -1,59 +1,26 @@
 {
-  description = "mdfried";
-  nixConfig.bash-prompt = "\[mdfried\]$ ";
-
   inputs = {
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    crane.url = "github:ipetkov/crane";
     flake-utils.url = "github:numtide/flake-utils";
-    rust-overlay.url = "github:oxalica/rust-overlay";
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay, ... }:
+  outputs = { self, nixpkgs, crane, flake-utils, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        overlays = [ (import rust-overlay) ];
-        pkgs = import nixpkgs { inherit system overlays; };
+        pkgs = nixpkgs.legacyPackages.${system};
+        craneLib = crane.mkLib pkgs;
       in
-      with pkgs;
-      {
-        packages.defaultPackage = rustPlatform.buildRustPackage {
-          pname = "mdfried";
-          version = self.shortRev or self.dirtyShortRev;
-          src = ./.;
-          cargoLock.lockFile = ./Cargo.lock;
-          nativeBuildInputs = [
-            cmake
-            file
-            freetype
-            pkg-config
-          ];
-          buildInputs = [
-            freetype
-            expat
-            rust-bin.stable.latest.default
-          ];
-          doCheck = true;
-        };
+    {
+      packages.default = craneLib.buildPackage {
+        src = craneLib.cleanCargoSource ./.;
 
-        checks = {
-          test = self.packages.${system}.defaultPackage;
-        };
-
-        devShells.default = mkShell {
-          nativeBuildInputs = [
-            cmake
-            file
-            freetype
-            expat
-            pkg-config
-          ];
-          buildInputs = [
-            rust-bin.stable.latest.default
-            clippy
-            cargo-tarpaulin
-            cargo-watch
-            cargo-release
-          ];
-        };
-      });
+        # Add extra inputs here or any other derivation settings
+        doCheck = true;
+        nativeBuildInputs = with pkgs; [
+          cmake pkg-config freetype expat fontconfig
+        ];
+        buildInputs = with pkgs; [];
+      };
+    });
 }
