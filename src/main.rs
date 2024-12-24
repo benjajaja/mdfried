@@ -328,78 +328,74 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
 
     loop {
         let mut had_events = false;
-        loop {
-            if let Ok((id, ev)) = model.rx.try_recv() {
-                if id == inner_width {
-                    had_events = true;
-                    match ev {
-                        Event::Parsed(source) => {
-                            model.sources.push(source);
-                        }
-                        Event::Update(updates) => {
-                            if let Some(index) = updates.first().map(|s| s.index) {
-                                let mut first_position = None;
-                                let mut i = 0;
-                                model.sources.retain(|w| {
-                                    if w.index == index {
-                                        first_position = match first_position {
-                                            None => Some((i, i)),
-                                            Some((f, _)) => Some((f, i)),
-                                        };
-                                        return false;
-                                    }
-                                    i += 1;
-                                    true
-                                });
-
-                                if let Some((from, to)) = first_position {
-                                    model.sources.splice(from..to, updates);
+        while let Ok((id, ev)) = model.rx.try_recv() {
+            if id == inner_width {
+                had_events = true;
+                match ev {
+                    Event::Parsed(source) => {
+                        model.sources.push(source);
+                    }
+                    Event::Update(updates) => {
+                        if let Some(index) = updates.first().map(|s| s.index) {
+                            let mut first_position = None;
+                            let mut i = 0;
+                            model.sources.retain(|w| {
+                                if w.index == index {
+                                    first_position = match first_position {
+                                        None => Some((i, i)),
+                                        Some((f, _)) => Some((f, i)),
+                                    };
+                                    return false;
                                 }
-                                debug_assert!(
-                                    first_position.is_some(),
-                                    "Update #{:?} not found anymore",
-                                    index,
-                                );
+                                i += 1;
+                                true
+                            });
+
+                            if let Some((from, to)) = first_position {
+                                model.sources.splice(from..to, updates);
                             }
-                        }
-                        Event::ParseImage(index, url, text, title) => {
-                            model.tx.send(ImgCmd::UrlImage(
+                            debug_assert!(
+                                first_position.is_some(),
+                                "Update #{:?} not found anymore",
                                 index,
-                                inner_width,
-                                url.clone(),
-                                text,
-                                title,
-                            ))?;
-                            model.sources.push(WidgetSource {
-                                index,
-                                height: 1,
-                                source: WidgetSourceData::Line(Line::from(format!(
-                                    "![Loading...]({url})"
-                                ))),
-                            });
-                        }
-                        Event::ParseHeader(index, tier, spans) => {
-                            let line = Line::from(spans);
-                            let inner_width = match model.padding {
-                                Padding::None => screen_width,
-                                Padding::Empty | Padding::Border => screen_width - 2,
-                            };
-                            model.tx.send(ImgCmd::Header(
-                                index,
-                                inner_width,
-                                tier,
-                                line.to_string(),
-                            ))?;
-                            model.sources.push(WidgetSource {
-                                index,
-                                height: 2,
-                                source: WidgetSourceData::Line(line),
-                            });
+                            );
                         }
                     }
+                    Event::ParseImage(index, url, text, title) => {
+                        model.tx.send(ImgCmd::UrlImage(
+                            index,
+                            inner_width,
+                            url.clone(),
+                            text,
+                            title,
+                        ))?;
+                        model.sources.push(WidgetSource {
+                            index,
+                            height: 1,
+                            source: WidgetSourceData::Line(Line::from(format!(
+                                "![Loading...]({url})"
+                            ))),
+                        });
+                    }
+                    Event::ParseHeader(index, tier, spans) => {
+                        let line = Line::from(spans);
+                        let inner_width = match model.padding {
+                            Padding::None => screen_width,
+                            Padding::Empty | Padding::Border => screen_width - 2,
+                        };
+                        model.tx.send(ImgCmd::Header(
+                            index,
+                            inner_width,
+                            tier,
+                            line.to_string(),
+                        ))?;
+                        model.sources.push(WidgetSource {
+                            index,
+                            height: 2,
+                            source: WidgetSourceData::Line(line),
+                        });
+                    }
                 }
-            } else {
-                break;
             }
         }
 
