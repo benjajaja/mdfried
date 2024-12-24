@@ -8,7 +8,9 @@ use ratatui::{
     text::{Line, Span},
 };
 
-use crate::{widget_sources::WidgetSourceData, Error, Event, WidgetSource, WidthEvent};
+use crate::{
+    widget_sources::WidgetSourceData, wordwrap::wrap_spans, Error, Event, WidgetSource, WidthEvent,
+};
 
 pub async fn parse<'b>(text: &str, width: u16, tx: &Sender<WidthEvent<'b>>) -> Result<(), Error> {
     let mut ext_options = ExtensionOptions::default();
@@ -143,66 +145,4 @@ fn modifier(style: Style, node_value: &NodeValue) -> Style {
         NodeValue::Link(_) => style.blue().underlined(),
         _ => style,
     }
-}
-
-// This probably has bugs and doesn't handle multi-width characters properly. Generated with AI.
-pub fn wrap_spans(spans: Vec<Span>, max_width: usize) -> Vec<Line> {
-    let mut result_lines = Vec::new();
-    let mut current_line = Vec::new();
-    let mut current_line_width = 0;
-    let mut current_style = Style::default();
-
-    // Helper function to trim leading whitespace
-    fn trim_leading_whitespace(s: &str) -> &str {
-        s.trim_start()
-    }
-
-    for span in spans {
-        // Split the span content into words
-        let words: Vec<&str> = span.content.split_whitespace().collect();
-
-        for word in words {
-            let word_width = word.len();
-
-            // If adding this word would exceed max width, start a new line
-            if current_line_width + word_width + (if current_line_width > 0 { 1 } else { 0 })
-                > max_width
-            {
-                // Finalize and add current line if not empty
-                if !current_line.is_empty() {
-                    result_lines.push(Line::from(current_line));
-                    current_line = Vec::new();
-                    current_line_width = 0;
-                }
-            }
-
-            // Add word to current line (with space if not first word)
-            if current_line_width > 0 {
-                if span.style == current_style {
-                    current_line.push(Span::style(" ".into(), current_style));
-                } else {
-                    current_line.push(Span::from(" "));
-                }
-            }
-            current_line_width += word.len();
-            current_line.push(Span::styled(word.to_string(), span.style));
-            current_style = span.style;
-        }
-    }
-
-    // Add any remaining line
-    if !current_line.is_empty() {
-        result_lines.push(Line::from(current_line));
-    }
-
-    // Remove leading whitespace from each line
-    result_lines.iter_mut().for_each(|line| {
-        if let Some(first_span) = line.spans.first_mut() {
-            first_span.content = trim_leading_whitespace(&first_span.content)
-                .to_string()
-                .into();
-        }
-    });
-
-    result_lines
 }

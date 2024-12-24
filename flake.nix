@@ -71,11 +71,11 @@
           # Run tests with cargo-nextest
           # Consider setting `doCheck = false` on `mdfried` if you do not want
           # the tests to run twice
-          # mdfried-nextest = craneLib.cargoNextest (commonArgs // {
-            # inherit cargoArtifacts;
-            # partitions = 1;
-            # partitionType = "count";
-          # });
+          mdfried-nextest = craneLib.cargoNextest (commonArgs // {
+            inherit cargoArtifacts;
+            partitions = 1;
+            partitionType = "count";
+          });
         };
 
 

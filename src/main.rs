@@ -42,6 +42,7 @@ mod fontpicker;
 mod markdown;
 mod setup;
 mod widget_sources;
+mod wordwrap;
 
 const OK_END: &str = " ok.";
 
