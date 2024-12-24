@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{self, Read},
+    io::{self, stdout, Read},
     os::fd::IntoRawFd,
     path::{Path, PathBuf},
     sync::{
@@ -21,10 +21,11 @@ use markdown::parse;
 use ratatui::{
     crossterm::event::{self, KeyCode, KeyEventKind},
     layout::Rect,
+    prelude::CrosstermBackend,
     style::{Color, Style, Stylize},
     text::{Line, Span, Text},
     widgets::{Block, Paragraph, Widget},
-    DefaultTerminal, Frame,
+    DefaultTerminal, Frame, Terminal,
 };
 
 use comrak::ExtensionOptions;
@@ -195,7 +196,9 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
 
     let model = Model::new(bg, path.cloned(), cmd_tx, parse_tx, event_rx)?;
 
-    let mut terminal = ratatui::init();
+    crossterm::terminal::enable_raw_mode()?;
+    let backend = CrosstermBackend::new(stdout());
+    let mut terminal = Terminal::new(backend)?;
     crossterm::execute!(std::io::stderr(), EnableMouseCapture)?;
     terminal.clear()?;
 
@@ -215,7 +218,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
         ui_res = ui_handle => ui_res?,
     };
     crossterm::execute!(std::io::stderr(), DisableMouseCapture)?;
-    ratatui::restore();
+    crossterm::terminal::disable_raw_mode()?;
     result.map_err(Error::from)
 }
 
