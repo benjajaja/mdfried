@@ -17,12 +17,8 @@
           inherit src;
           strictDeps = true;
 
-          nativeBuildInputs = with pkgs; [
-            cmake pkg-config freetype expat fontconfig
-          ];
           buildInputs = with pkgs; [
             # Add additional build inputs here
-            cmake pkg-config freetype expat fontconfig
           ] ++ lib.optionals pkgs.stdenv.isDarwin [
             # Additional darwin specific inputs can be set here
             pkgs.libiconv
