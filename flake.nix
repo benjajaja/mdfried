@@ -13,7 +13,16 @@
 
         craneLib = crane.mkLib pkgs;
 
-        src = craneLib.cleanCargoSource ./.;
+        unfilteredRoot = ./.;
+        src = lib.fileset.toSource {
+          root = unfilteredRoot;
+          fileset = lib.fileset.unions [
+            # Default files from crane (Rust and cargo files)
+            (craneLib.fileset.commonCargoSources unfilteredRoot)
+            (lib.fileset.maybeMissing ./assets)
+            (lib.fileset.maybeMissing ./src/snapshots)
+          ];
+        };
 
         commonArgs = {
           inherit src;
@@ -53,7 +62,7 @@
           ];
         craneLibWindows = (crane.mkLib pkgs).overrideToolchain toolchain;
         mdfriedWindows = craneLibWindows.buildPackage {
-          src = craneLibWindows.cleanCargoSource ./.;
+          inherit src;
 
           strictDeps = true;
           doCheck = false;
@@ -133,6 +142,7 @@
           # Extra inputs can be added here; cargo and rustc are provided by default.
           packages = with pkgs; [
             cargo-release
+            cargo-insta
           ];
         };
       });

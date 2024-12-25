@@ -29,6 +29,9 @@ textwrap = "0.16.1"
 tokio = { version = "1.32.0", features = ["full"] }
 tokio-util = "0.7.9"
 
+[dev-dependencies]
+insta = "1.41.1"
+
 [package.metadata.release]
 sign-commit = true
 push = false

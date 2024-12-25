@@ -205,7 +205,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
     crossterm::execute!(std::io::stderr(), EnableMouseCapture)?;
     terminal.clear()?;
 
-    let inner_width = model.width(terminal.size()?.width);
+    let inner_width = model.inner_width(terminal.size()?.width);
     model
         .parse_tx
         .send(ParseCmd {
@@ -253,9 +253,9 @@ struct Model<'a, 'b> {
     scroll: u16,
     sources: Vec<WidgetSource<'a>>,
     padding: Padding,
-    tx: Sender<ImgCmd>,
+    cmd_tx: Sender<ImgCmd>,
     parse_tx: Sender<ParseCmd>,
-    rx: Receiver<WidthEvent<'b>>,
+    event_rx: Receiver<WidthEvent<'b>>,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -266,13 +266,13 @@ enum Padding {
     Empty,
 }
 
-impl Model<'_, '_> {
-    fn new<'a, 'b: 'a>(
+impl<'a, 'b: 'a> Model<'a, 'b> {
+    fn new(
         bg: Option<[u8; 4]>,
         original_file_path: Option<PathBuf>,
-        tx: Sender<ImgCmd>,
+        cmd_tx: Sender<ImgCmd>,
         parse_tx: Sender<ParseCmd>,
-        rx: Receiver<WidthEvent<'b>>,
+        event_rx: Receiver<WidthEvent<'b>>,
     ) -> Result<Model<'a, 'b>, Error> {
         let model = Model {
             original_file_path,
@@ -280,9 +280,9 @@ impl Model<'_, '_> {
             scroll: 0,
             sources: vec![],
             padding: Padding::Empty,
-            tx,
+            cmd_tx,
             parse_tx,
-            rx,
+            event_rx,
         };
 
         // model_reload(&mut model, screen_width)?;
@@ -290,11 +290,91 @@ impl Model<'_, '_> {
         Ok(model)
     }
 
-    fn width(&self, screen_width: u16) -> u16 {
+    fn inner_width(&self, screen_width: u16) -> u16 {
         match self.padding {
             Padding::None => screen_width,
             Padding::Empty | Padding::Border => screen_width - 2,
         }
+    }
+
+    fn process_events(&mut self, screen_width: u16) -> Result<bool, Error> {
+        let inner_width = match self.padding {
+            Padding::None => screen_width,
+            Padding::Empty | Padding::Border => screen_width - 2,
+        };
+
+        let mut had_events = false;
+        while let Ok((id, ev)) = self.event_rx.try_recv() {
+            if id == inner_width {
+                had_events = true;
+                match ev {
+                    Event::Parsed(source) => {
+                        self.sources.push(source);
+                    }
+                    Event::Update(updates) => {
+                        if let Some(id) = updates.first().map(|s| s.id) {
+                            let mut first_position = None;
+                            let mut i = 0;
+                            self.sources.retain(|w| {
+                                if w.id == id {
+                                    first_position = match first_position {
+                                        None => Some((i, i)),
+                                        Some((f, _)) => Some((f, i)),
+                                    };
+                                    return false;
+                                }
+                                i += 1;
+                                true
+                            });
+
+                            if let Some((from, to)) = first_position {
+                                self.sources.splice(from..to, updates);
+                            }
+                            debug_assert!(
+                                first_position.is_some(),
+                                "Update #{:?} not found anymore",
+                                id,
+                            );
+                        }
+                    }
+                    Event::ParseImage(id, url, text, title) => {
+                        self.cmd_tx.send(ImgCmd::UrlImage(
+                            id,
+                            inner_width,
+                            url.clone(),
+                            text,
+                            title,
+                        ))?;
+                        self.sources.push(WidgetSource {
+                            id,
+                            height: 1,
+                            source: WidgetSourceData::Line(Line::from(format!(
+                                "![Loading...]({url})"
+                            ))),
+                        });
+                    }
+                    Event::ParseHeader(id, tier, spans) => {
+                        let line = Line::from(spans);
+                        let inner_width = match self.padding {
+                            Padding::None => screen_width,
+                            Padding::Empty | Padding::Border => screen_width - 2,
+                        };
+                        self.cmd_tx.send(ImgCmd::Header(
+                            id,
+                            inner_width,
+                            tier,
+                            line.to_string(),
+                        ))?;
+                        self.sources.push(WidgetSource {
+                            id,
+                            height: 2,
+                            source: WidgetSourceData::Line(line),
+                        });
+                    }
+                }
+            }
+        }
+        Ok(had_events)
     }
 }
 
@@ -312,7 +392,7 @@ fn model_reload<'a>(model: &mut Model<'a, 'a>, width: u16) -> Result<(), Error> 
         model.sources = vec![];
         model.scroll = 0;
 
-        let inner_width = model.width(width);
+        let inner_width = model.inner_width(width);
         model.parse_tx.send(ParseCmd {
             width: inner_width,
             text,
@@ -325,82 +405,11 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
     let screen_size = terminal.size()?;
     let page_scroll_count = screen_size.height / 2;
     let mut screen_width = screen_size.width;
-    let mut inner_width = match model.padding {
-        Padding::None => screen_width,
-        Padding::Empty | Padding::Border => screen_width - 2,
-    };
 
     terminal.draw(|frame| view(&mut model, frame))?;
 
     loop {
-        let mut had_events = false;
-        while let Ok((id, ev)) = model.rx.try_recv() {
-            if id == inner_width {
-                had_events = true;
-                match ev {
-                    Event::Parsed(source) => {
-                        model.sources.push(source);
-                    }
-                    Event::Update(updates) => {
-                        if let Some(id) = updates.first().map(|s| s.id) {
-                            let mut first_position = None;
-                            let mut i = 0;
-                            model.sources.retain(|w| {
-                                if w.id == id {
-                                    first_position = match first_position {
-                                        None => Some((i, i)),
-                                        Some((f, _)) => Some((f, i)),
-                                    };
-                                    return false;
-                                }
-                                i += 1;
-                                true
-                            });
-
-                            if let Some((from, to)) = first_position {
-                                model.sources.splice(from..to, updates);
-                            }
-                            debug_assert!(
-                                first_position.is_some(),
-                                "Update #{:?} not found anymore",
-                                id,
-                            );
-                        }
-                    }
-                    Event::ParseImage(id, url, text, title) => {
-                        model.tx.send(ImgCmd::UrlImage(
-                            id,
-                            inner_width,
-                            url.clone(),
-                            text,
-                            title,
-                        ))?;
-                        model.sources.push(WidgetSource {
-                            id,
-                            height: 1,
-                            source: WidgetSourceData::Line(Line::from(format!(
-                                "![Loading...]({url})"
-                            ))),
-                        });
-                    }
-                    Event::ParseHeader(id, tier, spans) => {
-                        let line = Line::from(spans);
-                        let inner_width = match model.padding {
-                            Padding::None => screen_width,
-                            Padding::Empty | Padding::Border => screen_width - 2,
-                        };
-                        model
-                            .tx
-                            .send(ImgCmd::Header(id, inner_width, tier, line.to_string()))?;
-                        model.sources.push(WidgetSource {
-                            id,
-                            height: 2,
-                            source: WidgetSourceData::Line(line),
-                        });
-                    }
-                }
-            }
-        }
+        let had_events = model.process_events(screen_width)?;
 
         let mut had_input = false;
         if event::poll(if had_events {
@@ -443,10 +452,6 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                 }
                 event::Event::Resize(width, _) => {
                     screen_width = width;
-                    inner_width = match model.padding {
-                        Padding::None => screen_width,
-                        Padding::Empty | Padding::Border => screen_width - 2,
-                    };
                     model_reload(&mut model, screen_width)?;
                 }
                 event::Event::Mouse(mouse) => match mouse.kind {
@@ -541,4 +546,35 @@ fn read_file_to_str(path: &str) -> io::Result<String> {
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
     Ok(contents)
+}
+
+#[cfg(test)]
+mod tests {
+    use insta::assert_snapshot;
+    use ratatui::{backend::TestBackend, Terminal};
+
+    use crate::*;
+
+    #[tokio::test]
+    async fn test_md_snapshot() -> Result<(), Error> {
+        const TERM_WIDTH: u16 = 120;
+        let (cmd_tx, _cmd_rx) = mpsc::channel::<ImgCmd>();
+        let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
+        let (parse_tx, _parse_rx) = mpsc::channel::<ParseCmd>();
+        let mut model = Model::new(None, None, cmd_tx, parse_tx, event_rx).unwrap();
+
+        parse(
+            include_str!("../assets/test.md"),
+            model.inner_width(TERM_WIDTH),
+            &event_tx,
+        )
+        .await?;
+        model.process_events(TERM_WIDTH).unwrap();
+
+        let mut terminal = Terminal::new(TestBackend::new(TERM_WIDTH, 64)).unwrap();
+        terminal.draw(|frame| view(&mut model, frame)).unwrap();
+
+        assert_snapshot!(terminal.backend());
+        Ok(())
+    }
 }
