@@ -26,21 +26,43 @@ jobs:
       - name: Build Flake
         run: |
           nix flake show
-          nix build . --print-build-logs
           nix flake check --print-build-logs
+          nix build . --print-build-logs
+          mkdir artifacts
+          mkdir artifacts/linux
+          cp result/bin/mdfried artifacts/linux
+          nix build .#windows --print-build-logs
+          mkdir artifacts/windows
+          cp result/bin/mdfried.exe artifacts/windows
+
+      - name: Upload linux artifact (non-release builds)
+        if: ${{ github.event_name != 'release' }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: mdfried nixos binary
+          path: ./artifacts/linux/mdfried
 
       - name: Upload artifact (non-release builds)
         if: ${{ github.event_name != 'release' }}
         uses: actions/upload-artifact@v3
         with:
-          name: mdfried
-          path: ./result/bin/mdfried
+          name: mdfried windows binary
+          path: ./artifacts/windows/mdfried.exe
 
-      - name: Upload binary to release
+      - name: Upload linux binary to release
         if: ${{ github.event_name == 'release' }}
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ github.event.release.upload_url }}
-          asset_path: ./result/bin/mdfried
+          asset_path: ./artifacts/linux/mdfried
           asset_name: mdfried
+          asset_content_type: application/octet-stream
+
+      - name: Upload windows binary to release
+        if: ${{ github.event_name == 'release' }}
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./artifacts/windows/mdfried.exe
+          asset_name: mdfried.exe
           asset_content_type: application/octet-stream

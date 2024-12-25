@@ -1,7 +1,9 @@
+#[cfg(not(windows))]
+use std::os::fd::IntoRawFd;
+
 use std::{
     fs::File,
     io::{self, stdout, Read},
-    os::fd::IntoRawFd,
     path::{Path, PathBuf},
     sync::{
         mpsc::{self, Receiver, Sender},
@@ -111,6 +113,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
 
     let config: Config = confy::load(CONFIG.0, CONFIG.1)?;
 
+    #[cfg(not(windows))]
     if !io::stdin().is_tty() {
         print!("Setting stdin to /dev/tty...");
         // Close the current stdin so that ratatui-image can read stuff from tty stdin.

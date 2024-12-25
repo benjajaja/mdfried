@@ -10,7 +10,9 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         inherit (pkgs) lib;
+
         craneLib = crane.mkLib pkgs;
+
         src = craneLib.cleanCargoSource ./.;
 
         commonArgs = {
@@ -42,6 +44,35 @@
         mdfried = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
         });
+
+        toolchain = with fenix.packages.${system};
+          combine [
+            minimal.rustc
+            minimal.cargo
+            targets.x86_64-pc-windows-gnu.latest.rust-std
+          ];
+        craneLibWindows = (crane.mkLib pkgs).overrideToolchain toolchain;
+        mdfriedWindows = craneLibWindows.buildPackage {
+          src = craneLibWindows.cleanCargoSource ./.;
+
+          strictDeps = true;
+          doCheck = false;
+
+          CARGO_BUILD_TARGET = "x86_64-pc-windows-gnu";
+
+          # fixes issues related to libring
+          TARGET_CC = "${pkgs.pkgsCross.mingwW64.stdenv.cc}/bin/${pkgs.pkgsCross.mingwW64.stdenv.cc.targetPrefix}cc";
+
+          #fixes issues related to openssl
+          OPENSSL_DIR = "${pkgs.openssl.dev}";
+          OPENSSL_LIB_DIR = "${pkgs.openssl.out}/lib";
+          OPENSSL_INCLUDE_DIR = "${pkgs.openssl.dev}/include/";
+
+          depsBuildBuild = with pkgs; [
+            pkgsCross.mingwW64.stdenv.cc
+            pkgsCross.mingwW64.windows.pthreads
+          ];
+        };
       in
       {
         checks = {
@@ -81,6 +112,7 @@
 
         packages = {
           default = mdfried;
+          windows = mdfriedWindows;
         } // lib.optionalAttrs (!pkgs.stdenv.isDarwin) {
           mdfried-llvm-coverage = craneLibLLvmTools.cargoLlvmCov (commonArgs // {
             inherit cargoArtifacts;
