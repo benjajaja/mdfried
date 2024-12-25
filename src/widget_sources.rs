@@ -15,9 +15,11 @@ use tokio::sync::RwLock;
 
 use crate::{setup::Renderer, Error};
 
+pub type SourceID = usize;
+
 #[derive(Debug)]
 pub struct WidgetSource<'a> {
-    pub index: usize,
+    pub id: SourceID,
     pub height: u16,
     pub source: WidgetSourceData<'a>,
 }
@@ -41,9 +43,9 @@ impl Debug for WidgetSourceData<'_> {
 }
 
 impl<'a> WidgetSource<'a> {
-    pub fn image_unknown(index: usize, url: String, text: String) -> WidgetSource<'a> {
+    pub fn image_unknown(id: SourceID, url: String, text: String) -> WidgetSource<'a> {
         WidgetSource {
-            index,
+            id,
             height: 1,
             source: WidgetSourceData::BrokenImage(url, text),
         }
@@ -53,7 +55,7 @@ impl<'a> WidgetSource<'a> {
 pub async fn header_source<'a>(
     renderer: &Renderer<'a>,
     width: u16,
-    index: usize,
+    id: SourceID,
     text: String,
     tier: u8,
     deep_fry_meme: bool,
@@ -154,7 +156,7 @@ pub async fn header_source<'a>(
             Resize::Fit(None),
         )?;
         sources.push(WidgetSource {
-            index,
+            id,
             height: HEADER_ROW_COUNT,
             source: WidgetSourceData::Image(proto),
         });
@@ -168,7 +170,7 @@ pub async fn image_source<'a>(
     width: u16,
     basepath: &Option<PathBuf>,
     client: Arc<RwLock<Client>>,
-    index: usize,
+    id: SourceID,
     link: &str,
     deep_fry_meme: bool,
 ) -> Result<WidgetSource<'a>, Error> {
@@ -179,7 +181,7 @@ pub async fn image_source<'a>(
         let response = client.get(link).headers(headers).send().await?;
         drop(client);
         if !response.status().is_success() {
-            return Err(Error::UnknownImage(index, link.to_string()));
+            return Err(Error::UnknownImage(id, link.to_string()));
         }
         let ct = response
             .headers()
@@ -190,7 +192,7 @@ pub async fn image_source<'a>(
             Some("image/png") => Ok(ImageFormat::Png),
             Some("image/webp") => Ok(ImageFormat::WebP),
             Some("image/gif") => Ok(ImageFormat::Gif),
-            _ => Err(Error::UnknownImage(index, link.to_string())),
+            _ => Err(Error::UnknownImage(id, link.to_string())),
         }?;
 
         let bytes = response.bytes().await?;
@@ -221,7 +223,7 @@ pub async fn image_source<'a>(
 
     let height = proto.area().height;
     Ok(WidgetSource {
-        index,
+        id,
         height,
         source: WidgetSourceData::Image(proto),
     })

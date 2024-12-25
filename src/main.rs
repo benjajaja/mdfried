@@ -34,7 +34,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use setup::setup_graphics;
 use tokio::sync::RwLock;
-use widget_sources::{header_source, image_source, WidgetSource, WidgetSourceData};
+use widget_sources::{header_source, image_source, SourceID, WidgetSource, WidgetSourceData};
 
 mod config;
 mod error;
@@ -150,33 +150,32 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
         let renderer = Arc::new(renderer);
         for cmd in cmd_rx {
             match cmd {
-                ImgCmd::Header(index, width, tier, text) => {
+                ImgCmd::Header(id, width, tier, text) => {
                     let task_tx = event_image_tx.clone();
                     let r = renderer.clone();
                     tokio::spawn(async move {
-                        let header = header_source(&r, width, index, text, tier, false).await?;
+                        let header = header_source(&r, width, id, text, tier, false).await?;
                         task_tx.send((width, Event::Update(header)))?;
                         Ok::<(), Error>(())
                     });
                 }
-                ImgCmd::UrlImage(index, width, url, text, _title) => {
+                ImgCmd::UrlImage(id, width, url, text, _title) => {
                     let task_tx = event_image_tx.clone();
                     let r = renderer.clone();
                     let basepath = basepath.clone();
                     let client = client.clone();
                     tokio::spawn(async move {
                         let picker = r.picker;
-                        match image_source(&picker, width, &basepath, client, index, &url, false)
-                            .await
+                        match image_source(&picker, width, &basepath, client, id, &url, false).await
                         {
                             Ok(source) => task_tx.send((width, Event::Update(vec![source])))?,
-                            Err(Error::UnknownImage(index, link)) => task_tx.send((
+                            Err(Error::UnknownImage(id, link)) => task_tx.send((
                                 width,
-                                Event::Update(vec![WidgetSource::image_unknown(index, link, text)]),
+                                Event::Update(vec![WidgetSource::image_unknown(id, link, text)]),
                             ))?,
                             Err(_) => task_tx.send((
                                 width,
-                                Event::Update(vec![WidgetSource::image_unknown(index, url, text)]),
+                                Event::Update(vec![WidgetSource::image_unknown(id, url, text)]),
                             ))?,
                         }
                         Ok::<(), Error>(())
@@ -238,8 +237,8 @@ struct ParseCmd {
 enum Event<'a> {
     Parsed(WidgetSource<'a>),
     Update(Vec<WidgetSource<'a>>),
-    ParseImage(usize, String, String, String),
-    ParseHeader(usize, u8, Vec<Span<'a>>),
+    ParseImage(SourceID, String, String, String),
+    ParseHeader(SourceID, u8, Vec<Span<'a>>),
 }
 
 // Just a width key, to discard events for stale screen widths.
@@ -340,11 +339,11 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                         model.sources.push(source);
                     }
                     Event::Update(updates) => {
-                        if let Some(index) = updates.first().map(|s| s.index) {
+                        if let Some(id) = updates.first().map(|s| s.id) {
                             let mut first_position = None;
                             let mut i = 0;
                             model.sources.retain(|w| {
-                                if w.index == index {
+                                if w.id == id {
                                     first_position = match first_position {
                                         None => Some((i, i)),
                                         Some((f, _)) => Some((f, i)),
@@ -361,40 +360,37 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                             debug_assert!(
                                 first_position.is_some(),
                                 "Update #{:?} not found anymore",
-                                index,
+                                id,
                             );
                         }
                     }
-                    Event::ParseImage(index, url, text, title) => {
+                    Event::ParseImage(id, url, text, title) => {
                         model.tx.send(ImgCmd::UrlImage(
-                            index,
+                            id,
                             inner_width,
                             url.clone(),
                             text,
                             title,
                         ))?;
                         model.sources.push(WidgetSource {
-                            index,
+                            id,
                             height: 1,
                             source: WidgetSourceData::Line(Line::from(format!(
                                 "![Loading...]({url})"
                             ))),
                         });
                     }
-                    Event::ParseHeader(index, tier, spans) => {
+                    Event::ParseHeader(id, tier, spans) => {
                         let line = Line::from(spans);
                         let inner_width = match model.padding {
                             Padding::None => screen_width,
                             Padding::Empty | Padding::Border => screen_width - 2,
                         };
-                        model.tx.send(ImgCmd::Header(
-                            index,
-                            inner_width,
-                            tier,
-                            line.to_string(),
-                        ))?;
+                        model
+                            .tx
+                            .send(ImgCmd::Header(id, inner_width, tier, line.to_string()))?;
                         model.sources.push(WidgetSource {
-                            index,
+                            id,
                             height: 2,
                             source: WidgetSourceData::Line(line),
                         });

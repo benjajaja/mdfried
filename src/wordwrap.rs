@@ -7,13 +7,11 @@ use textwrap::{
 use crate::error::Error;
 
 #[derive(Debug)]
-struct WordSpan<'a> {
-    span: Span<'a>,
-}
+struct WordSpan<'a>(Span<'a>);
 
 impl Fragment for WordSpan<'_> {
     fn width(&self) -> f64 {
-        self.span.width() as f64
+        self.0.width() as f64
     }
 
     fn whitespace_width(&self) -> f64 {
@@ -31,9 +29,7 @@ pub fn wrap_spans(spans: Vec<Span>, max_width: usize) -> Result<Vec<Line>, Error
     for span in &spans {
         let words = span.content.split_whitespace();
         for word in words {
-            word_spans.push(WordSpan {
-                span: Span::from(word).style(span.style),
-            });
+            word_spans.push(WordSpan(Span::from(word).style(span.style)));
         }
     }
 
@@ -45,7 +41,8 @@ pub fn wrap_spans(spans: Vec<Span>, max_width: usize) -> Result<Vec<Line>, Error
         let mut spans_out: Vec<Span> = vec![];
         let word_count = words.len();
         for (i, word) in words.iter().enumerate() {
-            let span = Span::from(word.span.content.to_string()).style(word.span.style);
+            // TODO: can and should we do this without to_string/clone?
+            let span = Span::from(word.0.content.to_string()).style(word.0.style);
             spans_out.push(span);
             if i < word_count - 1 {
                 spans_out.push(Span::from(" "));

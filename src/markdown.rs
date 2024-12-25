@@ -9,10 +9,12 @@ use ratatui::{
 };
 
 use crate::{
-    widget_sources::WidgetSourceData, wordwrap::wrap_spans, Error, Event, WidgetSource, WidthEvent,
+    widget_sources::{SourceID, WidgetSourceData},
+    wordwrap::wrap_spans,
+    Error, Event, WidgetSource, WidthEvent,
 };
 
-pub async fn parse<'b>(text: &str, width: u16, tx: &Sender<WidthEvent<'b>>) -> Result<(), Error> {
+pub async fn parse<'a>(text: &str, width: u16, tx: &Sender<WidthEvent<'a>>) -> Result<(), Error> {
     let mut ext_options = ExtensionOptions::default();
     ext_options.strikethrough = true;
 
@@ -117,14 +119,14 @@ pub async fn parse<'b>(text: &str, width: u16, tx: &Sender<WidthEvent<'b>>) -> R
 // Just so that we don't miss an `index += 1`.
 struct SendTracker<'a, 'b> {
     width: u16,
-    index: usize,
+    index: SourceID,
     tx: &'a Sender<WidthEvent<'b>>,
 }
 
 impl<'b> SendTracker<'_, 'b> {
     fn send_parse(&mut self, source: WidgetSourceData<'b>, height: u16) -> Result<(), Error> {
         self.send_event(Event::Parsed(WidgetSource {
-            index: self.index,
+            id: self.index,
             height,
             source,
         }))
