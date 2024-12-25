@@ -550,6 +550,8 @@ fn read_file_to_str(path: &str) -> io::Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use core::panic;
+
     use insta::assert_snapshot;
     use ratatui::{backend::TestBackend, Terminal};
 
@@ -575,6 +577,60 @@ mod tests {
         terminal.draw(|frame| view(&mut model, frame)).unwrap();
 
         assert_snapshot!(terminal.backend());
+        Ok(())
+    }
+
+    fn events_to_lines(event_rx: Receiver<(u16, Event<'_>)>) -> Vec<Line> {
+        let mut lines = vec![];
+        for (_, ev) in event_rx {
+            match ev {
+                Event::Parsed(source) => match source.source {
+                    WidgetSourceData::Line(line) => {
+                        lines.push(line);
+                    }
+                    _ => panic!("expected Line"),
+                },
+                Event::ParseHeader(_, _, spans) => {
+                    lines.push(Line::from(format!("# {}", Line::from(spans).to_string())));
+                }
+                _ => {}
+            }
+        }
+        lines
+    }
+
+    async fn text_to_lines(text: &str) -> Result<Vec<Line>, Error> {
+        const TERM_WIDTH: u16 = 80;
+        let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
+        parse(text, TERM_WIDTH, &event_tx).await?;
+        drop(event_tx);
+        let lines = events_to_lines(event_rx);
+        Ok(lines)
+    }
+
+    fn s(content: &str) -> Span {
+        Span::from(content)
+    }
+
+    #[tokio::test]
+    async fn test_simple_bold() -> Result<(), Error> {
+        let lines = text_to_lines(r#"Some **bold** and _italics_ and `c0de`."#).await?;
+
+        assert_eq!(
+            lines,
+            vec![
+                Line::from(vec![
+                    s("Some "),
+                    s("bold").bold(),
+                    s(" and "),
+                    s("italics").italic(),
+                    s(" and "),
+                    s("c0de").dark_gray(),
+                    s(".")
+                ]),
+                Line::default(),
+            ]
+        );
         Ok(())
     }
 }

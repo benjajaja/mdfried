@@ -42,11 +42,12 @@ pub fn wrap_spans(spans: Vec<Span>, max_width: usize) -> Result<Vec<Line>, Error
         let word_count = words.len();
         for (i, word) in words.iter().enumerate() {
             // TODO: can and should we do this without to_string/clone?
-            let span = Span::from(word.0.content.to_string()).style(word.0.style);
-            spans_out.push(span);
+            let mut content = word.0.content.to_string();
             if i < word_count - 1 {
-                spans_out.push(Span::from(" "));
+                content.push(' ');
             }
+            let span = Span::from(content).style(word.0.style);
+            spans_out.push(span);
         }
         let line = Line::from(spans_out);
         debug_assert!(line.width() <= max_width);
