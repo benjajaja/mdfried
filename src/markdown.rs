@@ -69,7 +69,7 @@ pub async fn parse<'b>(text: &str, width: u16, tx: &Sender<WidthEvent<'b>>) -> R
                         spans = vec![];
                     }
                     NodeValue::Paragraph => {
-                        let wrapped_lines = wrap_spans(spans, width as usize);
+                        let wrapped_lines = wrap_spans(spans, width as usize)?;
                         for line in wrapped_lines {
                             sender.send_parse(WidgetSourceData::Line(line), 1)?;
                         }
@@ -77,7 +77,7 @@ pub async fn parse<'b>(text: &str, width: u16, tx: &Sender<WidthEvent<'b>>) -> R
                         spans = vec![];
                     }
                     NodeValue::LineBreak | NodeValue::SoftBreak => {
-                        let wrapped_lines = wrap_spans(spans, width as usize);
+                        let wrapped_lines = wrap_spans(spans, width as usize)?;
                         for line in wrapped_lines {
                             sender.send_parse(WidgetSourceData::Line(line), 1)?;
                         }

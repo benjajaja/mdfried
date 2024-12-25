@@ -3,6 +3,7 @@ use std::{io, path::PathBuf, sync::mpsc::SendError};
 
 use confy::ConfyError;
 use image::ImageError;
+use textwrap::wrap_algorithms::OverflowError;
 use tokio::task::JoinError;
 
 use crate::{ImgCmd, ParseCmd, WidthEvent};
@@ -15,6 +16,7 @@ pub enum Error {
     Cli(clap::error::Error),
     Config(ConfyError),
     Io(io::Error),
+    Parse(&'static str),
     Image(image::ImageError),
     Protocol(ratatui_image::errors::Errors),
     Download(reqwest::Error),
@@ -32,6 +34,7 @@ impl fmt::Display for Error {
             Error::Cli(err) => write!(f, "Command line argument error: {err}"),
             Error::Config(err) => write!(f, "Configuration error: {err}"),
             Error::Io(err) => write!(f, "I/O error: {err}"),
+            Error::Parse(msg) => write!(f, "Parse error: {msg}"),
             Error::Image(err) => write!(f, "Image manipulation error: {err}"),
             Error::Protocol(err) => write!(f, "Terminal graphics error: {err}"),
             Error::Download(err) => write!(f, "HTTP request error: {err}"),
@@ -109,5 +112,11 @@ impl From<SendError<ParseCmd>> for Error {
 impl From<JoinError> for Error {
     fn from(_: JoinError) -> Self {
         Self::Thread
+    }
+}
+
+impl From<OverflowError> for Error {
+    fn from(_: OverflowError) -> Self {
+        Self::Parse("text-wrap overflow")
     }
 }
