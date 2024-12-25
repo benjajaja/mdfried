@@ -1451,7 +1451,7 @@ dependencies = [
 
 [[package]]
 name = "mdfried"
-version = "0.3.1-alpha.1"
+version = "0.3.2"
 dependencies = [
  "clap",
  "comrak",
