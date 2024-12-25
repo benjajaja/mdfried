@@ -1,64 +1,63 @@
 on:
   push:
     tags:
-      - "v*" # Push events to matching v*, i.e. v1.0, v20.15.10
+      - "v*.*.*"
   workflow_dispatch:
 
 name: Upload Release Assets
 
 jobs:
-  release:
+  build:
     uses: ./.github/workflows/build.yml
 
   post-build:
-    name: Add artifacts to release
-    needs: release
+    name: Release
+    needs: build
     runs-on: ubuntu-latest
 
     steps:
       - name: Download build artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: mdfried-linux
-      - name: Download build artifact
-        uses: actions/download-artifact@v3
+
+      - name: Download build artifact (windows)
+        uses: actions/download-artifact@v4
         with:
           name: mdfried-windows
 
-      - name: Verify build outputs
+      - name: Verify build outputs (removeme)
         run: |
           echo "Files in build-output directory:"
           ls
 
-      - name: Create Release
+      - name: Create Github Release
         id: create_release
         uses: actions/create-release@v1
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.PAT }}
         with:
           tag_name: ${{ github.ref }}
           release_name: Release ${{ github.ref }}
           draft: false
           prerelease: false
 
-      - name: Upload linux binary
-        id: upload-release-asset
+      - name: Add release assets
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
           asset_path: ./mdfried
-          asset_name: mdfried (linux)
+          asset_name: mdfried linux (nixos) binary
           asset_content_type: application/octet-stream
 
-      - name: Upload windows binary
-        id: upload-release-asset
+      - name: Add release assets
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
           asset_path: ./mdfried.exe
-          asset_name: mdfried.exe (windows)
+          asset_name: mdfried windows binary
           asset_content_type: application/octet-stream
