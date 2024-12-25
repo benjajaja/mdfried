@@ -28,3 +28,19 @@ jobs:
           nix flake show
           nix build . --print-build-logs
           nix flake check --print-build-logs
+
+      - name: Upload artifact (non-release builds)
+        if: ${{ github.event_name != 'release' }}
+        uses: actions/upload-artifact@v3
+        with:
+          name: mdfried
+          path: ./result/bin/mdfried
+
+      - name: Upload binary to release
+        if: ${{ github.event_name == 'release' }}
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: ./result/bin/mdfried
+          asset_name: mdfried
+          asset_content_type: application/octet-stream
