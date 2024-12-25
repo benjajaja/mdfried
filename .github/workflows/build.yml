@@ -1,13 +1,15 @@
-name: Build and Test Flake ❄️
+name: Test and Build Flake ❄️
 
 on:
   push:
     branches: [master]
   pull_request:
   workflow_dispatch:
+  workflow_call:
 
 jobs:
   nix-flake-test:
+    name: Flake check
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -28,6 +30,7 @@ jobs:
           nix flake check --print-build-logs
 
   nix-build:
+    name: Nix build
     runs-on: ubuntu-latest
     outputs:
       artifact_path: ${{ steps.upload-artifact.outputs.artifact_path }}
@@ -49,13 +52,13 @@ jobs:
           nix build . --print-build-logs
 
       - name: Upload artifact
-        if: ${{ github.event_name != 'release' }}
         uses: actions/upload-artifact@v4
         with:
           name: mdfried-linux
           path: ./result/bin/mdfried
 
   nix-build-windows:
+    name: Nix build (windows)
     runs-on: ubuntu-latest
     outputs:
       artifact_path: ${{ steps.upload-artifact.outputs.artifact_path }}
@@ -77,7 +80,6 @@ jobs:
           nix build .#windows --print-build-logs
 
       - name: Upload artifact
-        if: ${{ github.event_name != 'release' }}
         uses: actions/upload-artifact@v4
         with:
           name: mdfried-windows
