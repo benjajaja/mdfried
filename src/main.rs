@@ -614,10 +614,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_simple_bold() -> Result<(), Error> {
-        let lines = text_to_lines(r#"Some **bold** and _italics_ and `c0de`."#).await?;
+        let lines = text_to_lines("Some **bold** and _italics_ and `c0de`.").await?;
 
         assert_eq!(
-            lines,
             vec![
                 Line::from(vec![
                     s("Some "),
@@ -625,11 +624,34 @@ mod tests {
                     s(" and "),
                     s("italics").italic(),
                     s(" and "),
-                    s("c0de").dark_gray(),
+                    s("c0de").on_dark_gray(),
                     s(".")
                 ]),
                 Line::default(),
-            ]
+            ],
+            lines,
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[ignore] // Test the markdown, it's not producing the right spans before word-wrapping.
+    async fn test_nested() -> Result<(), Error> {
+        let lines = text_to_lines("_YES!_ You can have **cooked _and_ fried** widgets!").await?;
+
+        assert_eq!(
+            vec![
+                Line::from(vec![
+                    s("YES!").italic(),
+                    s(" You can have "),
+                    s("cooked ").bold(),
+                    s("and").bold().italic(),
+                    s(" fried").bold(),
+                    s(" widgets!"),
+                ]),
+                Line::default(),
+            ],
+            lines,
         );
         Ok(())
     }

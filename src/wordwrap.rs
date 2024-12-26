@@ -7,11 +7,16 @@ use textwrap::{
 use crate::error::Error;
 
 #[derive(Debug)]
-struct WordSpan<'a>(Span<'a>);
+struct WordSpan<'a> {
+    span: Span<'a>,
+    leading_whitespace: bool,
+    is_first: bool,
+    trailing_whitespace: bool,
+}
 
 impl Fragment for WordSpan<'_> {
     fn width(&self) -> f64 {
-        self.0.width() as f64
+        self.span.width() as f64
     }
 
     fn whitespace_width(&self) -> f64 {
@@ -23,13 +28,36 @@ impl Fragment for WordSpan<'_> {
     }
 }
 
+#[macro_export]
+macro_rules! tprintln {
+    ($($arg:tt)*) => {
+        #[cfg(test)]
+        {
+            println!($($arg)*);
+        }
+    };
+}
+
 pub fn wrap_spans(spans: Vec<Span>, max_width: usize) -> Result<Vec<Line>, Error> {
+    tprintln!("wrap_spans({spans:?})");
     // Split the spans into more spans, one for every word.
     let mut word_spans: Vec<WordSpan> = vec![];
     for span in &spans {
-        let words = span.content.split_whitespace();
-        for word in words {
-            word_spans.push(WordSpan(Span::from(word).style(span.style)));
+        let leading_whitespace = span.content.starts_with(" ");
+        let trailing_whitespace = span.content.ends_with(" ");
+
+        let mut words = span.content.split_whitespace().peekable();
+
+        let mut is_first = true;
+        while let Some(word) = words.next() {
+            let is_last = words.peek().is_none();
+            word_spans.push(WordSpan {
+                span: Span::from(word).style(span.style),
+                leading_whitespace: is_first && leading_whitespace,
+                is_first,
+                trailing_whitespace: is_last && trailing_whitespace,
+            });
+            is_first = false;
         }
     }
 
@@ -39,16 +67,38 @@ pub fn wrap_spans(spans: Vec<Span>, max_width: usize) -> Result<Vec<Line>, Error
     let mut lines = vec![];
     for words in wrapped_lines {
         let mut spans_out: Vec<Span> = vec![];
-        let word_count = words.len();
-        for (i, word) in words.iter().enumerate() {
-            // TODO: can and should we do this without to_string/clone?
-            let mut content = word.0.content.to_string();
-            if i < word_count - 1 {
-                content.push(' ');
+        let mut iter = words.iter().peekable();
+
+        let mut fused_span = Span::default();
+        while let Some(word) = iter.next() {
+            let mut content = word.span.content.to_string();
+
+            if word.leading_whitespace {
+                content = format!(" {}", content);
             }
-            let span = Span::from(content).style(word.0.style);
-            spans_out.push(span);
+            if word.trailing_whitespace {
+                content = format!("{} ", content);
+            }
+
+            if fused_span.content == "" {
+                fused_span = Span::from(content).style(word.span.style);
+            } else if fused_span.style == word.span.style {
+                if word.is_first {
+                    spans_out.push(fused_span);
+                    if !word.leading_whitespace {
+                        spans_out.push(Span::from(" "));
+                    }
+                    fused_span = Span::from(content).style(word.span.style);
+                } else {
+                    fused_span.content = format!("{} {}", fused_span.content, content).into();
+                }
+            } else {
+                spans_out.push(fused_span);
+                fused_span = Span::from(content).style(word.span.style);
+            }
         }
+        spans_out.push(fused_span);
+
         let line = Line::from(spans_out);
         debug_assert!(line.width() <= max_width);
         lines.push(line);
@@ -58,6 +108,8 @@ pub fn wrap_spans(spans: Vec<Span>, max_width: usize) -> Result<Vec<Line>, Error
 
 #[cfg(test)]
 mod tests {
+    use ratatui::style::Stylize;
+
     use super::*; // Import items from parent module
 
     fn lines_as_string(lines: Vec<Line>) -> String {
@@ -85,5 +137,60 @@ is dog"#,
         let line = letra.split('\n').collect::<Vec<&str>>().join(" ");
         let lines = wrap_spans(vec![Span::from(line)], 24).unwrap();
         assert_eq!(letra, lines_as_string(lines));
+    }
+
+    fn s(content: &str) -> Span {
+        Span::from(content)
+    }
+
+    #[test]
+    fn test_style_with_space() {
+        let lines = wrap_spans(vec![s("hello world").bold()], 100).unwrap();
+        assert_eq!(vec![Line::from(vec![s("hello world").bold()]),], lines);
+
+        let lines = wrap_spans(vec![s("hello").bold(), s(" "), s("world").bold()], 100).unwrap();
+        assert_eq!(
+            vec![Line::from(vec![
+                s("hello").bold(),
+                s(" "),
+                s("world").bold(),
+            ]),],
+            lines
+        );
+    }
+
+    #[test]
+    fn test_styled_spans() {
+        let lines = wrap_spans(vec![s("hello "), s("this").bold(), s(" is dog")], 20).unwrap();
+        assert_eq!(
+            vec![Line::from(vec![
+                s("hello "),
+                s("this").bold(),
+                s(" is dog"),
+            ]),],
+            lines
+        );
+    }
+
+    #[test]
+    fn test_leading_trailing_space_in_styled_span() {
+        let lines = wrap_spans(vec![s("hello "), s("this ").bold(), s("is dog")], 20).unwrap();
+        assert_eq!(
+            vec![Line::from(vec![
+                s("hello "),
+                s("this ").bold(),
+                s("is dog"),
+            ]),],
+            lines
+        );
+        let lines = wrap_spans(vec![s("hello"), s(" this").bold(), s(" is dog")], 20).unwrap();
+        assert_eq!(
+            vec![Line::from(vec![
+                s("hello"),
+                s(" this").bold(),
+                s(" is dog"),
+            ]),],
+            lines
+        );
     }
 }
