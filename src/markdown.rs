@@ -30,7 +30,7 @@ pub async fn parse<'a>(text: &str, width: u16, tx: &Sender<WidthEvent<'a>>) -> R
     );
 
     let mut spans = vec![];
-    let mut style = Style::new();
+    let mut style_stack = vec![Style::new()];
 
     let mut sender = SendTracker {
         width,
@@ -41,13 +41,18 @@ pub async fn parse<'a>(text: &str, width: u16, tx: &Sender<WidthEvent<'a>>) -> R
         match edge {
             NodeEdge::Start(node) => {
                 let node_value = &node.data.borrow().value;
-                style = modifier(style, node_value);
+                let node_style = modifier(node_value);
+                let new_style = match node_value {
+                    NodeValue::Code(_) | NodeValue::CodeBlock(_) => node_style,
+                    _ => style_stack.last().unwrap().clone().patch(node_style),
+                };
+                style_stack.push(new_style);
             }
             NodeEdge::End(node) => {
                 let node_value = &node.data.borrow().value;
                 match node_value {
                     NodeValue::Text(ref literal) => {
-                        let span = Span::from(literal.clone()).style(style);
+                        let span = Span::from(literal.clone()).style(*style_stack.last().unwrap());
                         spans.push(span);
                     }
                     NodeValue::Heading(ref tier) => {
@@ -88,11 +93,12 @@ pub async fn parse<'a>(text: &str, width: u16, tx: &Sender<WidthEvent<'a>>) -> R
                     NodeValue::Link(ref link) => {
                         let inner = Line::from(spans);
                         let span = Span::from(format!("[{}]({})", inner, link.url))
-                            .style(modifier(style, node_value));
+                            .style(modifier(node_value));
                         spans = vec![span];
                     }
                     NodeValue::Code(ref code) => {
-                        let span = Span::from(code.literal.clone()).style(style);
+                        let span =
+                            Span::from(code.literal.clone()).style(*style_stack.last().unwrap());
                         spans.push(span);
                     }
                     NodeValue::CodeBlock(ref codeblock) => {
@@ -101,7 +107,9 @@ pub async fn parse<'a>(text: &str, width: u16, tx: &Sender<WidthEvent<'a>>) -> R
                             splits.pop();
                         }
                         for line in splits {
-                            let line = Line::from(line.to_string()).style(style).on_dark_gray();
+                            let line = Line::from(line.to_string())
+                                .style(*style_stack.last().unwrap())
+                                .on_dark_gray();
                             sender.send_parse(WidgetSourceData::CodeBlock(line), 1)?;
                         }
                         sender.send_parse(WidgetSourceData::Line(Line::default()), 1)?;
@@ -109,7 +117,7 @@ pub async fn parse<'a>(text: &str, width: u16, tx: &Sender<WidthEvent<'a>>) -> R
                     }
                     _ => {}
                 }
-                style = Style::default();
+                style_stack.pop();
             }
         }
     }
@@ -138,10 +146,11 @@ impl<'b> SendTracker<'_, 'b> {
     }
 }
 
-fn modifier(style: Style, node_value: &NodeValue) -> Style {
+fn modifier(node_value: &NodeValue) -> Style {
+    let style = Style::default();
     match node_value {
-        NodeValue::Strong => style.add_modifier(Modifier::BOLD),
-        NodeValue::Emph => style.add_modifier(Modifier::ITALIC),
+        NodeValue::Strong => style.bold(),
+        NodeValue::Emph => style.italic(),
         NodeValue::Strikethrough => style.add_modifier(Modifier::CROSSED_OUT),
         NodeValue::Code(_) | NodeValue::CodeBlock(_) => style.on_dark_gray(),
         NodeValue::Link(_) => style.blue().underlined(),

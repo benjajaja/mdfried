@@ -635,7 +635,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Test the markdown, it's not producing the right spans before word-wrapping.
     async fn test_nested() -> Result<(), Error> {
         let lines = text_to_lines("_YES!_ You can have **cooked _and_ fried** widgets!").await?;
 
@@ -648,6 +647,23 @@ mod tests {
                     s("and").bold().italic(),
                     s(" fried").bold(),
                     s(" widgets!"),
+                ]),
+                Line::default(),
+            ],
+            lines,
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_nested_code() -> Result<(), Error> {
+        let lines = text_to_lines("**bold surrounding `code`**").await?;
+
+        assert_eq!(
+            vec![
+                Line::from(vec![
+                    s("bold surrounding ").bold(),
+                    s("code").on_dark_gray(),
                 ]),
                 Line::default(),
             ],
