@@ -44,7 +44,7 @@ pub async fn parse<'a>(text: &str, width: u16, tx: &Sender<WidthEvent<'a>>) -> R
                 let node_style = modifier(node_value);
                 let new_style = match node_value {
                     NodeValue::Code(_) | NodeValue::CodeBlock(_) => node_style,
-                    _ => style_stack.last().unwrap().clone().patch(node_style),
+                    _ => (*style_stack.last().unwrap()).patch(node_style),
                 };
                 style_stack.push(new_style);
             }
@@ -118,6 +118,7 @@ pub async fn parse<'a>(text: &str, width: u16, tx: &Sender<WidthEvent<'a>>) -> R
                     _ => {}
                 }
                 style_stack.pop();
+                debug_assert!(!style_stack.is_empty());
             }
         }
     }

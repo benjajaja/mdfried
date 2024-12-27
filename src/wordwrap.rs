@@ -28,18 +28,7 @@ impl Fragment for WordSpan<'_> {
     }
 }
 
-#[macro_export]
-macro_rules! tprintln {
-    ($($arg:tt)*) => {
-        #[cfg(test)]
-        {
-            println!($($arg)*);
-        }
-    };
-}
-
 pub fn wrap_spans(spans: Vec<Span>, max_width: usize) -> Result<Vec<Line>, Error> {
-    tprintln!("wrap_spans({spans:?})");
     // Split the spans into more spans, one for every word.
     let mut word_spans: Vec<WordSpan> = vec![];
     for span in &spans {
@@ -67,10 +56,9 @@ pub fn wrap_spans(spans: Vec<Span>, max_width: usize) -> Result<Vec<Line>, Error
     let mut lines = vec![];
     for words in wrapped_lines {
         let mut spans_out: Vec<Span> = vec![];
-        let mut iter = words.iter().peekable();
 
         let mut fused_span = Span::default();
-        while let Some(word) = iter.next() {
+        for word in words {
             let mut content = word.span.content.to_string();
 
             if word.leading_whitespace {

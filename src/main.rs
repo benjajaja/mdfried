@@ -591,7 +591,7 @@ mod tests {
                     _ => panic!("expected Line"),
                 },
                 Event::ParseHeader(_, _, spans) => {
-                    lines.push(Line::from(format!("# {}", Line::from(spans).to_string())));
+                    lines.push(Line::from(format!("# {}", Line::from(spans))));
                 }
                 _ => {}
             }
