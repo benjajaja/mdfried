@@ -1,7 +1,9 @@
 use std::sync::mpsc::Sender;
 
 use comrak::{
-    arena_tree::NodeEdge, nodes::NodeValue, parse_document, Arena, ExtensionOptions, Options,
+    arena_tree::NodeEdge,
+    nodes::{ListDelimType, ListType, NodeList, NodeValue},
+    parse_document, Arena, ExtensionOptions, Options,
 };
 use ratatui::{
     style::{Modifier, Style, Stylize},
@@ -13,6 +15,10 @@ use crate::{
     wordwrap::wrap_spans,
     Error, Event, WidgetSource, WidthEvent,
 };
+
+enum Block {
+    List(NodeList, usize),
+}
 
 pub async fn parse<'a>(text: &str, width: u16, tx: &Sender<WidthEvent<'a>>) -> Result<(), Error> {
     let mut ext_options = ExtensionOptions::default();
@@ -31,6 +37,7 @@ pub async fn parse<'a>(text: &str, width: u16, tx: &Sender<WidthEvent<'a>>) -> R
 
     let mut spans = vec![];
     let mut style_stack = vec![Style::new()];
+    let mut node_stack: Vec<Block> = vec![];
 
     let mut sender = SendTracker {
         width,
@@ -46,6 +53,13 @@ pub async fn parse<'a>(text: &str, width: u16, tx: &Sender<WidthEvent<'a>>) -> R
                     NodeValue::Code(_) | NodeValue::CodeBlock(_) => node_style,
                     _ => (*style_stack.last().unwrap()).patch(node_style),
                 };
+                #[allow(clippy::single_match)]
+                match node_value {
+                    NodeValue::List(ref nodelist) => {
+                        node_stack.push(Block::List(*nodelist, 0));
+                    }
+                    _ => {}
+                }
                 style_stack.push(new_style);
             }
             NodeEdge::End(node) => {
@@ -76,11 +90,53 @@ pub async fn parse<'a>(text: &str, width: u16, tx: &Sender<WidthEvent<'a>>) -> R
                         spans = vec![];
                     }
                     NodeValue::Paragraph => {
+                        let mut is_list = false;
+
+                        // TODO: should be done in the `if` block, fight the borrow checker.
+                        let indent = node_stack
+                            .iter()
+                            .filter(|block| matches!(block, Block::List(_, _)))
+                            .collect::<Vec<_>>()
+                            .len();
+
+                        if let Some(Block::List(nodelist, i)) = node_stack.last_mut() {
+                            is_list = true;
+                            let mut prefix = if indent > 0 {
+                                // This "zero-width space" just keeps wrap_spans from
+                                // collapsing whitespace, but this should be fixed there not
+                                // here.
+                                vec![Span::from("\u{200B} ".repeat(indent))]
+                            } else {
+                                vec![]
+                            };
+                            prefix.extend(match nodelist.list_type {
+                                ListType::Bullet => {
+                                    let char: char = nodelist.bullet_char.into();
+                                    vec![Span::from(String::from(char)).yellow(), Span::from(" ")]
+                                }
+                                ListType::Ordered => {
+                                    vec![
+                                        Span::from((nodelist.start + *i).to_string()).yellow(),
+                                        (match nodelist.delimiter {
+                                            ListDelimType::Period => Span::from(". "),
+                                            ListDelimType::Paren => Span::from(") "),
+                                        })
+                                        .dark_gray(),
+                                    ]
+                                }
+                            });
+                            prefix.extend(spans);
+                            spans = prefix;
+                            *i += 1;
+                        };
                         let wrapped_lines = wrap_spans(spans, width as usize)?;
                         for line in wrapped_lines {
                             sender.send_parse(WidgetSourceData::Line(line), 1)?;
                         }
-                        sender.send_parse(WidgetSourceData::Line(Line::default()), 1)?;
+
+                        if !is_list {
+                            sender.send_parse(WidgetSourceData::Line(Line::default()), 1)?;
+                        }
                         spans = vec![];
                     }
                     NodeValue::LineBreak | NodeValue::SoftBreak => {
@@ -118,6 +174,10 @@ pub async fn parse<'a>(text: &str, width: u16, tx: &Sender<WidthEvent<'a>>) -> R
                         }
                         sender.send_parse(WidgetSourceData::Line(Line::default()), 1)?;
                         spans = vec![];
+                    }
+                    NodeValue::List(_) => {
+                        debug_assert!(matches!(node_stack.last().unwrap(), Block::List(_, _)));
+                        node_stack.pop();
                     }
                     _ => {}
                 }
