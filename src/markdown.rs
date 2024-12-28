@@ -20,7 +20,7 @@ enum Block {
     List(NodeList, usize),
 }
 
-pub async fn parse<'a>(text: &str, width: u16, tx: &Sender<WidthEvent<'a>>) -> Result<(), Error> {
+pub fn parse<'a>(text: &str, width: u16, tx: &Sender<WidthEvent<'a>>) -> Result<(), Error> {
     let mut ext_options = ExtensionOptions::default();
     ext_options.strikethrough = true;
 

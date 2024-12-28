@@ -192,7 +192,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
     let (parse_tx, parse_rx) = mpsc::channel::<ParseCmd>();
     let parse_handle2 = tokio::spawn(async move {
         for ParseCmd { width, text } in parse_rx {
-            parse(&text, width, &event_tx).await?;
+            parse(&text, width, &event_tx)?;
         }
         Ok(())
     });
@@ -557,8 +557,8 @@ mod tests {
 
     use crate::*;
 
-    #[tokio::test]
-    async fn test_md_snapshot() -> Result<(), Error> {
+    #[test]
+    fn test_md_snapshot() -> Result<(), Error> {
         const TERM_WIDTH: u16 = 120;
         let (cmd_tx, _cmd_rx) = mpsc::channel::<ImgCmd>();
         let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
@@ -569,8 +569,7 @@ mod tests {
             include_str!("../assets/test.md"),
             model.inner_width(TERM_WIDTH),
             &event_tx,
-        )
-        .await?;
+        )?;
         model.process_events(TERM_WIDTH).unwrap();
 
         let mut terminal = Terminal::new(TestBackend::new(TERM_WIDTH, 64)).unwrap();
@@ -599,10 +598,10 @@ mod tests {
         lines
     }
 
-    async fn text_to_lines(text: &str) -> Result<Vec<Line>, Error> {
+    fn text_to_lines(text: &str) -> Result<Vec<Line>, Error> {
         const TERM_WIDTH: u16 = 80;
         let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
-        parse(text, TERM_WIDTH, &event_tx).await?;
+        parse(text, TERM_WIDTH, &event_tx)?;
         drop(event_tx);
         let lines = events_to_lines(event_rx);
         Ok(lines)
@@ -612,9 +611,9 @@ mod tests {
         Span::from(content)
     }
 
-    #[tokio::test]
-    async fn test_simple_bold() -> Result<(), Error> {
-        let lines = text_to_lines("Some **bold** and _italics_ and `c0de`.").await?;
+    #[test]
+    fn test_simple_bold() -> Result<(), Error> {
+        let lines = text_to_lines("Some **bold** and _italics_ and `c0de`.")?;
 
         assert_eq!(
             vec![
@@ -634,9 +633,9 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_nested() -> Result<(), Error> {
-        let lines = text_to_lines("_YES!_ You can have **cooked _and_ fried** widgets!").await?;
+    #[test]
+    fn test_nested() -> Result<(), Error> {
+        let lines = text_to_lines("_YES!_ You can have **cooked _and_ fried** widgets!")?;
 
         assert_eq!(
             vec![
@@ -655,9 +654,9 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_nested_code() -> Result<(), Error> {
-        let lines = text_to_lines("**bold surrounding `code`**").await?;
+    #[test]
+    fn test_nested_code() -> Result<(), Error> {
+        let lines = text_to_lines("**bold surrounding `code`**")?;
 
         assert_eq!(
             vec![
