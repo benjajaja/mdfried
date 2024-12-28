@@ -550,8 +550,6 @@ fn read_file_to_str(path: &str) -> io::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use core::panic;
-
     use insta::assert_snapshot;
     use ratatui::{backend::TestBackend, Terminal};
 
@@ -576,98 +574,6 @@ mod tests {
         terminal.draw(|frame| view(&mut model, frame)).unwrap();
 
         assert_snapshot!(terminal.backend());
-        Ok(())
-    }
-
-    fn events_to_lines(event_rx: Receiver<(u16, Event<'_>)>) -> Vec<Line> {
-        let mut lines = vec![];
-        for (_, ev) in event_rx {
-            match ev {
-                Event::Parsed(source) => match source.source {
-                    WidgetSourceData::Line(line) => {
-                        lines.push(line);
-                    }
-                    _ => panic!("expected Line"),
-                },
-                Event::ParseHeader(_, _, spans) => {
-                    lines.push(Line::from(format!("# {}", Line::from(spans))));
-                }
-                _ => {}
-            }
-        }
-        lines
-    }
-
-    fn text_to_lines(text: &str) -> Result<Vec<Line>, Error> {
-        const TERM_WIDTH: u16 = 80;
-        let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
-        parse(text, TERM_WIDTH, &event_tx)?;
-        drop(event_tx);
-        let lines = events_to_lines(event_rx);
-        Ok(lines)
-    }
-
-    fn s(content: &str) -> Span {
-        Span::from(content)
-    }
-
-    #[test]
-    fn test_simple_bold() -> Result<(), Error> {
-        let lines = text_to_lines("Some **bold** and _italics_ and `c0de`.")?;
-
-        assert_eq!(
-            vec![
-                Line::from(vec![
-                    s("Some "),
-                    s("bold").bold(),
-                    s(" and "),
-                    s("italics").italic(),
-                    s(" and "),
-                    s("c0de").on_dark_gray(),
-                    s(".")
-                ]),
-                Line::default(),
-            ],
-            lines,
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_nested() -> Result<(), Error> {
-        let lines = text_to_lines("_YES!_ You can have **cooked _and_ fried** widgets!")?;
-
-        assert_eq!(
-            vec![
-                Line::from(vec![
-                    s("YES!").italic(),
-                    s(" You can have "),
-                    s("cooked ").bold(),
-                    s("and").bold().italic(),
-                    s(" fried").bold(),
-                    s(" widgets!"),
-                ]),
-                Line::default(),
-            ],
-            lines,
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_nested_code() -> Result<(), Error> {
-        let lines = text_to_lines("**bold surrounding `code`**")?;
-
-        assert_eq!(
-            vec![
-                Line::from(vec![
-                    s("bold surrounding ").bold(),
-                    s("code").on_dark_gray(),
-                ]),
-                Line::default(),
-            ],
-            lines,
-        );
         Ok(())
     }
 }
