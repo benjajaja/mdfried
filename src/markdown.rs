@@ -92,9 +92,13 @@ pub async fn parse<'a>(text: &str, width: u16, tx: &Sender<WidthEvent<'a>>) -> R
                     }
                     NodeValue::Link(ref link) => {
                         let inner = Line::from(spans);
-                        let span = Span::from(format!("[{}]({})", inner, link.url))
-                            .style(modifier(node_value));
-                        spans = vec![span];
+                        spans = vec![
+                            Span::from("[").dark_gray(),
+                            Span::from(inner.to_string()).underlined(),
+                            Span::from("](").dark_gray(),
+                            Span::from(link.url.clone()).blue().underlined(),
+                            Span::from(")").dark_gray(),
+                        ];
                     }
                     NodeValue::Code(ref code) => {
                         let span =
@@ -154,7 +158,6 @@ fn modifier(node_value: &NodeValue) -> Style {
         NodeValue::Emph => style.italic(),
         NodeValue::Strikethrough => style.add_modifier(Modifier::CROSSED_OUT),
         NodeValue::Code(_) | NodeValue::CodeBlock(_) => style.on_dark_gray(),
-        NodeValue::Link(_) => style.blue().underlined(),
         _ => style,
     }
 }
