@@ -17,7 +17,54 @@ use crate::{
 };
 
 enum Block {
-    List(NodeList, usize),
+    Item(ListItem),
+}
+
+impl Block {
+    fn insert_prefix_spans(&self, total_indent: usize, lines: &mut Vec<Line>) {
+        let width = self.width();
+        for line in lines {
+            let mut new_line = match total_indent - width {
+                0 => vec![],
+                indent => vec![Span::from(" ".repeat(indent))],
+            };
+            new_line.extend(self.prefix());
+            new_line.extend(line.spans.clone());
+            *line = Line::from(new_line);
+        }
+    }
+    fn width(&self) -> usize {
+        match self {
+            Self::Item(item) => match item.nodelist.list_type {
+                ListType::Bullet => 2,
+                ListType::Ordered => 3,
+            },
+        }
+    }
+    fn prefix<'a>(&self) -> Vec<Span<'a>> {
+        match self {
+            Self::Item(item) => match item.nodelist.list_type {
+                ListType::Bullet => {
+                    let char: char = item.nodelist.bullet_char.into();
+                    vec![Span::from(String::from(char)).yellow(), Span::from(" ")]
+                }
+                ListType::Ordered => vec![
+                    Span::from((item.nodelist.start).to_string()).yellow(),
+                    (match item.nodelist.delimiter {
+                        ListDelimType::Period => Span::from("."),
+                        ListDelimType::Paren => Span::from(")"),
+                    })
+                    .dark_gray(),
+                    Span::from(" "),
+                ],
+            },
+        }
+    }
+}
+
+struct ListItem {
+    indent: usize,
+    nodelist: NodeList,
 }
 
 pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Error> {
@@ -53,14 +100,23 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
                     NodeValue::Code(_) | NodeValue::CodeBlock(_) => node_style,
                     _ => (*style_stack.last().unwrap()).patch(node_style),
                 };
+                style_stack.push(new_style);
+
                 #[allow(clippy::single_match)]
                 match node_value {
-                    NodeValue::List(ref nodelist) => {
-                        node_stack.push(Block::List(*nodelist, 0));
+                    NodeValue::Item(ref nodelist) => {
+                        debug_assert!(spans.is_empty());
+                        let indent = match nodelist.list_type {
+                            ListType::Ordered => 3,
+                            ListType::Bullet => 2,
+                        };
+                        node_stack.push(Block::Item(ListItem {
+                            indent,
+                            nodelist: *nodelist,
+                        }));
                     }
                     _ => {}
                 }
-                style_stack.push(new_style);
             }
             NodeEdge::End(node) => {
                 let node_value = &node.data.borrow().value;
@@ -89,60 +145,28 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
                         ))?;
                         spans = vec![];
                     }
-                    NodeValue::Paragraph => {
-                        let mut is_list = false;
-
-                        // TODO: should be done in the `if` block, fight the borrow checker.
-                        let indent = node_stack
+                    #[allow(unreachable_patterns)]
+                    NodeValue::Paragraph | NodeValue::LineBreak | NodeValue::SoftBreak => {
+                        let indent: usize = node_stack
                             .iter()
-                            .filter(|block| matches!(block, Block::List(_, _)))
-                            .collect::<Vec<_>>()
-                            .len();
+                            .filter_map(|block| match block {
+                                Block::Item(listitem) => Some(listitem.indent),
+                                _ => None,
+                            })
+                            .sum();
 
-                        if let Some(Block::List(nodelist, i)) = node_stack.last_mut() {
-                            is_list = true;
-                            let mut prefix = if indent > 0 {
-                                // This "zero-width space" just keeps wrap_spans from
-                                // collapsing whitespace, but this should be fixed there not
-                                // here.
-                                vec![Span::from("\u{200B} ".repeat(indent))]
-                            } else {
-                                vec![]
-                            };
-                            prefix.extend(match nodelist.list_type {
-                                ListType::Bullet => {
-                                    let char: char = nodelist.bullet_char.into();
-                                    vec![Span::from(String::from(char)).yellow(), Span::from(" ")]
-                                }
-                                ListType::Ordered => {
-                                    vec![
-                                        Span::from((nodelist.start + *i).to_string()).yellow(),
-                                        (match nodelist.delimiter {
-                                            ListDelimType::Period => Span::from(". "),
-                                            ListDelimType::Paren => Span::from(") "),
-                                        })
-                                        .dark_gray(),
-                                    ]
-                                }
-                            });
-                            prefix.extend(spans);
-                            spans = prefix;
-                            *i += 1;
-                        };
-                        let wrapped_lines = wrap_spans(spans, width as usize)?;
+                        let mut wrapped_lines = wrap_spans(spans, width as usize - indent)?;
+
+                        if let Some(prefix) = node_stack.last() {
+                            prefix.insert_prefix_spans(indent, &mut wrapped_lines);
+                        }
                         for line in wrapped_lines {
                             sender.send_parse(WidgetSourceData::Line(line), 1)?;
                         }
-
-                        if !is_list {
+                        if matches!(node_value, NodeValue::Paragraph)
+                            && !matches!(node_stack.last(), Some(Block::Item(_)))
+                        {
                             sender.send_parse(WidgetSourceData::Line(Line::default()), 1)?;
-                        }
-                        spans = vec![];
-                    }
-                    NodeValue::LineBreak | NodeValue::SoftBreak => {
-                        let wrapped_lines = wrap_spans(spans, width as usize)?;
-                        for line in wrapped_lines {
-                            sender.send_parse(WidgetSourceData::Line(line), 1)?;
                         }
                         spans = vec![];
                     }
@@ -175,8 +199,8 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
                         sender.send_parse(WidgetSourceData::Line(Line::default()), 1)?;
                         spans = vec![];
                     }
-                    NodeValue::List(_) => {
-                        debug_assert!(matches!(node_stack.last().unwrap(), Block::List(_, _)));
+                    NodeValue::Item(_) => {
+                        debug_assert!(matches!(node_stack.last().unwrap(), Block::Item(_)));
                         node_stack.pop();
                     }
                     _ => {}
@@ -260,11 +284,49 @@ mod tests {
         Span::from(content)
     }
 
+    #[macro_export]
+    macro_rules! assert_lines_eq {
+        ($left:expr, $right:expr $(,)?) => {
+            {
+                use ratatui::text::Line;
+
+                // Extract text content
+                let left_text: Vec<String> = $left.iter().map(|line| line.spans.iter().map(|span| span.content.clone()).collect::<String>()).collect();
+                let right_text: Vec<String> = $right.iter().map(|line| line.spans.iter().map(|span| span.content.clone()).collect::<String>()).collect();
+
+                // Compare styles
+                let left_styles: Vec<Vec<_>> = $left.iter().map(|line| line.spans.iter().map(|span| span.style).collect()).collect();
+                let right_styles: Vec<Vec<_>> = $right.iter().map(|line| line.spans.iter().map(|span| span.style).collect()).collect();
+
+                if left_styles != right_styles {
+                    if left_text != right_text {
+                        panic!(
+                            "Text content differs:\nLeft:\n{:#?}\n\nRight:\n{:#?}",
+                            left_text, right_text
+                        );
+                    }
+                    panic!(
+                        "Styles differ:\nLeft:\n{:#?}\n\nRight:\n{:#?}\n\nFull Left:\n{:#?}\n\nFull Right:\n{:#?}",
+                        left_styles, right_styles, $left, $right
+                    );
+                }
+                // Compare text content
+                if left_text != right_text {
+                    panic!(
+                        "Text content differs:\nLeft:\n{:#?}\n\nRight:\n{:#?}",
+                        left_text, right_text
+                    );
+                }
+
+            }
+        };
+    }
+
     #[test]
     fn test_simple_bold() -> Result<(), Error> {
         let lines = text_to_lines("Some **bold** and _italics_ and `c0de`.")?;
 
-        assert_eq!(
+        assert_lines_eq!(
             vec![
                 Line::from(vec![
                     s("Some "),
@@ -286,7 +348,7 @@ mod tests {
     fn test_nested() -> Result<(), Error> {
         let lines = text_to_lines("_YES!_ You can have **cooked _and_ fried** widgets!")?;
 
-        assert_eq!(
+        assert_lines_eq!(
             vec![
                 Line::from(vec![
                     s("YES!").italic(),
@@ -307,13 +369,66 @@ mod tests {
     fn test_nested_code() -> Result<(), Error> {
         let lines = text_to_lines("**bold surrounding `code`**")?;
 
-        assert_eq!(
+        assert_lines_eq!(
             vec![
                 Line::from(vec![
                     s("bold surrounding ").bold(),
                     s("code").on_dark_gray(),
                 ]),
                 Line::default(),
+            ],
+            lines,
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_list() -> Result<(), Error> {
+        let lines = text_to_lines("1. one")?;
+
+        assert_lines_eq!(
+            vec![Line::from(vec![
+                s("1").yellow(),
+                s(".").dark_gray(),
+                s(" "),
+                s("one")
+            ]),],
+            lines,
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_indented_list() -> Result<(), Error> {
+        let lines = text_to_lines("1. one\n   - subitem\n     - subsubitem\n2. two")?;
+
+        assert_lines_eq!(
+            vec![
+                Line::from(vec![s("1").yellow(), s(".").dark_gray(), s(" "), s("one")]),
+                Line::from(vec![s("   "), s("-").yellow(), s(" "), s("subitem"),]),
+                Line::from(vec![s("     "), s("-").yellow(), s(" "), s("subsubitem"),]),
+                Line::from(vec![s("2").yellow(), s(".").dark_gray(), s(" "), s("two")]),
+            ],
+            lines,
+        );
+        Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    fn test_list_vertical_space() -> Result<(), Error> {
+        let lines = text_to_lines(
+            r#"
+* one
+
+* two"#,
+        )?;
+
+        assert_lines_eq!(
+            vec![
+                Line::from(vec![s("*").yellow(), s(" "), s("one")]),
+                Line::from(vec![s("")]),
+                Line::from(vec![s("*").yellow(), s(" "), s("two")]),
             ],
             lines,
         );
