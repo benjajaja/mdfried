@@ -17,33 +17,38 @@ use crate::{
 };
 
 enum Block {
-    Item(ListItem),
+    ListItem(ListItem),
+    BlockQuote(bool),
+}
+
+struct ListItem {
+    nodelist: NodeList,
+    prefix_consumed: bool,
 }
 
 impl Block {
-    fn insert_prefix_spans(&mut self, total_indent: usize, lines: &mut Vec<Line>) {
-        let width = self.width();
+    fn insert_prefix_spans(&mut self, offset: usize, lines: &mut Vec<Line>) {
         for (i, line) in lines.iter_mut().enumerate() {
-            let mut new_line = match total_indent - width {
-                0 => vec![],
-                indent => vec![Span::from(" ".repeat(indent))],
-            };
-            new_line.extend(self.prefix(i));
-            new_line.extend(line.spans.clone());
-            *line = Line::from(new_line);
+            line.spans.splice(offset..offset, self.prefix(i));
+        }
+    }
+    fn insert_offset_spans(&mut self, offset: usize, lines: &mut Vec<Line>) {
+        for line in lines {
+            line.spans.splice(offset..offset, self.offset());
         }
     }
     fn width(&self) -> usize {
         match self {
-            Self::Item(item) => match item.nodelist.list_type {
+            Self::ListItem(item) => match item.nodelist.list_type {
                 ListType::Bullet => 2,
                 ListType::Ordered => 3,
             },
+            Self::BlockQuote(_) => 2,
         }
     }
     fn prefix<'a>(&mut self, line_index: usize) -> Vec<Span<'a>> {
         match self {
-            Self::Item(item) => match item.nodelist.list_type {
+            Self::ListItem(item) => match item.nodelist.list_type {
                 ListType::Bullet => {
                     let char: char = item.nodelist.bullet_char.into();
                     vec![Span::from(String::from(char)).yellow(), Span::from(" ")]
@@ -65,14 +70,41 @@ impl Block {
                     }
                 }
             },
+            Self::BlockQuote(consumed) => {
+                if *consumed {
+                    vec![Span::from("\u{2502} ")] // vertical line
+                } else {
+                    *consumed = true;
+                    // TODO: I would like to render this as ❝ \U{275D} Heavy double comma
+                    // quotation, with an image like the headings.
+                    vec![Span::from("\u{2502} ")]
+                }
+            }
+        }
+    }
+    fn offset<'a>(&mut self) -> Vec<Span<'a>> {
+        match self {
+            Self::ListItem(_) => vec![Span::from(" ".repeat(self.width()))],
+            Self::BlockQuote(_) => vec![Span::from("\u{2502} ")], // should also be able to render
+                                                                  // the decoration?
         }
     }
 }
 
-struct ListItem {
-    indent: usize,
-    nodelist: NodeList,
-    prefix_consumed: bool,
+fn insert_prefix_spans(block_stack: &mut [Block], wrapped_lines: &mut Vec<Line>) {
+    let mut peek = block_stack.iter_mut().peekable();
+    let mut inserted_span_count = 0;
+    while let Some(block) = peek.next() {
+        if peek.peek().is_some() {
+            // for line in wrapped_lines.iter_mut() {
+            // line.spans.insert(0, Span::from(" ".repeat(block.width())));
+            // }
+            block.insert_offset_spans(inserted_span_count, wrapped_lines);
+            inserted_span_count += 1;
+        } else {
+            block.insert_prefix_spans(inserted_span_count, wrapped_lines);
+        }
+    }
 }
 
 pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Error> {
@@ -92,7 +124,7 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
 
     let mut spans = vec![];
     let mut style_stack = vec![Style::new()];
-    let mut node_stack: Vec<Block> = vec![];
+    let mut block_stack: Vec<Block> = vec![];
 
     let mut sender = SendTracker {
         width,
@@ -114,15 +146,14 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
                 match node_value {
                     NodeValue::Item(ref nodelist) => {
                         debug_assert!(spans.is_empty());
-                        let indent = match nodelist.list_type {
-                            ListType::Ordered => 3,
-                            ListType::Bullet => 2,
-                        };
-                        node_stack.push(Block::Item(ListItem {
-                            indent,
+                        block_stack.push(Block::ListItem(ListItem {
                             nodelist: *nodelist,
                             prefix_consumed: false,
                         }));
+                    }
+                    NodeValue::BlockQuote => {
+                        debug_assert!(spans.is_empty());
+                        block_stack.push(Block::BlockQuote(false));
                     }
                     _ => {}
                 }
@@ -154,27 +185,23 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
                         ))?;
                         spans = vec![];
                     }
-                    #[allow(unreachable_patterns)]
                     NodeValue::Paragraph | NodeValue::LineBreak | NodeValue::SoftBreak => {
-                        let indent: usize = node_stack
-                            .iter()
-                            .filter_map(|block| match block {
-                                Block::Item(listitem) => Some(listitem.indent),
-                                _ => None,
-                            })
-                            .sum();
+                        let total_indent: usize = block_stack.iter().map(Block::width).sum();
 
-                        let mut wrapped_lines = wrap_spans(spans, width as usize - indent)?;
+                        let mut wrapped_lines = wrap_spans(spans, width as usize - total_indent)?;
 
-                        if let Some(ref mut prefix) = node_stack.last_mut() {
-                            prefix.insert_prefix_spans(indent, &mut wrapped_lines);
-                        }
+                        insert_prefix_spans(&mut block_stack, &mut wrapped_lines);
+
                         for line in wrapped_lines {
                             sender.send_parse(WidgetSourceData::Line(line), 1)?;
                         }
+
                         if matches!(node_value, NodeValue::Paragraph)
-                            && !matches!(node_stack.last(), Some(Block::Item(_)))
+                            && block_stack.last().is_none()
                         {
+                            // Insert an empty line only if it's a Paragraph on its own.
+                            // If this is a Paragraph inside a Block, then...
+                            // TODO: insert newlines for Paragraphs inside Blocks.
                             sender.send_parse(WidgetSourceData::Line(Line::default()), 1)?;
                         }
                         spans = vec![];
@@ -209,8 +236,12 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
                         spans = vec![];
                     }
                     NodeValue::Item(_) => {
-                        debug_assert!(matches!(node_stack.last().unwrap(), Block::Item(_)));
-                        node_stack.pop();
+                        debug_assert!(matches!(block_stack.last().unwrap(), Block::ListItem(_)));
+                        block_stack.pop();
+                    }
+                    NodeValue::BlockQuote => {
+                        debug_assert!(matches!(block_stack.last().unwrap(), Block::BlockQuote(_)));
+                        block_stack.pop();
                     }
                     _ => {}
                 }
@@ -415,7 +446,13 @@ mod tests {
             vec![
                 Line::from(vec![s("1").yellow(), s(".").dark_gray(), s(" "), s("one")]),
                 Line::from(vec![s("   "), s("-").yellow(), s(" "), s("subitem"),]),
-                Line::from(vec![s("     "), s("-").yellow(), s(" "), s("subsubitem"),]),
+                Line::from(vec![
+                    s("   "),
+                    s("  "),
+                    s("-").yellow(),
+                    s(" "),
+                    s("subsubitem"),
+                ]),
                 Line::from(vec![s("2").yellow(), s(".").dark_gray(), s(" "), s("two")]),
             ],
             lines,
