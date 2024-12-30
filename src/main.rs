@@ -31,7 +31,7 @@ use ratatui::{
 };
 
 use comrak::ExtensionOptions;
-use ratatui_image::Image;
+use ratatui_image::{picker::ProtocolType, Image};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use setup::setup_graphics;
@@ -154,13 +154,15 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
         for cmd in cmd_rx {
             match cmd {
                 ImgCmd::Header(id, width, tier, text) => {
-                    let task_tx = event_image_tx.clone();
-                    let r = renderer.clone();
-                    tokio::spawn(async move {
-                        let header = header_source(&r, width, id, text, tier, false).await?;
-                        task_tx.send((width, Event::Update(header)))?;
-                        Ok::<(), Error>(())
-                    });
+                    if renderer.picker.protocol_type() != ProtocolType::Halfblocks {
+                        let task_tx = event_image_tx.clone();
+                        let r = renderer.clone();
+                        tokio::spawn(async move {
+                            let header = header_source(&r, width, id, text, tier, false).await?;
+                            task_tx.send((width, Event::Update(header)))?;
+                            Ok::<(), Error>(())
+                        });
+                    }
                 }
                 ImgCmd::UrlImage(id, width, url, text, _title) => {
                     let task_tx = event_image_tx.clone();
@@ -353,7 +355,8 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                             ))),
                         });
                     }
-                    Event::ParseHeader(id, tier, spans) => {
+                    Event::ParseHeader(id, tier, mut spans) => {
+                        spans.insert(0, Span::from("#".repeat(tier as usize) + " ").light_blue());
                         let line = Line::from(spans);
                         let inner_width = match self.padding {
                             Padding::None => screen_width,
