@@ -21,14 +21,14 @@ enum Block {
 }
 
 impl Block {
-    fn insert_prefix_spans(&self, total_indent: usize, lines: &mut Vec<Line>) {
+    fn insert_prefix_spans(&mut self, total_indent: usize, lines: &mut Vec<Line>) {
         let width = self.width();
-        for line in lines {
+        for (i, line) in lines.iter_mut().enumerate() {
             let mut new_line = match total_indent - width {
                 0 => vec![],
                 indent => vec![Span::from(" ".repeat(indent))],
             };
-            new_line.extend(self.prefix());
+            new_line.extend(self.prefix(i));
             new_line.extend(line.spans.clone());
             *line = Line::from(new_line);
         }
@@ -41,22 +41,29 @@ impl Block {
             },
         }
     }
-    fn prefix<'a>(&self) -> Vec<Span<'a>> {
+    fn prefix<'a>(&mut self, line_index: usize) -> Vec<Span<'a>> {
         match self {
             Self::Item(item) => match item.nodelist.list_type {
                 ListType::Bullet => {
                     let char: char = item.nodelist.bullet_char.into();
                     vec![Span::from(String::from(char)).yellow(), Span::from(" ")]
                 }
-                ListType::Ordered => vec![
-                    Span::from((item.nodelist.start).to_string()).yellow(),
-                    (match item.nodelist.delimiter {
-                        ListDelimType::Period => Span::from("."),
-                        ListDelimType::Paren => Span::from(")"),
-                    })
-                    .dark_gray(),
-                    Span::from(" "),
-                ],
+                ListType::Ordered => {
+                    if line_index == 0 && !item.prefix_consumed {
+                        item.prefix_consumed = true;
+                        vec![
+                            Span::from((item.nodelist.start).to_string()).yellow(),
+                            (match item.nodelist.delimiter {
+                                ListDelimType::Period => Span::from("."),
+                                ListDelimType::Paren => Span::from(")"),
+                            })
+                            .dark_gray(),
+                            Span::from(" "),
+                        ]
+                    } else {
+                        vec![Span::from("   ")]
+                    }
+                }
             },
         }
     }
@@ -65,6 +72,7 @@ impl Block {
 struct ListItem {
     indent: usize,
     nodelist: NodeList,
+    prefix_consumed: bool,
 }
 
 pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Error> {
@@ -113,6 +121,7 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
                         node_stack.push(Block::Item(ListItem {
                             indent,
                             nodelist: *nodelist,
+                            prefix_consumed: false,
                         }));
                     }
                     _ => {}
@@ -157,7 +166,7 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
 
                         let mut wrapped_lines = wrap_spans(spans, width as usize - indent)?;
 
-                        if let Some(prefix) = node_stack.last() {
+                        if let Some(ref mut prefix) = node_stack.last_mut() {
                             prefix.insert_prefix_spans(indent, &mut wrapped_lines);
                         }
                         for line in wrapped_lines {

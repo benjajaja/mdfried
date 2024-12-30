@@ -578,7 +578,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn test_list_snapshot() -> Result<(), Error> {
         const TERM_WIDTH: u16 = 80;
         let (cmd_tx, _cmd_rx) = mpsc::channel::<ImgCmd>();
@@ -630,7 +629,7 @@ mod tests {
         )?;
         model.process_events(TERM_WIDTH).unwrap();
 
-        let mut terminal = Terminal::new(TestBackend::new(TERM_WIDTH, 64)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(TERM_WIDTH, 40)).unwrap();
         terminal.draw(|frame| view(&mut model, frame)).unwrap();
 
         assert_snapshot!(terminal.backend());
