@@ -196,13 +196,15 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
                             sender.send_parse(WidgetSourceData::Line(line), 1)?;
                         }
 
-                        if matches!(node_value, NodeValue::Paragraph)
-                            && block_stack.last().is_none()
-                        {
-                            // Insert an empty line only if it's a Paragraph on its own.
-                            // If this is a Paragraph inside a Block, then...
-                            // TODO: insert newlines for Paragraphs inside Blocks.
-                            sender.send_parse(WidgetSourceData::Line(Line::default()), 1)?;
+                        if matches!(node_value, NodeValue::Paragraph) {
+                            if block_stack.last().is_none() {
+                                sender.send_parse(WidgetSourceData::Line(Line::default()), 1)?;
+                            } else {
+                                // let mut lines = vec![Line::from("")];
+                                // insert_prefix_spans(&mut block_stack, &mut lines);
+                                // let line = lines.remove(0);
+                                // sender.send_parse(WidgetSourceData::Line(line), 1)?;
+                            }
                         }
                         spans = vec![];
                     }
