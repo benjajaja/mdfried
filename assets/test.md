@@ -39,4 +39,4 @@ In a world shrouded in darkness and flame, the universe of Dark Souls begins wit
 
 ![YOU FRIED](./assets/you_fried.png)
 
-THE END
+###### THE END

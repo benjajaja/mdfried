@@ -155,11 +155,12 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
                     if renderer.picker.protocol_type() != ProtocolType::Halfblocks {
                         let task_tx = event_image_tx.clone();
                         let r = renderer.clone();
-                        tokio::spawn(async move {
+                        let _ = tokio::spawn(async move {
                             let header = header_source(&r, width, id, text, tier, false).await?;
                             task_tx.send((width, Event::Update(header)))?;
                             Ok::<(), Error>(())
-                        });
+                        })
+                        .await?;
                     }
                 }
                 ImgCmd::UrlImage(id, width, url, text, _title) => {
@@ -167,7 +168,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
                     let r = renderer.clone();
                     let basepath = basepath.clone();
                     let client = client.clone();
-                    tokio::spawn(async move {
+                    let _ = tokio::spawn(async move {
                         let picker = r.picker;
                         match image_source(&picker, width, &basepath, client, id, &url, false).await
                         {
@@ -182,7 +183,8 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
                             ))?,
                         }
                         Ok::<(), Error>(())
-                    });
+                    })
+                    .await?;
                 }
             };
         }
