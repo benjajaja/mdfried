@@ -1,6 +1,6 @@
 [package]
 name = "mdfried"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 authors = ["Benjamin Große <ste3ls@gmail.com>"]
 description = "A markdown viewer for the terminal that renders images and big headers"
