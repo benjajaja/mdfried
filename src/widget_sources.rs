@@ -169,17 +169,17 @@ pub async fn image_source<'a>(
     basepath: &Option<PathBuf>,
     client: Arc<RwLock<Client>>,
     id: SourceID,
-    link: &str,
+    url: &str,
     deep_fry_meme: bool,
 ) -> Result<WidgetSource<'a>, Error> {
-    let mut dyn_img = if link.starts_with("https://") || link.starts_with("http://") {
+    let mut dyn_img = if url.starts_with("https://") || url.starts_with("http://") {
         let mut headers = HeaderMap::new();
         headers.insert(ACCEPT, HeaderValue::from_static("image/png,image/jpg")); // or "image/jpeg"
         let client = client.read().await;
-        let response = client.get(link).headers(headers).send().await?;
+        let response = client.get(url).headers(headers).send().await?;
         drop(client);
         if !response.status().is_success() {
-            return Err(Error::UnknownImage(id, link.to_string()));
+            return Err(Error::UnknownImage(id, url.to_string()));
         }
         let ct = response
             .headers()
@@ -190,21 +190,21 @@ pub async fn image_source<'a>(
             Some("image/png") => Ok(ImageFormat::Png),
             Some("image/webp") => Ok(ImageFormat::WebP),
             Some("image/gif") => Ok(ImageFormat::Gif),
-            _ => Err(Error::UnknownImage(id, link.to_string())),
+            _ => Err(Error::UnknownImage(id, url.to_string())),
         }?;
 
         let bytes = response.bytes().await?;
         ImageReader::with_format(Cursor::new(bytes), format).decode()?
     } else {
-        let link: String = match basepath {
-            Some(basepath) if link.starts_with("./") => basepath
-                .join(link)
+        let path: String = match basepath {
+            Some(basepath) if url.starts_with("./") => basepath
+                .join(url)
                 .to_str()
                 .map(String::from)
-                .unwrap_or(link.to_string()),
-            _ => link.to_string(),
+                .unwrap_or(url.to_string()),
+            _ => url.to_string(),
         };
-        ImageReader::open(link)?.decode()?
+        ImageReader::open(path)?.decode()?
     };
     if deep_fry_meme {
         dyn_img = deep_fry(dyn_img);
