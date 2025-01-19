@@ -18,6 +18,7 @@ crossterm = { version = "0.28.1", features = ["event-stream"] }
 image = "0.25.2"
 ratatui = "^0.29.0"
 ratatui-image = { version = "4.2.0" }
+regex = "1.11.1"
 rusttype = "0.9.3"
 rust-fontconfig = "0.1.13"
 serde = { version = "^1.0", features = ["derive"] }

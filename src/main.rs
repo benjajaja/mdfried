@@ -240,6 +240,7 @@ struct ParseCmd {
 enum Event<'a> {
     Parsed(WidgetSource<'a>),
     Update(Vec<WidgetSource<'a>>),
+    #[allow(dead_code)]
     ParseImage(SourceID, String, String, String),
     ParseHeader(SourceID, u8, Vec<Span<'a>>),
 }
