@@ -1,11 +1,15 @@
 use std::sync::mpsc::Sender;
 
+use crossterm::style::{Attribute, ContentStyle};
 use ratatui::{
     style::Stylize,
     text::{Line, Span},
 };
 use regex::Regex;
-use termimad::{minimad::parse_text, CompositeKind, FmtLine, FmtText, MadSkin};
+use termimad::{
+    minimad::{parse_text, Compound},
+    CompositeKind, FmtLine, FmtText, MadSkin,
+};
 
 use crate::{
     widget_sources::{SourceID, WidgetSourceData},
@@ -72,7 +76,7 @@ fn split_headers_and_images(text: &str) -> Vec<Block> {
     blocks
 }
 
-pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Error> {
+pub fn parse(text: &str, skin: &MadSkin, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Error> {
     let mut sender = SendTracker {
         width,
         tx,
@@ -80,8 +84,6 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
     };
 
     let text_blocks = split_headers_and_images(text);
-
-    let skin = MadSkin::default();
 
     let mut needs_space = false;
     for block in text_blocks {
@@ -104,7 +106,7 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
                 needs_space = true;
                 let text = parse_text(&text, termimad::minimad::Options::default());
 
-                let fmt_text = FmtText::from_text(&skin, text, Some(width as usize));
+                let fmt_text = FmtText::from_text(skin, text, Some(width as usize));
 
                 for line in fmt_text.lines {
                     match line {
@@ -126,22 +128,7 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
                             }
 
                             for comp in fmtcomp.compounds {
-                                let mut span = Span::from(comp.src.to_string());
-
-                                if comp.code {
-                                    // Don't apply any other styles to `code`.
-                                    span = span.on_dark_gray();
-                                } else {
-                                    if comp.bold {
-                                        span = span.bold();
-                                    }
-                                    if comp.italic {
-                                        span = span.italic();
-                                    }
-                                    if comp.strikeout {
-                                        span = span.crossed_out();
-                                    }
-                                }
+                                let span = comp_to_span(skin, comp.src.to_string(), comp);
                                 spans.push(span);
                             }
 
@@ -182,6 +169,49 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
     Ok(())
 }
 
+// Make a ratatui Span from a termimad Compound, using the skin.
+fn comp_to_span<'a>(skin: &MadSkin, src: String, comp: Compound<'_>) -> Span<'a> {
+    let mut span = Span::from(src);
+    if comp.code {
+        // We don't want to merge any other styles to code snippets.
+        span = apply_style_to_span(&skin.inline_code.object_style, span);
+    } else {
+        if comp.bold {
+            span = apply_style_to_span(&skin.bold.object_style, span);
+        }
+        if comp.italic {
+            span = apply_style_to_span(&skin.italic.object_style, span);
+        }
+        if comp.strikeout {
+            span = apply_style_to_span(&skin.strikeout.object_style, span);
+        }
+    }
+    span
+}
+
+// Convert from crossterm style to ratatui generic style, and set it on the span.
+fn apply_style_to_span<'a>(style: &ContentStyle, mut span: Span<'a>) -> Span<'a> {
+    if let Some(color) = style.foreground_color {
+        span = span.fg(color);
+    }
+    if let Some(color) = style.background_color {
+        span = span.bg(color);
+    }
+    if style.attributes.has(Attribute::Underlined) {
+        span = span.underlined();
+    }
+    if style.attributes.has(Attribute::Bold) {
+        span = span.bold();
+    }
+    if style.attributes.has(Attribute::Italic) {
+        span = span.italic();
+    }
+    if style.attributes.has(Attribute::CrossedOut) {
+        span = span.crossed_out();
+    }
+    span
+}
+
 // Just so that we don't miss an `index += 1`.
 struct SendTracker<'a, 'b> {
     width: u16,
@@ -207,6 +237,7 @@ impl<'b> SendTracker<'_, 'b> {
 #[cfg(test)]
 mod tests {
     use markdown::LIST_SYMBOL;
+    use termimad::MadSkin;
 
     use crate::*;
 
@@ -232,7 +263,11 @@ mod tests {
     fn text_to_lines(text: &str) -> Result<Vec<Line>, Error> {
         const TERM_WIDTH: u16 = 80;
         let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
-        parse(text, TERM_WIDTH, &event_tx)?;
+        let mut skin = MadSkin::default();
+        skin.inline_code.set_bg(crossterm::style::Color::DarkGrey);
+        skin.inline_code.object_style.foreground_color = None;
+
+        parse(text, &skin, TERM_WIDTH, &event_tx)?;
         drop(event_tx);
         let lines = events_to_lines(event_rx);
         Ok(lines)
