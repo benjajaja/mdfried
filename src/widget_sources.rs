@@ -28,7 +28,6 @@ pub enum WidgetSourceData<'a> {
     Image(Protocol),
     BrokenImage(String, String),
     Line(Line<'a>),
-    CodeBlock(Line<'a>),
 }
 
 impl Debug for WidgetSourceData<'_> {
@@ -37,7 +36,6 @@ impl Debug for WidgetSourceData<'_> {
             Self::Image(_) => f.debug_tuple("Image").finish(),
             Self::BrokenImage(_, _) => f.debug_tuple("BrokenImage").finish(),
             Self::Line(arg0) => f.debug_tuple("Text").field(arg0).finish(),
-            Self::CodeBlock(arg0) => f.debug_tuple("CodeBlock").field(arg0).finish(),
         }
     }
 }

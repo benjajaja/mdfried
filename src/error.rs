@@ -3,7 +3,6 @@ use std::{io, path::PathBuf, sync::mpsc::SendError};
 
 use confy::ConfyError;
 use image::ImageError;
-use textwrap::wrap_algorithms::OverflowError;
 use tokio::task::JoinError;
 
 use crate::{ImgCmd, ParseCmd, WidthEvent};
@@ -112,11 +111,5 @@ impl From<SendError<ParseCmd>> for Error {
 impl From<JoinError> for Error {
     fn from(_: JoinError) -> Self {
         Self::Thread
-    }
-}
-
-impl From<OverflowError> for Error {
-    fn from(_: OverflowError) -> Self {
-        Self::Parse("text-wrap overflow")
     }
 }

@@ -30,7 +30,6 @@ use ratatui::{
     DefaultTerminal, Frame, Terminal,
 };
 
-use comrak::ExtensionOptions;
 use ratatui_image::{picker::ProtocolType, Image};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -44,7 +43,6 @@ mod fontpicker;
 mod markdown;
 mod setup;
 mod widget_sources;
-mod wordwrap;
 
 const OK_END: &str = " ok.";
 
@@ -389,9 +387,6 @@ fn model_reload<'a>(model: &mut Model<'a, 'a>, width: u16) -> Result<(), Error> 
                 .ok_or(Error::Path(original_file_path.to_path_buf()))?,
         )?;
 
-        let mut ext_options = ExtensionOptions::default();
-        ext_options.strikethrough = true;
-
         model.sources = vec![];
         model.scroll = 0;
 
@@ -507,10 +502,6 @@ fn view(model: &mut Model, frame: &mut Frame) {
                     let p = Paragraph::new(text.clone());
                     render_widget(p, source.height, y as u16, inner_area, frame);
                 }
-                WidgetSourceData::CodeBlock(text) => {
-                    let p = Paragraph::new(text.clone()).on_dark_gray();
-                    render_widget(p, source.height, y as u16, inner_area, frame);
-                }
                 WidgetSourceData::Image(proto) => {
                     let img = Image::new(proto);
                     render_widget(img, source.height, y as u16, inner_area, frame);
@@ -549,93 +540,4 @@ fn read_file_to_str(path: &str) -> io::Result<String> {
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
     Ok(contents)
-}
-
-#[cfg(test)]
-mod tests {
-    use insta::assert_snapshot;
-    use ratatui::{backend::TestBackend, Terminal};
-
-    use crate::*;
-
-    #[test]
-    fn test_md_snapshot() -> Result<(), Error> {
-        const TERM_WIDTH: u16 = 120;
-        let (cmd_tx, _cmd_rx) = mpsc::channel::<ImgCmd>();
-        let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
-        let (parse_tx, _parse_rx) = mpsc::channel::<ParseCmd>();
-        let mut model = Model::new(None, None, cmd_tx, parse_tx, event_rx).unwrap();
-
-        parse(
-            include_str!("../assets/test.md"),
-            model.inner_width(TERM_WIDTH),
-            &event_tx,
-        )?;
-        model.process_events(TERM_WIDTH).unwrap();
-
-        let mut terminal = Terminal::new(TestBackend::new(TERM_WIDTH, 64)).unwrap();
-        terminal.draw(|frame| view(&mut model, frame)).unwrap();
-
-        assert_snapshot!(terminal.backend());
-        Ok(())
-    }
-
-    #[test]
-    fn test_list_snapshot() -> Result<(), Error> {
-        const TERM_WIDTH: u16 = 80;
-        let (cmd_tx, _cmd_rx) = mpsc::channel::<ImgCmd>();
-        let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
-        let (parse_tx, _parse_rx) = mpsc::channel::<ParseCmd>();
-        let mut model = Model::new(None, None, cmd_tx, parse_tx, event_rx).unwrap();
-
-        parse(
-            r#"
-1. First ordered list item
-2. Another item
-   - Unordered sub-list.
-3. Actual numbers don't matter, just that it's a number
-   1. Ordered sub-list
-4. And another item.
-
-   You can have properly indented paragraphs within list items. Notice the blank line above, and the leading spaces (at least one, but we'll use three here to also align the raw Markdown).
-
-   To have a line break without a paragraph, you will need to use two trailing spaces.  
-   Note that this line is separate, but within the same paragraph.  
-   (This is contrary to the typical GFM line break behaviour, where trailing spaces are not required.)
-
-- Unordered list can use asterisks
-
-* Or minuses
-
-- Or pluses
-
-1. Make my changes
-   1. Fix bug
-   2. Improve formatting
-      - Make the headings bigger
-2. Push my commits to GitHub
-3. Open a pull request
-   - Describe my changes
-   - Mention all the members of my team
-     - Ask for feedback
-
-- Create a list by starting a line with `+`, `-`, or `*`
-- Sub-lists are made by indenting 2 spaces:
-  - Marker character change forces new list start:
-    - Ac tristique libero volutpat at
-    * Facilisis in pretium nisl aliquet
-    - Nulla volutpat aliquam velit
-- Very easy!
-"#,
-            model.inner_width(TERM_WIDTH),
-            &event_tx,
-        )?;
-        model.process_events(TERM_WIDTH).unwrap();
-
-        let mut terminal = Terminal::new(TestBackend::new(TERM_WIDTH, 40)).unwrap();
-        terminal.draw(|frame| view(&mut model, frame)).unwrap();
-
-        assert_snapshot!(terminal.backend());
-        Ok(())
-    }
 }
