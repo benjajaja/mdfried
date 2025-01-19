@@ -81,16 +81,25 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
 
     let skin = MadSkin::default();
 
+    let mut needs_space = false;
     for block in text_blocks {
+        if needs_space {
+            // Send a newline after Markdowns and Images, but not after the last block.
+            sender.send_line(WidgetSourceData::Line(Line::default()), 1)?;
+        }
+
         match block {
             Block::Header(tier, text) => {
+                needs_space = false;
                 let spans = vec![Span::from(text)];
                 sender.send_event(Event::ParseHeader(sender.index, tier, spans))?;
             }
             Block::Image(alt, url) => {
+                needs_space = true;
                 sender.send_event(Event::ParseImage(sender.index, url, alt, "".to_string()))?;
             }
             Block::Markdown(text) => {
+                needs_space = true;
                 let text = parse_text(&text, termimad::minimad::Options::default());
 
                 let fmt_text = FmtText::from_text(&skin, text, Some(width as usize));
@@ -154,9 +163,6 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
                         }
                     }
                 }
-                // We need to send a newline between Blocks. We could also only send it on start,
-                // this adds a newline at the end.
-                sender.send_line(WidgetSourceData::Line(Line::default()), 1)?;
             }
         }
     }
