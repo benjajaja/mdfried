@@ -1,8 +1,8 @@
 # Markdown Fried!
 
 You can cook a terminal. Can you **deep fry** a terminal?
-_YES!_ You can have **cooked _and_ fried** widgets!
-~Is this insane?~
+*YES!* You can have **cooked *and* fried `widgets`!**
+~~Is this insane?~~
 
 Another paragraph now, which should get wrapped without breaking up words, nor whitespace at the beginning of lines. This is very primitive and fragile, for example, what happens with multi-width characters? Yes, they will probably cause havoc. It's impossible to know how wide a character will be in the terminal.
 

@@ -94,7 +94,7 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
                                 WidgetSourceData::Line(Line::from(
                                     "\u{2505}".repeat(width as usize),
                                 )),
-                                1,
+                                2,
                             )?;
                         }
                         _ => {
