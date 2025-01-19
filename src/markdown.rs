@@ -23,6 +23,8 @@ enum Block {
     Markdown(String),
 }
 
+const LIST_SYMBOL: &str = "\u{2022}";
+
 fn split_headers_and_images(text: &str) -> Vec<Block> {
     // Regex to match lines starting with 1-6 `#` characters
     let header_re = Regex::new(r"^(#+)\s*(.*)").unwrap();
@@ -109,6 +111,20 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
                         FmtLine::Normal(fmtcomp) => {
                             let mut spans = vec![];
 
+                            match fmtcomp.kind {
+                                CompositeKind::ListItem(depth) => {
+                                    spans.push(Span::from(" ".repeat(depth as usize)));
+                                    spans.push(Span::from(LIST_SYMBOL).yellow());
+                                    spans.push(Span::from(" "));
+                                }
+                                CompositeKind::ListItemFollowUp(_) => {
+                                    // ListItemFollowUp means some text block aligned right
+                                    // beneath a list item - could carry over some style, but we
+                                    // don't have any right now.
+                                }
+                                _ => {}
+                            }
+
                             for comp in fmtcomp.compounds {
                                 let mut span = Span::from(comp.src.to_string());
 
@@ -124,10 +140,6 @@ pub fn parse(text: &str, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Erro
                                     }
                                     if comp.strikeout {
                                         span = span.crossed_out();
-                                    }
-
-                                    if matches!(fmtcomp.kind, CompositeKind::ListItem(_)) {
-                                        span = span.yellow();
                                     }
                                 }
                                 spans.push(span);
@@ -194,6 +206,8 @@ impl<'b> SendTracker<'_, 'b> {
 
 #[cfg(test)]
 mod tests {
+    use markdown::LIST_SYMBOL;
+
     use crate::*;
 
     fn events_to_lines(event_rx: Receiver<(u16, Event<'_>)>) -> Vec<Line> {
@@ -312,6 +326,21 @@ mod tests {
                 s("bold surrounding ").bold(),
                 s("code").on_dark_gray(),
             ]),],
+            lines,
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_list() -> Result<(), Error> {
+        let lines = text_to_lines("* A\n* B\n   * B2")?;
+
+        assert_lines_eq!(
+            vec![
+                Line::from(vec![s(""), s(LIST_SYMBOL).yellow(), s(" "), s("A")]),
+                Line::from(vec![s(""), s(LIST_SYMBOL).yellow(), s(" "), s("B")]),
+                Line::from(vec![s("   "), s(LIST_SYMBOL).yellow(), s(" "), s("B2")]),
+            ],
             lines,
         );
         Ok(())
