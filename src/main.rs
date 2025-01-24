@@ -247,7 +247,7 @@ enum Event<'a> {
     Update(Vec<WidgetSource<'a>>),
     #[allow(dead_code)]
     ParseImage(SourceID, String, String, String),
-    ParseHeader(SourceID, u8, Vec<Span<'a>>),
+    ParseHeader(SourceID, u8, String),
 }
 
 // Just a width key, to discard events for stale screen widths.
@@ -359,19 +359,14 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                             ))),
                         });
                     }
-                    Event::ParseHeader(id, tier, mut spans) => {
-                        spans.insert(0, Span::from("#".repeat(tier as usize) + " ").light_blue());
-                        let line = Line::from(spans);
-                        let inner_width = match self.padding {
-                            Padding::None => screen_width,
-                            Padding::Empty | Padding::Border => screen_width - 2,
-                        };
-                        self.cmd_tx.send(ImgCmd::Header(
-                            id,
-                            inner_width,
-                            tier,
-                            line.to_string(),
-                        ))?;
+                    Event::ParseHeader(id, tier, text) => {
+                        self.cmd_tx
+                            .send(ImgCmd::Header(id, inner_width, tier, text.clone()))?;
+
+                        let line = Line::from(vec![
+                            Span::from("#".repeat(tier as usize) + " ").light_blue(),
+                            Span::from(text),
+                        ]);
                         self.sources.push(WidgetSource {
                             id,
                             height: 2,
