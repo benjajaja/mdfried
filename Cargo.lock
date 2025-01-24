@@ -1385,12 +1385,12 @@ dependencies = [
  "libc",
  "ratatui",
  "ratatui-image",
+ "ratskin 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex",
  "reqwest",
  "rust-fontconfig",
  "rusttype",
  "serde",
- "termimad",
  "tokio",
  "tokio-util",
 ]
@@ -1825,6 +1825,28 @@ dependencies = [
  "rustix",
  "thiserror",
  "windows",
+]
+
+[[package]]
+name = "ratskin"
+version = "0.1.0"
+dependencies = [
+ "crossterm",
+ "ratatui",
+ "regex",
+ "termimad",
+]
+
+[[package]]
+name = "ratskin"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11282c723ad8ac8822f8514fb8c5a0120e5e82fd436001ae98722e904e9a7c8b"
+dependencies = [
+ "crossterm",
+ "ratatui",
+ "regex",
+ "termimad",
 ]
 
 [[package]]
@@ -2397,7 +2419,9 @@ checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 
 [[package]]
 name = "termimad"
-version = "0.31.1"
+version = "0.31.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8e19c6dbf107bec01d0e216bb8219485795b7d75328e4fa5ef2756c1be4f8dc"
 dependencies = [
  "coolor",
  "crokey",

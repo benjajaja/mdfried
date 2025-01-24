@@ -1,0 +1,3 @@
+{{readme}}
+
+License: {{license}}

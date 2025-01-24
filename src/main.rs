@@ -31,10 +31,10 @@ use ratatui::{
 };
 
 use ratatui_image::{picker::ProtocolType, Image};
+use ratskin::RatSkin;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use setup::setup_graphics;
-use termimad::MadSkin;
 use tokio::sync::RwLock;
 use widget_sources::{header_source, image_source, SourceID, WidgetSource, WidgetSourceData};
 
@@ -192,7 +192,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
         Ok(())
     });
 
-    let skin = MadSkin::default();
+    let skin = RatSkin::default();
 
     let (parse_tx, parse_rx) = mpsc::channel::<ParseCmd>();
     let parse_handle2 = tokio::spawn(async move {
