@@ -1385,7 +1385,7 @@ dependencies = [
  "libc",
  "ratatui",
  "ratatui-image",
- "ratskin 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ratskin 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex",
  "reqwest",
  "rust-fontconfig",
@@ -1829,7 +1829,7 @@ dependencies = [
 
 [[package]]
 name = "ratskin"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "crossterm",
  "ratatui",
@@ -1839,9 +1839,9 @@ dependencies = [
 
 [[package]]
 name = "ratskin"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11282c723ad8ac8822f8514fb8c5a0120e5e82fd436001ae98722e904e9a7c8b"
+checksum = "36a3cd657406c40a186425bae2a4520df1b886089286d08bb8564fab57cfd715"
 dependencies = [
  "crossterm",
  "ratatui",

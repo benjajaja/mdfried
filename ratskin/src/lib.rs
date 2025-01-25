@@ -3,7 +3,6 @@
 //! ```rust
 //! # use ratskin::RatSkin;
 //! # use ratatui::{style::Stylize, text::{Line, Span}};
-//! #
 //! let rat_skin = RatSkin::default();
 //! let text = RatSkin::parse_text("**cook it!**");
 //! let lines: Vec<Line> = rat_skin.parse(text, 80);
@@ -23,17 +22,17 @@ use ratatui::{
     style::Stylize,
     text::{Line, Span},
 };
+pub use termimad::MadSkin;
 use termimad::{
     minimad::{parse_text, Text},
     CompositeKind, CompoundStyle, FmtComposite, FmtLine, FmtText, ListItemsIndentationMode,
-    MadSkin, RelativePosition, Spacing, StyledChar,
+    RelativePosition, Spacing, StyledChar,
 };
 
 /// Wrapper around [termimad::MadSkin].
 ///
 /// ```rust
 /// # use ratskin::RatSkin;
-/// #
 /// let mut rat_skin = RatSkin::default();
 /// rat_skin.skin.bold.set_fg((255, 0, 0).into());
 /// ```

@@ -192,7 +192,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
         Ok(())
     });
 
-    let skin = RatSkin::default();
+    let skin = RatSkin { skin: config.skin };
 
     let (parse_tx, parse_rx) = mpsc::channel::<ParseCmd>();
     let parse_handle2 = tokio::spawn(async move {

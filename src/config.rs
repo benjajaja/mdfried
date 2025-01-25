@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::Padding;
 
-// #[command(version, about, long_about = None)]
 #[derive(Parser)]
 #[command(name = "mdfried")]
 #[command(version = "0.1")]
@@ -17,4 +16,5 @@ pub struct Cli {
 pub struct Config {
     pub font_family: Option<String>,
     pub padding: Padding,
+    pub skin: ratskin::MadSkin,
 }
