@@ -160,8 +160,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
                             let header = header_source(&r, width, id, text, tier, false).await?;
                             task_tx.send((width, Event::Update(header)))?;
                             Ok::<(), Error>(())
-                        })
-                        .await?;
+                        });
                     }
                 }
                 ImgCmd::UrlImage(id, width, url, text, _title) => {
@@ -184,10 +183,12 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
                             ))?,
                         }
                         Ok::<(), Error>(())
-                    })
-                    .await?;
+                    });
                 }
             };
+            // There might be no more awaits from here until starting a render - give tokio a
+            // chance to scheduled the tasks which are not tracked otherwise.
+            tokio::task::yield_now().await;
         }
         Ok(())
     });
