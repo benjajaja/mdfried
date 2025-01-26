@@ -4,8 +4,8 @@ version = "0.2.0"
 edition = "2021"
 authors = ["Benjamin Große <ste3ls@gmail.com>"]
 description = "A wrapper around termimad that produces ratatui widgets from markdown"
-repository = "https://github.com/benjajaja/ratskin"
-homepage = "https://github.com/benjajaja/ratskin"
+repository = "https://github.com/benjajaja/mdfried/ratskin"
+homepage = "https://github.com/benjajaja/mdfried/ratskin"
 readme = "README.md"
 license = "MIT"
 rust-version = "1.81.0"
@@ -16,3 +16,6 @@ ratatui = "^0.29.0"
 regex = "1.11.1"
 crossterm = "0.28.1"
 
+[package.metadata.release]
+sign-commit = true
+push = false
