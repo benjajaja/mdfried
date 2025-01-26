@@ -150,8 +150,12 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
         let basepath = basepath.clone();
         let client = Arc::new(RwLock::new(Client::new()));
         let renderer = Arc::new(renderer);
+        let skin = RatSkin { skin: config.skin };
         for cmd in cmd_rx {
             match cmd {
+                ImgCmd::Parse(width, text) => {
+                    parse(&text, &skin, width, &event_tx)?;
+                }
                 ImgCmd::Header(id, width, tier, text) => {
                     if renderer.picker.protocol_type() != ProtocolType::Halfblocks {
                         let task_tx = event_image_tx.clone();
@@ -194,17 +198,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
         Ok(())
     });
 
-    let skin = RatSkin { skin: config.skin };
-
-    let (parse_tx, parse_rx) = mpsc::channel::<ParseCmd>();
-    let parse_handle2 = tokio::spawn(async move {
-        for ParseCmd { width, text } in parse_rx {
-            parse(&text, &skin, width, &event_tx)?;
-        }
-        Ok(())
-    });
-
-    let model = Model::new(bg, path.cloned(), cmd_tx, parse_tx, event_rx)?;
+    let model = Model::new(bg, path.cloned(), cmd_tx, event_rx)?;
 
     crossterm::terminal::enable_raw_mode()?;
     let backend = CrosstermBackend::new(stdout());
@@ -214,17 +208,13 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
 
     let inner_width = model.inner_width(terminal.size()?.width);
     model
-        .parse_tx
-        .send(ParseCmd {
-            width: inner_width,
-            text,
-        })
+        .cmd_tx
+        .send(ImgCmd::Parse(inner_width, text))
         .map_err(Error::from)?;
 
     let ui_handle = tokio::spawn(async move { run(terminal, model) });
     let result = tokio::select! {
         parse_res = parse_handle => parse_res?,
-        parse2_res = parse_handle2 => parse2_res?,
         ui_res = ui_handle => ui_res?,
     };
     crossterm::execute!(std::io::stderr(), DisableMouseCapture)?;
@@ -234,13 +224,9 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
 
 #[derive(Debug)]
 enum ImgCmd {
+    Parse(u16, String),
     UrlImage(usize, u16, String, String, String),
     Header(usize, u16, u8, String),
-}
-
-struct ParseCmd {
-    width: u16,
-    text: String,
 }
 
 #[derive(Debug)]
@@ -262,7 +248,6 @@ struct Model<'a, 'b> {
     sources: Vec<WidgetSource<'a>>,
     padding: Padding,
     cmd_tx: Sender<ImgCmd>,
-    parse_tx: Sender<ParseCmd>,
     event_rx: Receiver<WidthEvent<'b>>,
 }
 
@@ -279,7 +264,6 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         bg: Option<[u8; 4]>,
         original_file_path: Option<PathBuf>,
         cmd_tx: Sender<ImgCmd>,
-        parse_tx: Sender<ParseCmd>,
         event_rx: Receiver<WidthEvent<'b>>,
     ) -> Result<Model<'a, 'b>, Error> {
         let model = Model {
@@ -289,7 +273,6 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
             sources: vec![],
             padding: Padding::Empty,
             cmd_tx,
-            parse_tx,
             event_rx,
         };
 
@@ -394,10 +377,7 @@ fn model_reload<'a>(model: &mut Model<'a, 'a>, width: u16) -> Result<(), Error> 
         model.scroll = 0;
 
         let inner_width = model.inner_width(width);
-        model.parse_tx.send(ParseCmd {
-            width: inner_width,
-            text,
-        })?;
+        model.cmd_tx.send(ImgCmd::Parse(inner_width, text))?;
     }
     Ok(())
 }

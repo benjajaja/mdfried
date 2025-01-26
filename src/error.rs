@@ -5,7 +5,7 @@ use confy::ConfyError;
 use image::ImageError;
 use tokio::task::JoinError;
 
-use crate::{ImgCmd, ParseCmd, WidthEvent};
+use crate::{ImgCmd, WidthEvent};
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -98,12 +98,6 @@ impl From<SendError<WidthEvent<'_>>> for Error {
 
 impl From<SendError<ImgCmd>> for Error {
     fn from(_: SendError<ImgCmd>) -> Self {
-        Self::Thread
-    }
-}
-
-impl From<SendError<ParseCmd>> for Error {
-    fn from(_: SendError<ParseCmd>) -> Self {
         Self::Thread
     }
 }
