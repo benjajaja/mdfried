@@ -138,7 +138,7 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
         Ok(None) => return Err(Error::UserAbort("cancelled setup")),
         Err(err) => return Err(err),
     };
-    let _deep_fry = *matches.get_one("deep").unwrap_or(&false);
+    let deep_fry = *matches.get_one("deep").unwrap_or(&false);
 
     let bg = renderer.bg;
 
@@ -165,7 +165,7 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
                             let task_tx = event_tx.clone();
                             let r = renderer.clone();
                             tokio::spawn(async move {
-                                let header = header_source(&r, width, id, text, tier, false)?;
+                                let header = header_source(&r, width, id, text, tier, deep_fry)?;
                                 task_tx.send((width, Event::Update(header)))?;
                                 Ok::<(), Error>(())
                             });
@@ -179,8 +179,11 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
                         // TODO: handle spawned task result errors, right now it's just discarded.
                         tokio::spawn(async move {
                             let picker = r.picker;
-                            match image_source(&picker, width, &basepath, client, id, &url, false)
-                                .await
+                            let font = &r.font;
+                            match image_source(
+                                &picker, width, &basepath, client, id, &url, deep_fry, font,
+                            )
+                            .await
                             {
                                 Ok(source) => task_tx.send((width, Event::Update(vec![source])))?,
                                 Err(Error::UnknownImage(id, link)) => task_tx.send((

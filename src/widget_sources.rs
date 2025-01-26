@@ -10,7 +10,7 @@ use reqwest::{
     header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE},
     Client,
 };
-use rusttype::{point, PositionedGlyph, Scale};
+use rusttype::{point, Font, PositionedGlyph, Scale};
 use tokio::sync::RwLock;
 
 use crate::{setup::Renderer, Error};
@@ -145,7 +145,7 @@ pub fn header_source<'a>(
         }
 
         if deep_fry_meme {
-            dyn_img = deep_fry(dyn_img);
+            dyn_img = deep_fry(dyn_img, &renderer.font);
         }
 
         let proto = renderer.picker.new_protocol(
@@ -163,6 +163,7 @@ pub fn header_source<'a>(
     Ok(sources)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn image_source<'a>(
     picker: &Picker,
     width: u16,
@@ -171,6 +172,7 @@ pub async fn image_source<'a>(
     id: SourceID,
     url: &str,
     deep_fry_meme: bool,
+    font: &Font<'a>,
 ) -> Result<WidgetSource<'a>, Error> {
     let mut dyn_img = if url.starts_with("https://") || url.starts_with("http://") {
         let mut headers = HeaderMap::new();
@@ -207,7 +209,7 @@ pub async fn image_source<'a>(
         ImageReader::open(path)?.decode()?
     };
     if deep_fry_meme {
-        dyn_img = deep_fry(dyn_img);
+        dyn_img = deep_fry(dyn_img, font);
     }
 
     let max_height: u16 = 20;
@@ -227,10 +229,10 @@ pub async fn image_source<'a>(
     })
 }
 
-fn deep_fry(mut dyn_img: DynamicImage) -> DynamicImage {
+fn deep_fry(mut dyn_img: DynamicImage, _font: &Font) -> DynamicImage {
     let width = dyn_img.width();
     let height = dyn_img.height();
-    dyn_img = dyn_img.adjust_contrast(100.0);
+    dyn_img = dyn_img.adjust_contrast(50.0);
     dyn_img = dyn_img.huerotate(45);
 
     let down_width = (width as f32 * 0.9) as u32;
@@ -238,5 +240,30 @@ fn deep_fry(mut dyn_img: DynamicImage) -> DynamicImage {
     dyn_img = dyn_img.resize(down_width, down_height, imageops::FilterType::Gaussian);
     dyn_img = dyn_img.resize(width, height, imageops::FilterType::Nearest);
 
-    dyn_img
+    let mut deep_fried = dyn_img.to_rgba8();
+    let mut seed: i32 = 42;
+
+    for pixel in deep_fried.pixels_mut() {
+        // Boost color intensities and add artifacts
+        let mut r = pixel[0] as f32;
+        let mut g = pixel[1] as f32;
+        let mut b = pixel[2] as f32;
+
+        // Exaggerate color values
+        r = (r * 1.5).min(255.0);
+        g = (g * 1.5).min(255.0);
+        b = (b * 1.5).min(255.0);
+
+        // Add "random" noise for "deep fried" effect
+        seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+        let noise = (seed % 30) as f32;
+
+        r = (r + noise).min(255.0);
+        g = (g + noise).min(255.0);
+        b = (b + noise).min(255.0);
+
+        *pixel = Rgba([r as u8, g as u8, b as u8, pixel[3]]);
+    }
+
+    DynamicImage::ImageRgba8(deep_fried)
 }
