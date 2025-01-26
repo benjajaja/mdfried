@@ -45,7 +45,7 @@ the file (if not using stdin pipe). Mouse scroll also works.
 - Rust cargo: `cargo install mdfried`
 - Nix flake: `github:benjajaja/mdfried`
 - Arch Linux: `paru -S mdfried` ([AUR](https://aur.archlinux.org/packages/mdfried))
-- Windows: [Download .exe](https://github.com/benjajaja/mdfried/releases/latest)
+- Windows: [Download release](https://github.com/benjajaja/mdfried/releases/latest)
 
 # Configuration
 
