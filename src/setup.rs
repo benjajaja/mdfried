@@ -28,7 +28,7 @@ impl<'a> Renderer<'a> {
     }
 }
 
-pub async fn setup_graphics<'a>(
+pub fn setup_graphics<'a>(
     font_family: Option<String>,
     force_font_setup: bool,
 ) -> Result<Option<Renderer<'a>>, Error> {
@@ -64,7 +64,7 @@ pub async fn setup_graphics<'a>(
     let font_family = if let Some(mut font_family) = config_font_family {
         if force_font_setup {
             println!("Entering forced font setup");
-            match interactive_font_picker(&cache, &mut picker, bg).await {
+            match interactive_font_picker(&cache, &mut picker, bg) {
                 Ok(Some(setup_font_family)) => {
                     let new_config = Config {
                         font_family: Some(setup_font_family.clone()),
@@ -80,7 +80,7 @@ pub async fn setup_graphics<'a>(
         font_family
     } else {
         println!("Entering one-time font setup");
-        match interactive_font_picker(&cache, &mut picker, bg).await {
+        match interactive_font_picker(&cache, &mut picker, bg) {
             Ok(Some(font_family)) => {
                 let new_config = Config {
                     font_family: Some(font_family.clone()),

@@ -9,6 +9,7 @@ use std::{
         mpsc::{self, Receiver, Sender},
         Arc,
     },
+    thread,
     time::Duration,
 };
 
@@ -35,7 +36,7 @@ use ratskin::RatSkin;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use setup::setup_graphics;
-use tokio::sync::RwLock;
+use tokio::{runtime::Builder, sync::RwLock};
 use widget_sources::{header_source, image_source, SourceID, WidgetSource, WidgetSourceData};
 
 mod config;
@@ -49,8 +50,7 @@ const OK_END: &str = " ok.";
 
 const CONFIG: (&str, Option<&str>) = ("mdfried", Some("config"));
 
-#[tokio::main]
-async fn main() -> io::Result<()> {
+fn main() -> io::Result<()> {
     let mut cmd = command!() // requires `cargo` feature
         .arg(
             arg!([path] "The markdown file path, or '-' for stdin")
@@ -60,7 +60,7 @@ async fn main() -> io::Result<()> {
         .arg(arg!(-d --deep "Extra deep fried images").value_parser(value_parser!(bool)));
     let matches = cmd.get_matches_mut();
 
-    match start(&matches).await {
+    match start(&matches) {
         Err(Error::Usage(msg)) => {
             if let Some(msg) = msg {
                 println!("Usage error: {msg}");
@@ -77,7 +77,7 @@ async fn main() -> io::Result<()> {
     Ok(())
 }
 
-async fn start(matches: &ArgMatches) -> Result<(), Error> {
+fn start(matches: &ArgMatches) -> Result<(), Error> {
     let path = matches.get_one::<PathBuf>("path");
 
     let (text, basepath) = match path {
@@ -133,7 +133,7 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
     }
 
     let force_setup = *matches.get_one("setup").unwrap_or(&false);
-    let renderer = match setup_graphics(config.font_family, force_setup).await {
+    let renderer = match setup_graphics(config.font_family, force_setup) {
         Ok(Some(renderer)) => renderer,
         Ok(None) => return Err(Error::UserAbort("cancelled setup")),
         Err(err) => return Err(err),
@@ -145,57 +145,63 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
     let (cmd_tx, cmd_rx) = mpsc::channel::<ImgCmd>();
     let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
 
-    let event_image_tx = event_tx.clone();
-    let parse_handle = tokio::spawn(async move {
-        let basepath = basepath.clone();
-        let client = Arc::new(RwLock::new(Client::new()));
-        let renderer = Arc::new(renderer);
-        let skin = RatSkin { skin: config.skin };
-        for cmd in cmd_rx {
-            match cmd {
-                ImgCmd::Parse(width, text) => {
-                    parse(&text, &skin, width, &event_tx)?;
-                }
-                ImgCmd::Header(id, width, tier, text) => {
-                    if renderer.picker.protocol_type() != ProtocolType::Halfblocks {
-                        let task_tx = event_image_tx.clone();
+    let cmd_thread = thread::spawn(move || {
+        let runtime = Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_io()
+            .build()?;
+        runtime.block_on(async {
+            let basepath = basepath.clone();
+            let client = Arc::new(RwLock::new(Client::new()));
+            let renderer = Arc::new(renderer);
+            let skin = RatSkin { skin: config.skin };
+            for cmd in cmd_rx {
+                match cmd {
+                    ImgCmd::Parse(width, text) => {
+                        parse(&text, &skin, width, &event_tx)?;
+                    }
+                    ImgCmd::Header(id, width, tier, text) => {
+                        if renderer.picker.protocol_type() != ProtocolType::Halfblocks {
+                            let task_tx = event_tx.clone();
+                            let r = renderer.clone();
+                            tokio::spawn(async move {
+                                let header = header_source(&r, width, id, text, tier, false)?;
+                                task_tx.send((width, Event::Update(header)))?;
+                                Ok::<(), Error>(())
+                            });
+                        }
+                    }
+                    ImgCmd::UrlImage(id, width, url, text, _title) => {
+                        let task_tx = event_tx.clone();
                         let r = renderer.clone();
+                        let basepath = basepath.clone();
+                        let client = client.clone();
+                        // TODO: handle spawned task result errors, right now it's just discarded.
                         tokio::spawn(async move {
-                            let header = header_source(&r, width, id, text, tier, false).await?;
-                            task_tx.send((width, Event::Update(header)))?;
+                            let picker = r.picker;
+                            match image_source(&picker, width, &basepath, client, id, &url, false)
+                                .await
+                            {
+                                Ok(source) => task_tx.send((width, Event::Update(vec![source])))?,
+                                Err(Error::UnknownImage(id, link)) => task_tx.send((
+                                    width,
+                                    Event::Update(vec![WidgetSource::image_unknown(
+                                        id, link, text,
+                                    )]),
+                                ))?,
+                                Err(_) => task_tx.send((
+                                    width,
+                                    Event::Update(vec![WidgetSource::image_unknown(id, url, text)]),
+                                ))?,
+                            }
                             Ok::<(), Error>(())
                         });
                     }
-                }
-                ImgCmd::UrlImage(id, width, url, text, _title) => {
-                    let task_tx = event_image_tx.clone();
-                    let r = renderer.clone();
-                    let basepath = basepath.clone();
-                    let client = client.clone();
-                    // TODO: handle spawned task result errors, right now it's just discarded.
-                    tokio::spawn(async move {
-                        let picker = r.picker;
-                        match image_source(&picker, width, &basepath, client, id, &url, false).await
-                        {
-                            Ok(source) => task_tx.send((width, Event::Update(vec![source])))?,
-                            Err(Error::UnknownImage(id, link)) => task_tx.send((
-                                width,
-                                Event::Update(vec![WidgetSource::image_unknown(id, link, text)]),
-                            ))?,
-                            Err(_) => task_tx.send((
-                                width,
-                                Event::Update(vec![WidgetSource::image_unknown(id, url, text)]),
-                            ))?,
-                        }
-                        Ok::<(), Error>(())
-                    });
-                }
-            };
-            // TODO: This is very fishy - we need to handle all this better. Use a JoinSet for
-            // spawning, handle possible errors, perhaps make all channels tokio (not std).
-            tokio::task::yield_now().await;
-        }
-        Ok(())
+                };
+            }
+            Ok::<(), Error>(())
+        })?;
+        Ok::<(), Error>(())
     });
 
     let model = Model::new(bg, path.cloned(), cmd_tx, event_rx)?;
@@ -212,14 +218,15 @@ async fn start(matches: &ArgMatches) -> Result<(), Error> {
         .send(ImgCmd::Parse(inner_width, text))
         .map_err(Error::from)?;
 
-    let ui_handle = tokio::spawn(async move { run(terminal, model) });
-    let result = tokio::select! {
-        parse_res = parse_handle => parse_res?,
-        ui_res = ui_handle => ui_res?,
-    };
+    run(terminal, model)?;
+
     crossterm::execute!(std::io::stderr(), DisableMouseCapture)?;
     crossterm::terminal::disable_raw_mode()?;
-    result.map_err(Error::from)
+
+    if let Err(e) = cmd_thread.join() {
+        eprintln!("Thread error: {e:?}");
+    }
+    Ok(())
 }
 
 #[derive(Debug)]

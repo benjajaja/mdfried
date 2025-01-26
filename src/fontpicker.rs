@@ -11,7 +11,7 @@ use crate::{
     Error,
 };
 
-pub async fn interactive_font_picker(
+pub fn interactive_font_picker(
     cache: &FcFontCache,
     picker: &mut Picker,
     bg: Option<[u8; 4]>,
@@ -87,8 +87,7 @@ pub async fn interactive_font_picker(
                     Line::from(spans).to_string(),
                     1,
                     false,
-                )
-                .await?;
+                )?;
 
                 // Just render the first line if it got split.
                 if let Some(source) = sources.into_iter().next() {

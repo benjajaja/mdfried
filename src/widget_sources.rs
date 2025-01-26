@@ -50,7 +50,7 @@ impl<'a> WidgetSource<'a> {
     }
 }
 
-pub async fn header_source<'a>(
+pub fn header_source<'a>(
     renderer: &Renderer<'a>,
     width: u16,
     id: SourceID,
