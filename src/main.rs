@@ -148,7 +148,7 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
     let cmd_thread = thread::spawn(move || {
         let runtime = Builder::new_multi_thread()
             .worker_threads(2)
-            .enable_io()
+            .enable_all()
             .build()?;
         runtime.block_on(async {
             let basepath = basepath.clone();
