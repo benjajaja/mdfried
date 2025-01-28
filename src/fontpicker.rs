@@ -1,21 +1,16 @@
-use std::collections::BTreeMap;
-
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use font_loader::system_fonts;
 use ratatui::{style::Stylize, text::Line, widgets::Paragraph};
 use ratatui_image::{picker::Picker, protocol::Protocol, Image};
-use rust_fontconfig::FcFontCache;
+use rusttype::Font;
 
 use crate::{
-    setup::{load_font, Renderer},
+    setup::Renderer,
     widget_sources::{header_source, WidgetSourceData},
     Error,
 };
 
-pub fn interactive_font_picker(
-    cache: &FcFontCache,
-    picker: &mut Picker,
-    bg: Option<[u8; 4]>,
-) -> Result<Option<String>, Error> {
+pub fn set_up_font(picker: &mut Picker, bg: Option<[u8; 4]>) -> Result<Option<String>, Error> {
     let mut terminal = ratatui::init_with_options(ratatui::TerminalOptions {
         viewport: ratatui::Viewport::Inline(6),
     });
@@ -23,25 +18,23 @@ pub fn interactive_font_picker(
 
     let mut input = String::new();
 
-    let lowercase_fonts: BTreeMap<String, (String, String)> = cache
-        .list()
+    let all_fonts: Vec<(String, String)> = system_fonts::query_all()
         .iter()
-        .filter_map(|(pattern, path)| {
-            pattern
-                .clone()
-                .family
-                .map(|family| (family.to_ascii_lowercase(), (family, path.path.clone())))
-        })
+        .map(|f| (f.clone(), f.to_ascii_lowercase()))
         .collect();
 
     let mut last_rendered: Option<(String, Protocol)> = None;
     let mut inner_width = 0;
 
     loop {
-        let first_match = find_first_match(&lowercase_fonts, &input.to_ascii_lowercase());
+        let first_match = find_first_match(&all_fonts, &input);
 
-        let (font, first_match) = if let Some((first_match, path)) = first_match {
-            let font = load_font(&path)?;
+        let (font, first_match) = if let Some((first_match, _)) = first_match {
+            let fp_builder = system_fonts::FontPropertyBuilder::new().family(&first_match);
+            let property = fp_builder.build();
+            let (font_data, _) = system_fonts::get(&property).ok_or(Error::NoFont)?;
+
+            let font = Font::try_from_vec(font_data).ok_or(Error::NoFont)?;
             (Some(font), Some(first_match))
         } else {
             (None, None)
@@ -58,7 +51,7 @@ pub fn interactive_font_picker(
 
             if let Some(first_match) = first_match {
                 f.render_widget(
-                    Paragraph::new(Line::from(first_match).dark_gray()),
+                    Paragraph::new(Line::from(first_match.clone()).dark_gray()),
                     inner_area,
                 );
             }
@@ -116,19 +109,15 @@ pub fn interactive_font_picker(
                         input.pop(); // Remove the last character
                     }
                     KeyCode::Tab => {
-                        if let Some((family, _)) =
-                            find_first_match(&lowercase_fonts, &input.to_ascii_lowercase())
-                        {
-                            input = family;
+                        if let Some(first_match) = find_first_match(&all_fonts, &input) {
+                            input = first_match.0;
                         }
                     }
                     KeyCode::Enter => {
-                        if let Some((family, _)) =
-                            find_first_match(&lowercase_fonts, &input.to_ascii_lowercase())
-                        {
+                        if let Some(first_match) = find_first_match(&all_fonts, &input) {
                             terminal.clear()?;
                             ratatui::restore();
-                            return Ok(Some(family));
+                            return Ok(Some(first_match.0));
                         }
                     }
                     KeyCode::Esc => {
@@ -144,20 +133,17 @@ pub fn interactive_font_picker(
     }
 }
 
-fn find_first_match(
-    all_fonts: &BTreeMap<String, (String, String)>,
-    input: &str,
-) -> Option<(String, String)> {
+fn find_first_match(all_fonts: &Vec<(String, String)>, input: &str) -> Option<(String, String)> {
     let mut first_match = None;
     if !input.is_empty() {
-        for (lowercase_pattern, (pattern, path)) in all_fonts {
-            if lowercase_pattern.starts_with(input) {
-                first_match = Some((pattern.clone(), path.clone()));
+        for font in all_fonts {
+            if font.1.starts_with(&input.to_ascii_lowercase()) {
+                first_match = Some(font);
                 break;
             }
         }
     } else {
-        first_match = all_fonts.first_key_value().map(|t| t.1).cloned();
+        first_match = all_fonts.first();
     };
-    first_match
+    first_match.cloned()
 }

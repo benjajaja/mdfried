@@ -1,13 +1,12 @@
-use std::{collections::BTreeMap, fs::File, io::Read};
+use font_loader::system_fonts;
 
 use ratatui_image::{
     picker::{Picker, ProtocolType},
     FontSize,
 };
-use rust_fontconfig::{FcFontCache, FcFontPath};
 use rusttype::Font;
 
-use crate::{config::Config, error::Error, fontpicker::interactive_font_picker, CONFIG};
+use crate::{config::Config, error::Error, fontpicker::set_up_font, CONFIG};
 
 pub struct Renderer<'a> {
     pub picker: Picker,
@@ -44,30 +43,25 @@ pub fn setup_graphics<'a>(
         }
     };
 
-    let cache = FcFontCache::build();
+    let mut fp_builder = system_fonts::FontPropertyBuilder::new();
 
-    let all_font_families: BTreeMap<String, &FcFontPath> = cache
-        .list()
-        .iter()
-        .filter_map(|(pattern, path)| pattern.family.clone().map(|family| (family, path)))
-        .collect();
+    let all_fonts = system_fonts::query_all();
 
     let config_font_family = font_family.and_then(|font_family| {
         // Ensure this font exists
-        if all_font_families.contains_key(&font_family) {
+        if all_fonts.contains(&font_family) {
             return Some(font_family);
         }
-        println!("Configured font not found: {font_family}");
         None
     });
 
     let font_family = if let Some(mut font_family) = config_font_family {
         if force_font_setup {
             println!("Entering forced font setup");
-            match interactive_font_picker(&cache, &mut picker, bg) {
+            match set_up_font(&mut picker, bg) {
                 Ok(Some(setup_font_family)) => {
                     let new_config = Config {
-                        font_family: Some(setup_font_family.clone()),
+                        font_family: Some(font_family.clone()),
                         ..Default::default()
                     };
                     confy::store(CONFIG.0, CONFIG.1, new_config)?;
@@ -80,7 +74,7 @@ pub fn setup_graphics<'a>(
         font_family
     } else {
         println!("Entering one-time font setup");
-        match interactive_font_picker(&cache, &mut picker, bg) {
+        match set_up_font(&mut picker, bg) {
             Ok(Some(font_family)) => {
                 let new_config = Config {
                     font_family: Some(font_family.clone()),
@@ -94,16 +88,12 @@ pub fn setup_graphics<'a>(
         }
     };
 
-    let result = all_font_families.get(&font_family).ok_or(Error::NoFont)?;
+    fp_builder = fp_builder.family(&font_family);
 
-    let font = load_font(&result.path)?;
+    let property = fp_builder.build();
 
+    let (font_data, _) = system_fonts::get(&property).ok_or(Error::NoFont)?;
+
+    let font = Font::try_from_vec(font_data).ok_or(Error::NoFont)?;
     Ok(Some(Renderer::new(picker, font, bg)))
-}
-
-pub fn load_font<'a>(path: &str) -> Result<Font<'a>, Error> {
-    let mut file = File::open(path)?;
-    let mut contents = vec![];
-    file.read_to_end(&mut contents)?;
-    Font::try_from_vec(contents).ok_or(Error::NoFont)
 }
