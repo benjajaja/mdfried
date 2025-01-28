@@ -1,5 +1,6 @@
 use std::{fmt::Debug, io::Cursor, path::PathBuf, sync::Arc};
 
+use font_kit::{canvas::RasterizationOptions, font::Font, hinting::HintingOptions, loader::Loader};
 use image::{
     imageops, DynamicImage, GenericImage, ImageFormat, ImageReader, Pixel, Rgba, RgbaImage,
 };
@@ -10,7 +11,6 @@ use reqwest::{
     header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE},
     Client,
 };
-use rusttype::{point, Font, PositionedGlyph, Scale};
 use tokio::sync::RwLock;
 
 use crate::{setup::Renderer, Error};
@@ -51,7 +51,7 @@ impl<'a> WidgetSource<'a> {
 }
 
 pub fn header_source<'a>(
-    renderer: &Renderer<'a>,
+    renderer: &Renderer,
     width: u16,
     id: SourceID,
     text: String,
@@ -68,9 +68,12 @@ pub fn header_source<'a>(
     let img_height = (HEADER_ROW_COUNT * font_height) as u32;
 
     let tier_scale = ((12 - tier) as f32) / 12.0f32;
-    let scale = Scale::uniform((font_height * HEADER_ROW_COUNT) as f32 * tier_scale);
 
-    let v_metrics = renderer.font.v_metrics(scale);
+    let scale = (font_height * HEADER_ROW_COUNT) as f32 * tier_scale;
+
+    // let scale = Scale::uniform((font_height * HEADER_ROW_COUNT) as f32 * tier_scale);
+    //
+    // let v_metrics = renderer.font.v_metrics(scale);
 
     let words = text.split_whitespace();
 
@@ -83,6 +86,17 @@ pub fn header_source<'a>(
             maybe_current_line.push(' ');
         }
         maybe_current_line.push_str(word);
+
+        maybe_current_line.chars().map(|ch| {
+            let glyph = renderer.font.glyph_for_char(ch).ok_or(Error::NoFont)?;
+            renderer.font.raster_bounds(
+                glyph,
+                scale,
+                Transform2F::from_translation(Vector2F::new(0.0, scale)),
+                HintingOptions::None,
+                RasterizationOptions::GrayscaleAa,
+            )
+        });
 
         glyphs_line = renderer
             .font
@@ -172,7 +186,7 @@ pub async fn image_source<'a>(
     id: SourceID,
     url: &str,
     deep_fry_meme: bool,
-    font: &Font<'a>,
+    font: &Font,
 ) -> Result<WidgetSource<'a>, Error> {
     let mut dyn_img = if url.starts_with("https://") || url.starts_with("http://") {
         let mut headers = HeaderMap::new();

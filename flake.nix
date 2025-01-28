@@ -29,6 +29,8 @@
           strictDeps = true;
 
           buildInputs = with pkgs; [
+            pkg-config
+            fontconfig
             # Add additional build inputs here
           ] ++ lib.optionals pkgs.stdenv.isDarwin [
             # Additional darwin specific inputs can be set here

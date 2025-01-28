@@ -1,21 +1,24 @@
 use std::collections::BTreeMap;
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use font_kit::{
+    family_name::FamilyName, handle::Handle, properties::Properties,
+    sources::fontconfig::FontconfigSource,
+};
 use ratatui::{style::Stylize, text::Line, widgets::Paragraph};
 use ratatui_image::{picker::Picker, protocol::Protocol, Image};
-use rust_fontconfig::FcFontCache;
 
 use crate::{
-    setup::{load_font, Renderer},
+    setup::Renderer,
     widget_sources::{header_source, WidgetSourceData},
     Error,
 };
 
 pub fn interactive_font_picker(
-    cache: &FcFontCache,
+    source: &FontconfigSource,
     picker: &mut Picker,
     bg: Option<[u8; 4]>,
-) -> Result<Option<String>, Error> {
+) -> Result<Option<(Handle, String)>, Error> {
     let mut terminal = ratatui::init_with_options(ratatui::TerminalOptions {
         viewport: ratatui::Viewport::Inline(6),
     });
@@ -23,26 +26,20 @@ pub fn interactive_font_picker(
 
     let mut input = String::new();
 
-    let lowercase_fonts: BTreeMap<String, (String, String)> = cache
-        .list()
-        .iter()
-        .filter_map(|(pattern, path)| {
-            pattern
-                .clone()
-                .family
-                .map(|family| (family.to_ascii_lowercase(), (family, path.path.clone())))
-        })
+    let lowercase_fonts: BTreeMap<String, String> = source
+        .all_families()?
+        .into_iter()
+        .map(|family_name| (family_name.to_ascii_lowercase(), family_name))
         .collect();
 
     let mut last_rendered: Option<(String, Protocol)> = None;
     let mut inner_width = 0;
 
     loop {
-        let first_match = find_first_match(&lowercase_fonts, &input.to_ascii_lowercase());
+        let first_match = find_first_match(&source, &lowercase_fonts, &input.to_ascii_lowercase())?;
 
-        let (font, first_match) = if let Some((first_match, path)) = first_match {
-            let font = load_font(&path)?;
-            (Some(font), Some(first_match))
+        let (font, first_match) = if let Some((font, pattern)) = first_match {
+            (Some(font), Some(pattern))
         } else {
             (None, None)
         };
@@ -57,10 +54,8 @@ pub fn interactive_font_picker(
             f.render_widget(block, area);
 
             if let Some(first_match) = first_match {
-                f.render_widget(
-                    Paragraph::new(Line::from(first_match).dark_gray()),
-                    inner_area,
-                );
+                let name = format!("{first_match:?}");
+                f.render_widget(Paragraph::new(Line::from(name).dark_gray()), inner_area);
             }
             f.render_widget(
                 Paragraph::new(Line::from(input.clone()).white()),
@@ -81,7 +76,7 @@ pub fn interactive_font_picker(
             if let Some(font) = font {
                 let spans = vec!["The fox jumped over the goat or something".into()];
                 let sources = header_source(
-                    &Renderer::new(*picker, font, bg),
+                    &Renderer::new(*picker, font.load()?, bg),
                     inner_width,
                     0,
                     Line::from(spans).to_string(),
@@ -116,19 +111,23 @@ pub fn interactive_font_picker(
                         input.pop(); // Remove the last character
                     }
                     KeyCode::Tab => {
-                        if let Some((family, _)) =
-                            find_first_match(&lowercase_fonts, &input.to_ascii_lowercase())
-                        {
-                            input = family;
+                        if let Some(handle) = find_first_match(
+                            &source,
+                            &lowercase_fonts,
+                            &input.to_ascii_lowercase(),
+                        )? {
+                            input = format!("{handle:?}");
                         }
                     }
                     KeyCode::Enter => {
-                        if let Some((family, _)) =
-                            find_first_match(&lowercase_fonts, &input.to_ascii_lowercase())
-                        {
+                        if let Some(font) = find_first_match(
+                            &source,
+                            &lowercase_fonts,
+                            &input.to_ascii_lowercase(),
+                        )? {
                             terminal.clear()?;
                             ratatui::restore();
-                            return Ok(Some(family));
+                            return Ok(Some(font));
                         }
                     }
                     KeyCode::Esc => {
@@ -144,20 +143,33 @@ pub fn interactive_font_picker(
     }
 }
 
-fn find_first_match(
-    all_fonts: &BTreeMap<String, (String, String)>,
+fn find_first_match<'a>(
+    source: &FontconfigSource,
+    all_fonts: &'a BTreeMap<String, String>,
     input: &str,
-) -> Option<(String, String)> {
+) -> Result<Option<(Handle, String)>, Error> {
     let mut first_match = None;
     if !input.is_empty() {
-        for (lowercase_pattern, (pattern, path)) in all_fonts {
+        for (lowercase_pattern, pattern) in all_fonts {
             if lowercase_pattern.starts_with(input) {
-                first_match = Some((pattern.clone(), path.clone()));
+                first_match = Some((
+                    source.select_best_match(
+                        &[FamilyName::Title(pattern.clone())],
+                        &Properties::new(),
+                    )?,
+                    pattern.clone(),
+                ));
                 break;
             }
         }
     } else {
-        first_match = all_fonts.first_key_value().map(|t| t.1).cloned();
+        if let Some((_, pattern)) = all_fonts.first_key_value() {
+            first_match = Some((
+                source
+                    .select_best_match(&[FamilyName::Title(pattern.clone())], &Properties::new())?,
+                pattern.clone(),
+            ))
+        }
     };
-    first_match
+    Ok(first_match)
 }

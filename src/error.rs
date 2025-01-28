@@ -2,6 +2,7 @@ use core::fmt;
 use std::{io, path::PathBuf, sync::mpsc::SendError};
 
 use confy::ConfyError;
+use font_kit::error::{FontLoadingError, SelectionError};
 use image::ImageError;
 use tokio::task::JoinError;
 
@@ -105,5 +106,17 @@ impl From<SendError<ImgCmd>> for Error {
 impl From<JoinError> for Error {
     fn from(_: JoinError) -> Self {
         Self::Thread
+    }
+}
+
+impl From<SelectionError> for Error {
+    fn from(_: SelectionError) -> Self {
+        Self::NoFont
+    }
+}
+
+impl From<FontLoadingError> for Error {
+    fn from(_: FontLoadingError) -> Self {
+        Self::NoFont
     }
 }
