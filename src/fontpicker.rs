@@ -74,9 +74,14 @@ pub fn interactive_font_picker(
         if inner_width > 0 && (last_rendered.is_none() || last_rendered.clone().unwrap().0 != input)
         {
             if let Some(font) = font {
-                let spans = vec!["The fox jumped over the goat or something".into()];
+                // let spans = vec!["The fox jumped over the goat or something".into()];
+                let spans = vec!["The fox".into()];
                 let sources = header_source(
-                    &Renderer::new(*picker, font.load()?, bg),
+                    bg,
+                    picker.font_size(),
+                    font.load().unwrap(),
+                    picker,
+                    // &Renderer::new(*picker, font.load()?, bg),
                     inner_width,
                     0,
                     Line::from(spans).to_string(),

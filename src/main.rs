@@ -4,6 +4,7 @@ use std::os::fd::IntoRawFd;
 use std::{
     fs::File,
     io::{self, stdout, Read},
+    ops::Deref,
     path::{Path, PathBuf},
     sync::{
         mpsc::{self, Receiver, Sender},
@@ -35,7 +36,7 @@ use ratatui_image::{picker::ProtocolType, Image};
 use ratskin::RatSkin;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use setup::setup_graphics;
+use setup::{setup_font, setup_graphics, Renderer};
 use tokio::{runtime::Builder, sync::RwLock};
 use widget_sources::{header_source, image_source, SourceID, WidgetSource, WidgetSourceData};
 
@@ -133,17 +134,18 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
     }
 
     let force_setup = *matches.get_one("setup").unwrap_or(&false);
-    let renderer = match setup_graphics(config.font_family, force_setup) {
-        Ok(Some(renderer)) => renderer,
-        Ok(None) => return Err(Error::UserAbort("cancelled setup")),
+    let (mut picker, bg) = match setup_graphics() {
+        Ok(renderer) => renderer,
+        // Ok(None) => return Err(Error::UserAbort("cancelled setup")),
         Err(err) => return Err(err),
     };
     let deep_fry = *matches.get_one("deep").unwrap_or(&false);
 
-    let bg = renderer.bg;
-
     let (cmd_tx, cmd_rx) = mpsc::channel::<ImgCmd>();
     let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
+
+    let font_handle = setup_font(config.font_family, force_setup, &mut picker, bg)?;
+    let font_handle = Arc::new(font_handle.unwrap());
 
     let cmd_thread = thread::spawn(move || {
         let runtime = Builder::new_multi_thread()
@@ -153,7 +155,6 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
         runtime.block_on(async {
             let basepath = basepath.clone();
             let client = Arc::new(RwLock::new(Client::new()));
-            let renderer = Arc::new(renderer);
             let skin = RatSkin { skin: config.skin };
             for cmd in cmd_rx {
                 match cmd {
@@ -161,11 +162,31 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
                         parse(&text, &skin, width, &event_tx)?;
                     }
                     ImgCmd::Header(id, width, tier, text) => {
-                        if renderer.picker.protocol_type() != ProtocolType::Halfblocks {
+                        if picker.protocol_type() != ProtocolType::Halfblocks {
                             let task_tx = event_tx.clone();
-                            let r = renderer.clone();
+                            // let r = renderer.clone();
+                            // let Renderer {
+                            // picker,
+                            // bg,
+                            // font_size,
+                            // font,
+                            // } = renderer.deref();
+                            // let font = font.clone();
+                            let font_handle = font_handle.clone();
+
                             tokio::spawn(async move {
-                                let header = header_source(&r, width, id, text, tier, deep_fry)?;
+                                let font = font_handle.load().unwrap();
+                                let header = header_source(
+                                    bg,
+                                    picker.font_size(),
+                                    font,
+                                    &picker,
+                                    width,
+                                    id,
+                                    text,
+                                    tier,
+                                    deep_fry,
+                                )?;
                                 task_tx.send((width, Event::Update(header)))?;
                                 Ok::<(), Error>(())
                             });
@@ -173,32 +194,32 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
                     }
                     ImgCmd::UrlImage(id, width, url, text, _title) => {
                         let task_tx = event_tx.clone();
-                        let r = renderer.clone();
+                        // let r = renderer.clone();
                         let basepath = basepath.clone();
                         let client = client.clone();
                         // TODO: handle spawned task result errors, right now it's just discarded.
-                        tokio::spawn(async move {
-                            let picker = r.picker;
-                            let font = &r.font;
-                            match image_source(
-                                &picker, width, &basepath, client, id, &url, deep_fry, font,
-                            )
-                            .await
-                            {
-                                Ok(source) => task_tx.send((width, Event::Update(vec![source])))?,
-                                Err(Error::UnknownImage(id, link)) => task_tx.send((
-                                    width,
-                                    Event::Update(vec![WidgetSource::image_unknown(
-                                        id, link, text,
-                                    )]),
-                                ))?,
-                                Err(_) => task_tx.send((
-                                    width,
-                                    Event::Update(vec![WidgetSource::image_unknown(id, url, text)]),
-                                ))?,
-                            }
-                            Ok::<(), Error>(())
-                        });
+                        // tokio::spawn(async move {
+                        // let picker = r.picker;
+                        // let font = &r.font.lock().await;
+                        // match image_source(
+                        // &picker, width, &basepath, client, id, &url, deep_fry, font,
+                        // )
+                        // .await
+                        // {
+                        // Ok(source) => task_tx.send((width, Event::Update(vec![source])))?,
+                        // Err(Error::UnknownImage(id, link)) => task_tx.send((
+                        // width,
+                        // Event::Update(vec![WidgetSource::image_unknown(
+                        // id, link, text,
+                        // )]),
+                        // ))?,
+                        // Err(_) => task_tx.send((
+                        // width,
+                        // Event::Update(vec![WidgetSource::image_unknown(id, url, text)]),
+                        // ))?,
+                        // }
+                        // Ok::<(), Error>(())
+                        // });
                     }
                 };
             }

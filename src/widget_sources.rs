@@ -1,9 +1,19 @@
-use std::{fmt::Debug, io::Cursor, path::PathBuf, sync::Arc};
+use std::{
+    fmt::Debug,
+    io::Cursor,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
-use font_kit::{canvas::RasterizationOptions, font::Font, hinting::HintingOptions, loader::Loader};
+use font_kit::{
+    canvas::{Canvas, Format, RasterizationOptions},
+    font::Font,
+    hinting::HintingOptions,
+};
 use image::{
     imageops, DynamicImage, GenericImage, ImageFormat, ImageReader, Pixel, Rgba, RgbaImage,
 };
+use pathfinder_geometry::transform2d::Transform2F;
 use ratatui::{layout::Rect, text::Line};
 
 use ratatui_image::{picker::Picker, protocol::Protocol, Resize};
@@ -51,18 +61,25 @@ impl<'a> WidgetSource<'a> {
 }
 
 pub fn header_source<'a>(
-    renderer: &Renderer,
+    // renderer: &Renderer,
+    bg: Option<[u8; 4]>,
+    (font_width, font_height): (u16, u16),
+    font: Font,
+    picker: &Picker,
     width: u16,
     id: SourceID,
     text: String,
     tier: u8,
     deep_fry_meme: bool,
 ) -> Result<Vec<WidgetSource<'a>>, Error> {
+    eprintln!("HEADER ---------------------------------");
+    eprintln!("{text}");
+    eprintln!("       ---------------------------------");
     static TRANSPARENT_BACKGROUND: [u8; 4] = [0, 0, 0, 0];
-    let bg = renderer.bg.unwrap_or(TRANSPARENT_BACKGROUND);
+    let bg = bg.unwrap_or(TRANSPARENT_BACKGROUND);
 
     const HEADER_ROW_COUNT: u16 = 2;
-    let (font_width, font_height) = renderer.font_size;
+    // let (font_width, font_height) = font_size;
 
     let img_width = (width * font_width) as u32;
     let img_height = (HEADER_ROW_COUNT * font_height) as u32;
@@ -76,10 +93,10 @@ pub fn header_source<'a>(
     // let v_metrics = renderer.font.v_metrics(scale);
 
     let words = text.split_whitespace();
+    eprintln!("{} words", words.clone().count());
 
     let mut lines = vec![];
     let mut current_line = String::new();
-    let mut glyphs_line: Vec<PositionedGlyph> = vec![];
     for word in words {
         let mut maybe_current_line = current_line.clone();
         if !maybe_current_line.is_empty() {
@@ -87,82 +104,125 @@ pub fn header_source<'a>(
         }
         maybe_current_line.push_str(word);
 
-        maybe_current_line.chars().map(|ch| {
-            let glyph = renderer.font.glyph_for_char(ch).ok_or(Error::NoFont)?;
-            renderer.font.raster_bounds(
-                glyph,
-                scale,
-                Transform2F::from_translation(Vector2F::new(0.0, scale)),
-                HintingOptions::None,
-                RasterizationOptions::GrayscaleAa,
-            )
-        });
-
-        glyphs_line = renderer
-            .font
-            .layout(
-                &maybe_current_line,
-                scale,
-                point(0.0, 0.0 + v_metrics.ascent),
-            )
-            .collect();
-
-        let width = glyphs_line
-            .last()
-            .and_then(|g| g.pixel_bounding_box())
-            .map(|bb| bb.max.x)
-            .unwrap_or(0) as u32;
+        let width: u32 = maybe_current_line
+            .chars()
+            .map(|ch| {
+                let glyph = font.glyph_for_char(ch).ok_or(Error::NoFont).unwrap();
+                font.raster_bounds(
+                    glyph,
+                    scale,
+                    Transform2F::default(),
+                    HintingOptions::None,
+                    RasterizationOptions::GrayscaleAa,
+                )
+                .unwrap()
+                .width() as u32
+            })
+            .sum();
+        eprintln!("width iteration: {width}");
 
         if width <= img_width {
-            current_line = maybe_current_line;
+            current_line = maybe_current_line.clone();
         } else {
-            glyphs_line = renderer
-                .font
-                .layout(&current_line, scale, point(0.0, 0.0 + v_metrics.ascent))
-                .collect();
-            lines.push(glyphs_line);
-            glyphs_line = vec![];
+            // glyphs_line = renderer
+            // .font
+            // .layout(&current_line, scale, point(0.0, 0.0 + v_metrics.ascent))
+            // .collect();
+            lines.push(current_line.clone());
             current_line = word.to_string();
         }
     }
 
     if !current_line.is_empty() {
-        lines.push(glyphs_line);
+        lines.push(current_line);
     }
 
     let mut sources = vec![];
 
     let max_x = img_width;
     let max_y = img_height;
-    for word_glyphs in lines {
+    for line in lines {
         let img: RgbaImage = RgbaImage::from_pixel(img_width, img_height, Rgba(bg));
         let mut dyn_img = image::DynamicImage::ImageRgba8(img);
 
-        for glyph in word_glyphs {
-            if let Some(bounding_box) = glyph.pixel_bounding_box() {
-                let mut outside = false;
-                let bb_x = bounding_box.min.x as u32;
-                let bb_y = bounding_box.min.y as u32;
-                glyph.draw(|x, y, v| match (bb_x.checked_add(x), bb_y.checked_add(y)) {
-                    (Some(p_x), Some(p_y)) if (p_x) < max_x && p_y < max_y => {
-                        let u8v = (255.0 * v) as u8;
-                        let mut pixel = Rgba(bg);
-                        pixel.blend(&Rgba([u8v, u8v, u8v, u8v]));
-                        dyn_img.put_pixel(p_x, p_y, pixel);
+        eprintln!("line: {line:?}");
+        let mut offset_x = 0;
+        for ch in line.chars() {
+            let glyph = font.glyph_for_char(ch).ok_or(Error::NoFont).unwrap();
+            let raster_rect = font
+                .raster_bounds(
+                    glyph,
+                    scale,
+                    Transform2F::default(),
+                    HintingOptions::None,
+                    RasterizationOptions::GrayscaleAa,
+                )
+                .unwrap();
+            let mut canvas = Canvas::new(raster_rect.size(), Format::A8);
+            font.rasterize_glyph(
+                &mut canvas,
+                glyph,
+                scale,
+                // Transform2F::default(),
+                Transform2F::from_translation(-raster_rect.origin().to_f32()),
+                HintingOptions::None,
+                RasterizationOptions::GrayscaleAa,
+            )
+            .unwrap();
+            eprintln!("char: {ch:?}");
+            eprintln!(
+                "rect: {raster_rect:?} {}x{}",
+                raster_rect.width(),
+                raster_rect.height()
+            );
+            let offset_y = (img_height as i32) - raster_rect.height();
+            for y in 0..raster_rect.height() {
+                let (row_start, row_end) =
+                    (y as usize * canvas.stride, (y + 1) as usize * canvas.stride);
+                let row = &canvas.pixels[row_start..row_end];
+                for x in 0..raster_rect.width() {
+                    match canvas.format {
+                        Format::A8 => {
+                            let u8v = row[x as usize];
+                            let mut pixel = Rgba(bg);
+                            pixel.blend(&Rgba([u8v, u8v, u8v, u8v]));
+                            dyn_img.put_pixel(
+                                (offset_x as u32) + x as u32,
+                                (offset_y as u32) + y as u32,
+                                pixel,
+                            );
+                        }
+                        _ => unimplemented!(),
                     }
-                    _ => outside = true,
-                });
-                if outside {
-                    break;
                 }
             }
+            offset_x += raster_rect.width();
         }
+        // for glyph in word_glyphs {
+        // if let Some(bounding_box) = glyph.pixel_bounding_box() {
+        // let mut outside = false;
+        // let bb_x = bounding_box.min.x as u32;
+        // let bb_y = bounding_box.min.y as u32;
+        // glyph.draw(|x, y, v| match (bb_x.checked_add(x), bb_y.checked_add(y)) {
+        // (Some(p_x), Some(p_y)) if (p_x) < max_x && p_y < max_y => {
+        // let u8v = (255.0 * v) as u8;
+        // let mut pixel = Rgba(bg);
+        // pixel.blend(&Rgba([u8v, u8v, u8v, u8v]));
+        // dyn_img.put_pixel(p_x, p_y, pixel);
+        // }
+        // _ => outside = true,
+        // });
+        // if outside {
+        // break;
+        // }
+        // }
+        // }
 
         if deep_fry_meme {
-            dyn_img = deep_fry(dyn_img, &renderer.font);
+            dyn_img = deep_fry(dyn_img, &font);
         }
 
-        let proto = renderer.picker.new_protocol(
+        let proto = picker.new_protocol(
             dyn_img,
             Rect::new(0, 0, width, HEADER_ROW_COUNT),
             Resize::Fit(None),

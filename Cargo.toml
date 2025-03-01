@@ -20,6 +20,7 @@ confy = "0.6.1"
 crossterm = { version = "0.28.1", features = ["event-stream"] }
 font-kit = "0.14.2"
 image = "0.25.2"
+pathfinder_geometry = "0.5.1"
 ratatui = "^0.29.0"
 ratatui-image = { version = "4.2.0" }
 ratskin = "0.2.0"

@@ -1529,6 +1529,7 @@ dependencies = [
  "futures",
  "image",
  "libc",
+ "pathfinder_geometry",
  "ratatui",
  "ratatui-image",
  "ratskin 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
