@@ -1,70 +1,88 @@
-use std::{collections::BTreeMap, fs::File, io::Read};
-
+use cosmic_text::{FontSystem, SwashCache};
+use image::Rgba;
 use ratatui_image::{
     picker::{Picker, ProtocolType},
     FontSize,
 };
-use rust_fontconfig::{FcFontCache, FcFontPath};
-use rusttype::Font;
 
 use crate::{config::Config, error::Error, fontpicker::interactive_font_picker, CONFIG};
 
-pub struct Renderer<'a> {
-    pub picker: Picker,
-    pub font_size: FontSize,
-    pub font: Font<'a>,
-    pub bg: Option<[u8; 4]>,
+#[derive(Default, Clone, Copy)]
+pub struct BgColor([u8; 4]);
+
+impl From<BgColor> for Rgba<u8> {
+    fn from(value: BgColor) -> Self {
+        Rgba(value.0)
+    }
 }
 
-impl<'a> Renderer<'a> {
-    pub fn new(picker: Picker, font: Font<'a>, bg: Option<[u8; 4]>) -> Self {
-        let font_size = picker.font_size();
-        Renderer {
-            picker,
+impl From<BgColor> for ratatui::style::Color {
+    fn from(value: BgColor) -> Self {
+        ratatui::style::Color::Rgb(value.0[0], value.0[1], value.0[2])
+    }
+}
+
+pub struct FontRenderer {
+    pub font_size: FontSize, // Terminal font-size, not rendered font-size.
+    pub font_name: String,
+    pub font_system: FontSystem,
+    pub swash_cache: SwashCache,
+}
+
+impl FontRenderer {
+    pub fn new(
+        font_system: FontSystem,
+        swash_cache: SwashCache,
+        font_name: String,
+        font_size: FontSize,
+    ) -> Self {
+        FontRenderer {
             font_size,
-            font,
-            bg,
+            font_name,
+            font_system,
+            swash_cache,
         }
     }
 }
 
-pub fn setup_graphics<'a>(
+pub fn setup_graphics(
     font_family: Option<String>,
     force_font_setup: bool,
-) -> Result<Option<Renderer<'a>>, Error> {
+) -> Result<Option<(Picker, FontRenderer, Option<BgColor>)>, Error> {
     print!("Detecting supported graphics protocols...");
     let mut picker = Picker::from_query_stdio()?;
     println!(" {:?}.", picker.protocol_type());
 
     let bg = match picker.protocol_type() {
-        ProtocolType::Sixel => Some([20, 0, 40, 255]),
+        ProtocolType::Sixel => Some(BgColor([20, 0, 40, 255])),
         _ => {
             picker.set_background_color([0, 0, 0, 0]);
             None
         }
     };
 
-    let cache = FcFontCache::build();
+    let mut font_system = FontSystem::new();
+    let db = font_system.db_mut();
+    db.load_system_fonts();
 
-    let all_font_families: BTreeMap<String, &FcFontPath> = cache
-        .list()
-        .iter()
-        .filter_map(|(pattern, path)| pattern.family.clone().map(|family| (family, path)))
+    let all_font_families: Vec<String> = db
+        .faces()
+        .map(|faceinfo| faceinfo.families[0].0.clone())
         .collect();
 
     let config_font_family = font_family.and_then(|font_family| {
         // Ensure this font exists
-        if all_font_families.contains_key(&font_family) {
+        if all_font_families.contains(&font_family) {
             return Some(font_family);
         }
         println!("Configured font not found: {font_family}");
         None
     });
 
-    let font_family = if let Some(mut font_family) = config_font_family {
+    let font_name = if let Some(mut font_family) = config_font_family {
         if force_font_setup {
             println!("Entering forced font setup");
-            match interactive_font_picker(&cache, &mut picker, bg) {
+            match interactive_font_picker(&mut picker, bg) {
                 Ok(Some(setup_font_family)) => {
                     let new_config = Config {
                         font_family: Some(setup_font_family.clone()),
@@ -80,7 +98,7 @@ pub fn setup_graphics<'a>(
         font_family
     } else {
         println!("Entering one-time font setup");
-        match interactive_font_picker(&cache, &mut picker, bg) {
+        match interactive_font_picker(&mut picker, bg) {
             Ok(Some(font_family)) => {
                 let new_config = Config {
                     font_family: Some(font_family.clone()),
@@ -94,16 +112,14 @@ pub fn setup_graphics<'a>(
         }
     };
 
-    let result = all_font_families.get(&font_family).ok_or(Error::NoFont)?;
-
-    let font = load_font(&result.path)?;
-
-    Ok(Some(Renderer::new(picker, font, bg)))
-}
-
-pub fn load_font<'a>(path: &str) -> Result<Font<'a>, Error> {
-    let mut file = File::open(path)?;
-    let mut contents = vec![];
-    file.read_to_end(&mut contents)?;
-    Font::try_from_vec(contents).ok_or(Error::NoFont)
+    Ok(Some((
+        picker,
+        FontRenderer::new(
+            font_system,
+            SwashCache::new(),
+            font_name,
+            picker.font_size(),
+        ),
+        bg,
+    )))
 }

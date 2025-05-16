@@ -25,7 +25,7 @@ use ratatui::{
     crossterm::event::{self, KeyCode, KeyEventKind},
     layout::Rect,
     prelude::CrosstermBackend,
-    style::{Color, Style, Stylize},
+    style::{Style, Stylize},
     text::{Line, Span, Text},
     widgets::{Block, Paragraph, Widget},
     DefaultTerminal, Frame, Terminal,
@@ -35,9 +35,14 @@ use ratatui_image::{picker::ProtocolType, Image};
 use ratskin::RatSkin;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use setup::setup_graphics;
-use tokio::{runtime::Builder, sync::RwLock};
-use widget_sources::{header_source, image_source, SourceID, WidgetSource, WidgetSourceData};
+use setup::{setup_graphics, BgColor};
+use tokio::{
+    runtime::Builder,
+    sync::{Mutex, RwLock},
+};
+use widget_sources::{
+    header_images, header_sources, image_source, SourceID, WidgetSource, WidgetSourceData,
+};
 
 mod config;
 mod error;
@@ -133,14 +138,12 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
     }
 
     let force_setup = *matches.get_one("setup").unwrap_or(&false);
-    let renderer = match setup_graphics(config.font_family, force_setup) {
+    let (picker, renderer, bg) = match setup_graphics(config.font_family, force_setup) {
         Ok(Some(renderer)) => renderer,
         Ok(None) => return Err(Error::UserAbort("cancelled setup")),
         Err(err) => return Err(err),
     };
     let deep_fry = *matches.get_one("deep").unwrap_or(&false);
-
-    let bg = renderer.bg;
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<ImgCmd>();
     let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
@@ -153,7 +156,8 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
         runtime.block_on(async {
             let basepath = basepath.clone();
             let client = Arc::new(RwLock::new(Client::new()));
-            let renderer = Arc::new(renderer);
+            let protocol_type = picker.protocol_type(); // Won't change
+            let renderer = Arc::new(Mutex::new(renderer));
             let skin = RatSkin { skin: config.skin };
             for cmd in cmd_rx {
                 match cmd {
@@ -161,27 +165,31 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
                         parse(&text, &skin, width, &event_tx)?;
                     }
                     ImgCmd::Header(id, width, tier, text) => {
-                        if renderer.picker.protocol_type() != ProtocolType::Halfblocks {
+                        if protocol_type != ProtocolType::Halfblocks {
                             let task_tx = event_tx.clone();
-                            let r = renderer.clone();
+                            let renderer = renderer.clone();
                             tokio::spawn(async move {
-                                let header = header_source(&r, width, id, text, tier, deep_fry)?;
-                                task_tx.send((width, Event::Update(header)))?;
+                                // Grab lock...
+                                let mut r = renderer.lock().await;
+                                let images =
+                                    header_images(bg, &mut r, width, text, tier, deep_fry)?;
+                                // ...release right after text rendering...
+                                drop(r);
+                                // ...process images to terminal image protocol.
+                                let headers = header_sources(&picker, width, id, images, deep_fry)?;
+                                task_tx.send((width, Event::Update(headers)))?;
                                 Ok::<(), Error>(())
                             });
                         }
                     }
                     ImgCmd::UrlImage(id, width, url, text, _title) => {
                         let task_tx = event_tx.clone();
-                        let r = renderer.clone();
                         let basepath = basepath.clone();
                         let client = client.clone();
                         // TODO: handle spawned task result errors, right now it's just discarded.
                         tokio::spawn(async move {
-                            let picker = r.picker;
-                            let font = &r.font;
                             match image_source(
-                                &picker, width, &basepath, client, id, &url, deep_fry, font,
+                                &picker, width, &basepath, client, id, &url, deep_fry,
                             )
                             .await
                             {
@@ -253,7 +261,7 @@ pub(crate) type WidthEvent<'a> = (u16, Event<'a>);
 
 struct Model<'a, 'b> {
     original_file_path: Option<PathBuf>,
-    bg: Option<[u8; 4]>,
+    bg: Option<BgColor>,
     scroll: u16,
     sources: Vec<WidgetSource<'a>>,
     padding: Padding,
@@ -271,7 +279,7 @@ enum Padding {
 
 impl<'a, 'b: 'a> Model<'a, 'b> {
     fn new(
-        bg: Option<[u8; 4]>,
+        bg: Option<BgColor>,
         original_file_path: Option<PathBuf>,
         cmd_tx: Sender<ImgCmd>,
         event_rx: Receiver<WidthEvent<'b>>,
@@ -416,6 +424,9 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                             KeyCode::Char('q') => {
                                 return Ok(());
                             }
+                            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                return Ok(());
+                            }
                             KeyCode::Char('r') => {
                                 model_reload(&mut model, screen_width)?;
                             }
@@ -482,7 +493,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
     }
 
     if let Some(bg) = model.bg {
-        block = block.style(Style::default().bg(Color::Rgb(bg[0], bg[1], bg[2])));
+        block = block.style(Style::default().bg(bg.into()));
     }
     let inner_area = block.inner(frame_area);
     frame.render_widget(block, frame_area);

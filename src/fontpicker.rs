@@ -1,20 +1,19 @@
 use std::collections::BTreeMap;
 
+use cosmic_text::{FontSystem, SwashCache};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{style::Stylize, text::Line, widgets::Paragraph};
 use ratatui_image::{picker::Picker, protocol::Protocol, Image};
-use rust_fontconfig::FcFontCache;
 
 use crate::{
-    setup::{load_font, Renderer},
-    widget_sources::{header_source, WidgetSourceData},
+    setup::{BgColor, FontRenderer},
+    widget_sources::{header_images, header_sources, WidgetSourceData},
     Error,
 };
 
 pub fn interactive_font_picker(
-    cache: &FcFontCache,
     picker: &mut Picker,
-    bg: Option<[u8; 4]>,
+    bg: Option<BgColor>,
 ) -> Result<Option<String>, Error> {
     let mut terminal = ratatui::init_with_options(ratatui::TerminalOptions {
         viewport: ratatui::Viewport::Inline(6),
@@ -23,29 +22,29 @@ pub fn interactive_font_picker(
 
     let mut input = String::new();
 
-    let lowercase_fonts: BTreeMap<String, (String, String)> = cache
-        .list()
-        .iter()
-        .filter_map(|(pattern, path)| {
-            pattern
-                .clone()
-                .family
-                .map(|family| (family.to_ascii_lowercase(), (family, path.path.clone())))
+    let mut font_system = FontSystem::new();
+    let swash_cache = SwashCache::new();
+    let db = font_system.db_mut();
+    db.load_system_fonts();
+
+    let lowercase_fonts: BTreeMap<String, String> = db
+        .faces()
+        .map(|faceinfo| {
+            (
+                faceinfo.families[0].0.to_ascii_lowercase(),
+                faceinfo.families[0].0.clone(),
+            )
         })
         .collect();
 
     let mut last_rendered: Option<(String, Protocol)> = None;
     let mut inner_width = 0;
 
+    let mut renderer =
+        FontRenderer::new(font_system, swash_cache, String::new(), picker.font_size());
+
     loop {
         let first_match = find_first_match(&lowercase_fonts, &input.to_ascii_lowercase());
-
-        let (font, first_match) = if let Some((first_match, path)) = first_match {
-            let font = load_font(&path)?;
-            (Some(font), Some(first_match))
-        } else {
-            (None, None)
-        };
 
         terminal.draw(|f| {
             let area = f.area();
@@ -56,7 +55,7 @@ pub fn interactive_font_picker(
             inner_width = inner_area.width;
             f.render_widget(block, area);
 
-            if let Some(first_match) = first_match {
+            if let Some(first_match) = first_match.clone() {
                 f.render_widget(
                     Paragraph::new(Line::from(first_match).dark_gray()),
                     inner_area,
@@ -78,16 +77,18 @@ pub fn interactive_font_picker(
 
         if inner_width > 0 && (last_rendered.is_none() || last_rendered.clone().unwrap().0 != input)
         {
-            if let Some(font) = font {
+            if let Some(first_match) = first_match {
+                renderer.font_name = first_match.clone();
                 let spans = vec!["The fox jumped over the goat or something".into()];
-                let sources = header_source(
-                    &Renderer::new(*picker, font, bg),
+                let dyn_imgs = header_images(
+                    bg,
+                    &mut renderer,
                     inner_width,
-                    0,
                     Line::from(spans).to_string(),
                     1,
                     false,
                 )?;
+                let sources = header_sources(picker, inner_width, 0, dyn_imgs, false)?;
 
                 // Just render the first line if it got split.
                 if let Some(source) = sources.into_iter().next() {
@@ -116,14 +117,14 @@ pub fn interactive_font_picker(
                         input.pop(); // Remove the last character
                     }
                     KeyCode::Tab => {
-                        if let Some((family, _)) =
+                        if let Some(family) =
                             find_first_match(&lowercase_fonts, &input.to_ascii_lowercase())
                         {
                             input = family;
                         }
                     }
                     KeyCode::Enter => {
-                        if let Some((family, _)) =
+                        if let Some(family) =
                             find_first_match(&lowercase_fonts, &input.to_ascii_lowercase())
                         {
                             terminal.clear()?;
@@ -144,15 +145,12 @@ pub fn interactive_font_picker(
     }
 }
 
-fn find_first_match(
-    all_fonts: &BTreeMap<String, (String, String)>,
-    input: &str,
-) -> Option<(String, String)> {
+fn find_first_match(all_fonts: &BTreeMap<String, String>, input: &str) -> Option<String> {
     let mut first_match = None;
     if !input.is_empty() {
-        for (lowercase_pattern, (pattern, path)) in all_fonts {
+        for (lowercase_pattern, pattern) in all_fonts {
             if lowercase_pattern.starts_with(input) {
-                first_match = Some((pattern.clone(), path.clone()));
+                first_match = Some(pattern.clone());
                 break;
             }
         }

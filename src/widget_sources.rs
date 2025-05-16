@@ -1,5 +1,6 @@
 use std::{fmt::Debug, io::Cursor, path::PathBuf, sync::Arc};
 
+use cosmic_text::{Attrs, Buffer, Color, Family, Metrics, Shaping};
 use image::{
     imageops, DynamicImage, GenericImage, ImageFormat, ImageReader, Pixel, Rgba, RgbaImage,
 };
@@ -10,10 +11,12 @@ use reqwest::{
     header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE},
     Client,
 };
-use rusttype::{point, Font, PositionedGlyph, Scale};
 use tokio::sync::RwLock;
 
-use crate::{setup::Renderer, Error};
+use crate::{
+    setup::{BgColor, FontRenderer},
+    Error,
+};
 
 pub type SourceID = usize;
 
@@ -50,105 +53,115 @@ impl<'a> WidgetSource<'a> {
     }
 }
 
-pub fn header_source<'a>(
-    renderer: &Renderer<'a>,
+/// Layout/shape and render `text` into a list of [DynamicImage] with a given terminal width.
+pub fn header_images(
+    bg: Option<BgColor>,
+    font_renderer: &mut FontRenderer,
     width: u16,
-    id: SourceID,
     text: String,
     tier: u8,
     deep_fry_meme: bool,
-) -> Result<Vec<WidgetSource<'a>>, Error> {
-    static TRANSPARENT_BACKGROUND: [u8; 4] = [0, 0, 0, 0];
-    let bg = renderer.bg.unwrap_or(TRANSPARENT_BACKGROUND);
+) -> Result<Vec<DynamicImage>, Error> {
+    let bg = bg.unwrap_or_default(); // Default is transparent (black, but that's irrelevant).
 
     const HEADER_ROW_COUNT: u16 = 2;
-    let (font_width, font_height) = renderer.font_size;
-
-    let img_width = (width * font_width) as u32;
-    let img_height = (HEADER_ROW_COUNT * font_height) as u32;
+    let (font_width, font_height) = font_renderer.font_size;
 
     let tier_scale = ((12 - tier) as f32) / 12.0f32;
-    let scale = Scale::uniform((font_height * HEADER_ROW_COUNT) as f32 * tier_scale);
 
-    let v_metrics = renderer.font.v_metrics(scale);
+    let line_height = (font_height * HEADER_ROW_COUNT) as f32;
+    let font_size = line_height * tier_scale;
+    let metrics = Metrics::new(font_size, line_height);
 
-    let words = text.split_whitespace();
+    let mut buffer = Buffer::new(&mut font_renderer.font_system, metrics);
 
-    let mut lines = vec![];
-    let mut current_line = String::new();
-    let mut glyphs_line: Vec<PositionedGlyph> = vec![];
-    for word in words {
-        let mut maybe_current_line = current_line.clone();
-        if !maybe_current_line.is_empty() {
-            maybe_current_line.push(' ');
-        }
-        maybe_current_line.push_str(word);
+    let mut attrs = Attrs::new();
+    attrs = attrs.family(Family::Name(&font_renderer.font_name));
 
-        glyphs_line = renderer
-            .font
-            .layout(
-                &maybe_current_line,
-                scale,
-                point(0.0, 0.0 + v_metrics.ascent),
-            )
-            .collect();
-
-        let width = glyphs_line
-            .last()
-            .and_then(|g| g.pixel_bounding_box())
-            .map(|bb| bb.max.x)
-            .unwrap_or(0) as u32;
-
-        if width <= img_width {
-            current_line = maybe_current_line;
+    let max_width = width * font_width;
+    buffer.set_size(&mut font_renderer.font_system, Some(max_width as f32), None);
+    buffer.set_text(
+        &mut font_renderer.font_system,
+        &(if deep_fry_meme {
+            text.replace("a", "🤣")
         } else {
-            glyphs_line = renderer
-                .font
-                .layout(&current_line, scale, point(0.0, 0.0 + v_metrics.ascent))
-                .collect();
-            lines.push(glyphs_line);
-            glyphs_line = vec![];
-            current_line = word.to_string();
-        }
+            text
+        }),
+        &attrs,
+        Shaping::Advanced,
+    );
+    buffer.shape_until_scroll(&mut font_renderer.font_system, false);
+
+    // Make one image per shaped line.
+    let run_count = buffer.layout_runs().collect::<Vec<_>>().len();
+    let mut dyn_imgs = Vec::with_capacity(run_count);
+    let img_height = (font_height * 2) as u32;
+    let img_width = (width * font_width) as u32;
+    for _ in buffer.layout_runs() {
+        let img: RgbaImage = RgbaImage::from_pixel(img_width, img_height, bg.into());
+        let dyn_img = image::DynamicImage::ImageRgba8(img);
+        dyn_imgs.push(dyn_img);
     }
 
-    if !current_line.is_empty() {
-        lines.push(glyphs_line);
-    }
+    let fg = Color::rgba(255, 255, 255, 255);
 
-    let mut sources = vec![];
-
-    let max_x = img_width;
-    let max_y = img_height;
-    for word_glyphs in lines {
-        let img: RgbaImage = RgbaImage::from_pixel(img_width, img_height, Rgba(bg));
-        let mut dyn_img = image::DynamicImage::ImageRgba8(img);
-
-        for glyph in word_glyphs {
-            if let Some(bounding_box) = glyph.pixel_bounding_box() {
-                let mut outside = false;
-                let bb_x = bounding_box.min.x as u32;
-                let bb_y = bounding_box.min.y as u32;
-                glyph.draw(|x, y, v| match (bb_x.checked_add(x), bb_y.checked_add(y)) {
-                    (Some(p_x), Some(p_y)) if (p_x) < max_x && p_y < max_y => {
-                        let u8v = (255.0 * v) as u8;
-                        let mut pixel = Rgba(bg);
-                        pixel.blend(&Rgba([u8v, u8v, u8v, u8v]));
-                        dyn_img.put_pixel(p_x, p_y, pixel);
-                    }
-                    _ => outside = true,
-                });
-                if outside {
-                    break;
-                }
+    // Render shaped text, picking the image off the Vec by the Y coord.
+    buffer.draw(
+        &mut font_renderer.font_system,
+        &mut font_renderer.swash_cache,
+        fg,
+        |x, y, w, h, color| {
+            let a = color.a();
+            if a == 0
+                || x < 0
+                || x >= max_width as i32
+                || y < 0
+                // || y >= ... // Just pick relevant dyn_img
+                || w != 1
+                || h != 1
+            {
+                // Ignore alphas of 0, or invalid x, y coordinates, or unimplemented sizes
+                return;
             }
-        }
 
+            // Pick image-index by Y coord.
+            let index = (y / img_height as i32) as usize;
+
+            if index >= dyn_imgs.len() {
+                return;
+            }
+
+            // Blend pixel with background (likely transparent).
+            let mut pixel: Rgba<u8> = bg.into();
+            pixel.blend(&Rgba(color.as_rgba()));
+
+            let dyn_img = &mut dyn_imgs[index];
+
+            // Adjust picked image's Y coord offset.
+            let y_offset: u32 = index as u32 * img_height;
+            dyn_img.put_pixel(x as u32, y as u32 - y_offset, pixel);
+        },
+    );
+
+    Ok(dyn_imgs)
+}
+
+const HEADER_ROW_COUNT: u16 = 2;
+
+/// Render a list of images to [WidgetSource]s.
+pub fn header_sources<'a>(
+    picker: &Picker,
+    width: u16,
+    id: SourceID,
+    dyn_imgs: Vec<DynamicImage>,
+    deep_fry_meme: bool,
+) -> Result<Vec<WidgetSource<'a>>, Error> {
+    let mut sources = vec![];
+    for mut dyn_img in dyn_imgs {
         if deep_fry_meme {
-            dyn_img = deep_fry(dyn_img, &renderer.font);
+            dyn_img = deep_fry(dyn_img);
         }
-
-        let proto = renderer.picker.new_protocol(
+        let proto = picker.new_protocol(
             dyn_img,
             Rect::new(0, 0, width, HEADER_ROW_COUNT),
             Resize::Fit(None),
@@ -172,7 +185,6 @@ pub async fn image_source<'a>(
     id: SourceID,
     url: &str,
     deep_fry_meme: bool,
-    font: &Font<'a>,
 ) -> Result<WidgetSource<'a>, Error> {
     let mut dyn_img = if url.starts_with("https://") || url.starts_with("http://") {
         let mut headers = HeaderMap::new();
@@ -209,7 +221,7 @@ pub async fn image_source<'a>(
         ImageReader::open(path)?.decode()?
     };
     if deep_fry_meme {
-        dyn_img = deep_fry(dyn_img, font);
+        dyn_img = deep_fry(dyn_img);
     }
 
     let max_height: u16 = 20;
@@ -229,7 +241,7 @@ pub async fn image_source<'a>(
     })
 }
 
-fn deep_fry(mut dyn_img: DynamicImage, _font: &Font) -> DynamicImage {
+fn deep_fry(mut dyn_img: DynamicImage) -> DynamicImage {
     let width = dyn_img.width();
     let height = dyn_img.height();
     dyn_img = dyn_img.adjust_contrast(50.0);
