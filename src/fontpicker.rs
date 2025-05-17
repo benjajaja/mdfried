@@ -105,14 +105,6 @@ pub fn interactive_font_picker(
             }) = event::read()?
             {
                 match code {
-                    KeyCode::Char(c) => {
-                        // Append the character unless a control modifier is pressed
-                        if modifiers.is_empty() {
-                            input.push(c);
-                        } else if modifiers == KeyModifiers::SHIFT {
-                            input.push(c.to_ascii_uppercase());
-                        }
-                    }
                     KeyCode::Backspace => {
                         input.pop(); // Remove the last character
                     }
@@ -137,6 +129,20 @@ pub fn interactive_font_picker(
                         terminal.clear()?;
                         ratatui::restore();
                         return Ok(None);
+                    }
+                    KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                        // Exit on Ctrl-C too
+                        terminal.clear()?;
+                        ratatui::restore();
+                        return Ok(None);
+                    }
+                    KeyCode::Char(c) => {
+                        // Append the character unless a control modifier is pressed
+                        if modifiers.is_empty() {
+                            input.push(c);
+                        } else if modifiers == KeyModifiers::SHIFT {
+                            input.push(c.to_ascii_uppercase());
+                        }
                     }
                     _ => {}
                 }
