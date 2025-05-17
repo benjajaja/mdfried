@@ -1,8 +1,11 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, io};
 
 use cosmic_text::{FontSystem, SwashCache};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
-use ratatui::{style::Stylize, text::Line, widgets::Paragraph};
+use ratatui::{
+    layout::Rect, prelude::CrosstermBackend, style::Stylize, text::Line, widgets::Paragraph,
+    Terminal, TerminalOptions,
+};
 use ratatui_image::{picker::Picker, protocol::Protocol, Image};
 
 use crate::{
@@ -15,11 +18,6 @@ pub fn interactive_font_picker(
     picker: &mut Picker,
     bg: Option<BgColor>,
 ) -> Result<Option<String>, Error> {
-    let mut terminal = ratatui::init_with_options(ratatui::TerminalOptions {
-        viewport: ratatui::Viewport::Inline(6),
-    });
-    terminal.clear()?;
-
     let mut input = String::new();
 
     let mut font_system = FontSystem::new();
@@ -43,13 +41,25 @@ pub fn interactive_font_picker(
     let mut renderer =
         FontRenderer::new(font_system, swash_cache, String::new(), picker.font_size());
 
+    println!("{} system fonts detected.", lowercase_fonts.len());
+
+    crossterm::terminal::enable_raw_mode()?;
+    let backend = CrosstermBackend::new(io::stdout());
+    let mut terminal = Terminal::with_options(
+        backend,
+        TerminalOptions {
+            viewport: ratatui::Viewport::Inline(5),
+        },
+    )?;
+    terminal.clear()?;
+
     loop {
         let first_match = find_first_match(&lowercase_fonts, &input.to_ascii_lowercase());
 
         terminal.draw(|f| {
             let area = f.area();
             let block = ratatui::widgets::Block::default()
-                .title("Enter font name (Tab: complete, Esc: abort, Enter: confirm):")
+                .title("Enter font name")
                 .borders(ratatui::widgets::Borders::ALL);
             let inner_area = block.inner(area);
             inner_width = inner_area.width;
@@ -73,6 +83,13 @@ pub fn interactive_font_picker(
                 area.height = 2;
                 f.render_widget(img, area);
             }
+
+            f.render_widget(
+                Paragraph::new(Line::from("Tab: complete, Esc: abort, Enter: confirm").dark_gray()),
+                Rect::new(1, f.area().y + 4, inner_area.width, 1),
+            );
+
+            f.set_cursor_position(((1 + input.len()) as u16, f.area().y + 1));
         })?;
 
         if inner_width > 0 && (last_rendered.is_none() || last_rendered.clone().unwrap().0 != input)
