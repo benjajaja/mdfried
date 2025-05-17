@@ -528,6 +528,8 @@ fn view(model: &mut Model, frame: &mut Frame) {
             break;
         }
     }
+
+    frame.set_cursor_position((0, frame.area().height - 1));
 }
 
 fn render_widget<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, f: &mut Frame) {
