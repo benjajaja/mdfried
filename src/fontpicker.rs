@@ -35,6 +35,10 @@ pub fn interactive_font_picker(
         })
         .collect();
 
+    if lowercase_fonts.is_empty() {
+        return Err(Error::NoFont);
+    }
+
     let mut last_rendered: Option<(String, Protocol)> = None;
     let mut inner_width = 0;
 
