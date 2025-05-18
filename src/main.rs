@@ -32,7 +32,7 @@ use ratatui::{
 };
 
 use ratatui_image::{
-    picker::{cap_parser::Capability, ProtocolType},
+    picker::{Capability, ProtocolType},
     Image,
 };
 use ratskin::RatSkin;
