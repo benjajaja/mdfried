@@ -21,7 +21,7 @@ cosmic-text = "0.14.2"
 crossterm = { version = "0.28.1", features = ["event-stream"] }
 image = "0.25.2"
 ratatui = "^0.29.0"
-ratatui-image = { version = "6.0.0" }
+ratatui-image = { version = "7.0.0" }
 ratskin = "0.2.0"
 regex = "1.11.1"
 serde = { version = "^1.0", features = ["derive"] }

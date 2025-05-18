@@ -31,7 +31,10 @@ use ratatui::{
     DefaultTerminal, Frame, Terminal,
 };
 
-use ratatui_image::{picker::ProtocolType, Image};
+use ratatui_image::{
+    picker::{cap_parser::Capability, ProtocolType},
+    Image,
+};
 use ratskin::RatSkin;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -41,7 +44,7 @@ use tokio::{
     sync::{Mutex, RwLock},
 };
 use widget_sources::{
-    header_images, header_sources, image_source, SourceID, WidgetSource, WidgetSourceData,
+    header_images, header_sources, image_source, BigText, SourceID, WidgetSource, WidgetSourceData,
 };
 
 mod config;
@@ -157,17 +160,22 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
             let basepath = basepath.clone();
             let client = Arc::new(RwLock::new(Client::new()));
             let protocol_type = picker.protocol_type(); // Won't change
-            let renderer = Arc::new(Mutex::new(renderer));
+            let thread_renderer = Arc::new(Mutex::new(renderer));
+            let has_text_size_protocol = picker
+                .capabilities()
+                .contains(&Capability::TextSizingProtocol);
+            let thread_picker = Arc::new(picker);
             let skin = RatSkin { skin: config.skin };
             for cmd in cmd_rx {
                 match cmd {
                     ImgCmd::Parse(width, text) => {
-                        parse(&text, &skin, width, &event_tx)?;
+                        parse(&text, &skin, width, &event_tx, has_text_size_protocol)?;
                     }
                     ImgCmd::Header(id, width, tier, text) => {
+                        let task_tx = event_tx.clone();
                         if protocol_type != ProtocolType::Halfblocks {
-                            let task_tx = event_tx.clone();
-                            let renderer = renderer.clone();
+                            let renderer = thread_renderer.clone();
+                            let picker = thread_picker.clone();
                             tokio::spawn(async move {
                                 // Grab lock...
                                 let mut r = renderer.lock().await;
@@ -186,6 +194,7 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
                         let task_tx = event_tx.clone();
                         let basepath = basepath.clone();
                         let client = client.clone();
+                        let picker = thread_picker.clone();
                         // TODO: handle spawned task result errors, right now it's just discarded.
                         tokio::spawn(async move {
                             match image_source(
@@ -520,6 +529,10 @@ fn view(model: &mut Model, frame: &mut Frame) {
                     let height = text.height();
                     let p = Paragraph::new(text);
                     render_widget(p, height as u16, y as u16, inner_area, frame);
+                }
+                WidgetSourceData::SizedLine(text, tier) => {
+                    let big_text = BigText::new(text, *tier);
+                    render_widget(big_text, 2, y as u16, inner_area, frame);
                 }
             }
         }
