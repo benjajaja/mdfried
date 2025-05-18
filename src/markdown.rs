@@ -93,7 +93,12 @@ pub fn parse(
             Block::Header(tier, text) => {
                 needs_space = false;
                 if has_text_size_protocol {
-                    sender.send_line(WidgetSourceData::SizedLine(text, tier), 2)?;
+                    // Leverage ratskin/termimad's line-wrapping feature.
+                    let madtext = RatSkin::parse_text(&text);
+                    for line in skin.parse(madtext, width / 2) {
+                        let text = line.to_string();
+                        sender.send_line(WidgetSourceData::SizedLine(text, tier), 2)?;
+                    }
                 } else {
                     sender.send_event(Event::ParseHeader(sender.index, tier, text))?;
                 }
