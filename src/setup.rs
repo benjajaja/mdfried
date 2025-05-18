@@ -1,7 +1,7 @@
 use cosmic_text::{FontSystem, SwashCache};
 use image::Rgba;
 use ratatui_image::{
-    picker::{Picker, ProtocolType},
+    picker::{cap_parser::QueryStdioOptions, Picker, ProtocolType},
     FontSize,
 };
 
@@ -50,7 +50,9 @@ pub fn setup_graphics(
     force_font_setup: bool,
 ) -> Result<Option<(Picker, FontRenderer, Option<BgColor>)>, Error> {
     print!("Detecting supported graphics protocols...");
-    let mut picker = Picker::from_query_stdio()?;
+    let mut picker = Picker::from_query_stdio_with_options(QueryStdioOptions {
+        text_sizing_protocol: true,
+    })?;
     println!(" {:?}.", picker.protocol_type());
 
     let bg = match picker.protocol_type() {
@@ -112,14 +114,10 @@ pub fn setup_graphics(
         }
     };
 
+    let font_size = picker.font_size();
     Ok(Some((
         picker,
-        FontRenderer::new(
-            font_system,
-            SwashCache::new(),
-            font_name,
-            picker.font_size(),
-        ),
+        FontRenderer::new(font_system, SwashCache::new(), font_name, font_size),
         bg,
     )))
 }

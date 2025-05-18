@@ -67,7 +67,13 @@ fn split_headers_and_images(text: &str) -> Vec<Block> {
     blocks
 }
 
-pub fn parse(text: &str, skin: &RatSkin, width: u16, tx: &Sender<WidthEvent>) -> Result<(), Error> {
+pub fn parse(
+    text: &str,
+    skin: &RatSkin,
+    width: u16,
+    tx: &Sender<WidthEvent>,
+    has_text_size_protocol: bool,
+) -> Result<(), Error> {
     let mut sender = SendTracker {
         width,
         tx,
@@ -86,7 +92,16 @@ pub fn parse(text: &str, skin: &RatSkin, width: u16, tx: &Sender<WidthEvent>) ->
         match block {
             Block::Header(tier, text) => {
                 needs_space = false;
-                sender.send_event(Event::ParseHeader(sender.index, tier, text))?;
+                if has_text_size_protocol {
+                    // Leverage ratskin/termimad's line-wrapping feature.
+                    let madtext = RatSkin::parse_text(&text);
+                    for line in skin.parse(madtext, width / 2) {
+                        let text = line.to_string();
+                        sender.send_line(WidgetSourceData::SizedLine(text, tier), 2)?;
+                    }
+                } else {
+                    sender.send_event(Event::ParseHeader(sender.index, tier, text))?;
+                }
             }
             Block::Image(alt, url) => {
                 needs_space = true;

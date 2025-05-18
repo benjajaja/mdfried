@@ -1,10 +1,15 @@
-use std::{fmt::Debug, io::Cursor, path::PathBuf, sync::Arc};
+use std::{
+    fmt::{Debug, Write},
+    io::Cursor,
+    path::PathBuf,
+    sync::Arc,
+};
 
 use cosmic_text::{Attrs, Buffer, Color, Family, Metrics, Shaping};
 use image::{
     imageops, DynamicImage, GenericImage, ImageFormat, ImageReader, Pixel, Rgba, RgbaImage,
 };
-use ratatui::{layout::Rect, text::Line};
+use ratatui::{layout::Rect, text::Line, widgets::Widget};
 
 use ratatui_image::{picker::Picker, protocol::Protocol, Resize};
 use reqwest::{
@@ -31,6 +36,7 @@ pub enum WidgetSourceData<'a> {
     Image(Protocol),
     BrokenImage(String, String),
     Line(Line<'a>),
+    SizedLine(String, u8),
 }
 
 impl Debug for WidgetSourceData<'_> {
@@ -38,7 +44,10 @@ impl Debug for WidgetSourceData<'_> {
         match self {
             Self::Image(_) => f.debug_tuple("Image").finish(),
             Self::BrokenImage(_, _) => f.debug_tuple("BrokenImage").finish(),
-            Self::Line(arg0) => f.debug_tuple("Text").field(arg0).finish(),
+            Self::Line(arg0) => f.debug_tuple("Line").field(arg0).finish(),
+            Self::SizedLine(text, tier) => {
+                f.debug_tuple("SizedLine").field(text).field(tier).finish()
+            }
         }
     }
 }
@@ -278,4 +287,66 @@ fn deep_fry(mut dyn_img: DynamicImage) -> DynamicImage {
     }
 
     DynamicImage::ImageRgba8(deep_fried)
+}
+
+pub struct BigText<'a> {
+    text: &'a str,
+    tier: u8,
+}
+
+impl<'a> BigText<'a> {
+    pub fn new(text: &'a str, tier: u8) -> Self {
+        BigText { text, tier }
+    }
+}
+
+impl Widget for BigText<'_> {
+    fn render(self, area: Rect, buf: &mut ratatui::buffer::Buffer) {
+        if area.width == 0 || area.height == 0 {
+            return;
+        }
+
+        let mut symbol = String::new();
+
+        // Erase character dance.
+        // We must erase anything inside area, which is 2 lines high and `area.width` wide.
+        // This must be done before we write the text.
+        // Also disable DECAWM, unsure if really necessary.
+        write!(symbol, "\x1b[{}X\x1B[?7l", area.width).unwrap();
+        write!(symbol, "\x1b[1B").unwrap();
+        write!(symbol, "\x1b[{}X\x1B[?7l", area.width).unwrap();
+        write!(symbol, "\x1b[1A").unwrap();
+
+        // Start the Text Size Protocol sequence.
+        write!(symbol, "\x1b]66;s=2:n=3:d={};", self.tier).unwrap();
+        symbol.push_str(truncate_str(self.text, (area.width / 2) as usize));
+        write!(symbol, "\x1b\x5c").unwrap(); // Could also use BEL, but this seems safer.
+
+        // Skip entire text area except first cell
+        let mut skip_first = false;
+
+        for y in area.top()..area.bottom() {
+            for x in area.left()..area.right() {
+                if !skip_first {
+                    skip_first = true;
+                    buf.cell_mut((x, y)).map(|cell| cell.set_symbol(&symbol));
+                } else {
+                    buf.cell_mut((x, y)).map(|cell| cell.set_skip(true));
+                }
+            }
+        }
+    }
+}
+
+fn truncate_str(s: &str, max_chars: usize) -> &str {
+    if s.chars().count() <= max_chars {
+        return s;
+    }
+
+    let mut end = 0;
+    for (i, _) in s.char_indices().take(max_chars) {
+        end = i;
+    }
+
+    &s[..end]
 }
