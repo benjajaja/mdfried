@@ -319,7 +319,7 @@ impl Widget for BigText<'_> {
 
         // Start the Text Size Protocol sequence.
         write!(symbol, "\x1b]66;s=2:n=3:d={};", self.tier).unwrap();
-        symbol.push_str(self.text);
+        symbol.push_str(truncate_str(self.text, (area.width / 2) as usize));
         write!(symbol, "\x1b\x5c").unwrap(); // Could also use BEL, but this seems safer.
 
         // Skip entire text area except first cell
@@ -336,4 +336,17 @@ impl Widget for BigText<'_> {
             }
         }
     }
+}
+
+fn truncate_str(s: &str, max_chars: usize) -> &str {
+    if s.chars().count() <= max_chars {
+        return s;
+    }
+
+    let mut end = 0;
+    for (i, _) in s.char_indices().take(max_chars) {
+        end = i;
+    }
+
+    &s[..end]
 }
