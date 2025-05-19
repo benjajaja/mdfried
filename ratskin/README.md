@@ -1,17 +1,33 @@
-Ratskin is a wrapper around [termimad] that parses markdown into [ratatui::text::Line]s.
+Render and style markdown in a terminal.
+
+> How hard can it be?
+
+Well, as it turns out, rendering from markdown *AST* (which you get from the myriad of parsing
+libraries) is not trivial - at all!
+A terminal is nothing like HTML - we don't need to use special elements like lists, tables,
+blocks... we just need to display the text *exactly* as it is layed out, but with some styles
+(colors, bold, italics, underline...).
+When rendering from AST, the original layout has been lost.
+It's extremely tedious to implement all edge cases, and because the specs are not very strict,
+it's not really possible to re-create the original.
+
+Luckily, somebody has already solved it: [termimad] produces "terminal-styled" output for markdown.
+`rat_skin` leverages [termimad] for [ratatui].
+Line wrapping is taken care of, and the styles can be customized with a "skin" (hence the name).
 
 ```rust
-#
 let rat_skin = RatSkin::default();
-let text = RatSkin::parse_text("**cook it!**");
-let lines: Vec<Line> = rat_skin.parse(text, 80);
+let lines: Vec<Line> = rat_skin.parse(RatSkin::parse_text("**cook it!**"), 80);
 assert_eq!(lines, vec![Line::from(Span::from("cook it!").bold())]);
 ```
 
-This is all you need to know about Ratskin - for everything else, please see termimad:
+You can set a [termimad::MadSkin] (re-exported from [termimad]) on [RatSkin] to customize appearances.
+The output is a list of [ratatui::text::Line]s, wrapped to the given width.
 
-* <https://github.com/Canop/termimad>
-* <https://crates.io/crates/termimad>
+This is all you need to know about ratskin - for everything else, please see termimad:
+
+* <https://github.com/Canop/termimad/>
+* <https://crates.io/crates/termimad/>
 * <https://docs.rs/termimad/latest/termimad/>
 
 Because termimad is very streamlined for writing terminal output directly (for good reasons),
