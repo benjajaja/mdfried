@@ -317,8 +317,16 @@ impl Widget for BigText<'_> {
         write!(symbol, "\x1b[{}X\x1B[?7l", area.width).unwrap();
         write!(symbol, "\x1b[1A").unwrap();
 
+        let (n, d) = match self.tier {
+            1 => (1, 1),
+            2 => (3, 4),
+            3 => (7, 12),
+            4 => (1, 2),
+            5 => (5, 12),
+            _ => (1, 3),
+        };
         // Start the Text Size Protocol sequence.
-        write!(symbol, "\x1b]66;s=2:n=3:d={};", self.tier).unwrap();
+        write!(symbol, "\x1b]66;s=2:n={n}:d={d};").unwrap();
         symbol.push_str(truncate_str(self.text, (area.width / 2) as usize));
         write!(symbol, "\x1b\x5c").unwrap(); // Could also use BEL, but this seems safer.
 

@@ -6,6 +6,8 @@ You can cook a terminal. Can you **deep fry** a terminal?
 
 Another paragraph now, which should get wrapped without breaking up words, nor whitespace at the beginning of lines. This is very primitive and fragile, for example, what happens with multi-width characters? Yes, they will probably cause havoc. It's impossible to know how wide a character will be in the terminal.
 
+# Tier 1 heading
+
 ## Tier 2 heading
 
 ### Tier 3 heading
