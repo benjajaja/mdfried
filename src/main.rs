@@ -31,14 +31,11 @@ use ratatui::{
     DefaultTerminal, Frame, Terminal,
 };
 
-use ratatui_image::{
-    picker::{Capability, ProtocolType},
-    Image,
-};
+use ratatui_image::{picker::ProtocolType, Image};
 use ratskin::RatSkin;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use setup::{setup_graphics, BgColor};
+use setup::{setup_graphics, BgColor, SetupResult};
 use tokio::{
     runtime::Builder,
     sync::{Mutex, RwLock},
@@ -141,11 +138,16 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
     }
 
     let force_setup = *matches.get_one("setup").unwrap_or(&false);
-    let (picker, renderer, bg) = match setup_graphics(config.font_family, force_setup) {
-        Ok(Some(renderer)) => renderer,
-        Ok(None) => return Err(Error::UserAbort("cancelled setup")),
+    let setup_result = setup_graphics(config.font_family, force_setup);
+    let (picker, bg, renderer, has_text_size_protocol) = match setup_result {
+        Ok(result) => match result {
+            SetupResult::Aborted => return Err(Error::UserAbort("cancelled setup")),
+            SetupResult::TextSizing(picker, bg) => (picker, bg, None, true),
+            SetupResult::Complete(picker, bg, renderer) => (picker, bg, Some(renderer), false),
+        },
         Err(err) => return Err(err),
     };
+
     let deep_fry = *matches.get_one("deep").unwrap_or(&false);
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<ImgCmd>();
@@ -160,10 +162,7 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
             let basepath = basepath.clone();
             let client = Arc::new(RwLock::new(Client::new()));
             let protocol_type = picker.protocol_type(); // Won't change
-            let thread_renderer = Arc::new(Mutex::new(renderer));
-            let has_text_size_protocol = picker
-                .capabilities()
-                .contains(&Capability::TextSizingProtocol);
+            let thread_renderer = renderer.map(|renderer| Arc::new(Mutex::new(renderer)));
             let thread_picker = Arc::new(picker);
             let skin = RatSkin { skin: config.skin };
             for cmd in cmd_rx {
@@ -172,22 +171,29 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
                         parse(&text, &skin, width, &event_tx, has_text_size_protocol)?;
                     }
                     ImgCmd::Header(id, width, tier, text) => {
-                        let task_tx = event_tx.clone();
-                        if protocol_type != ProtocolType::Halfblocks {
-                            let renderer = thread_renderer.clone();
-                            let picker = thread_picker.clone();
-                            tokio::spawn(async move {
-                                // Grab lock...
-                                let mut r = renderer.lock().await;
-                                let images =
-                                    header_images(bg, &mut r, width, text, tier, deep_fry)?;
-                                // ...release right after text rendering...
-                                drop(r);
-                                // ...process images to terminal image protocol.
-                                let headers = header_sources(&picker, width, id, images, deep_fry)?;
-                                task_tx.send((width, Event::Update(headers)))?;
-                                Ok::<(), Error>(())
-                            });
+                        debug_assert!(
+                            thread_renderer.is_some(),
+                            "should not have sent ImgCmd::Header without renderer"
+                        );
+                        if let Some(ref thread_renderer) = thread_renderer {
+                            let task_tx = event_tx.clone();
+                            if protocol_type != ProtocolType::Halfblocks {
+                                let renderer = thread_renderer.clone();
+                                let picker = thread_picker.clone();
+                                tokio::spawn(async move {
+                                    // Grab lock...
+                                    let mut r = renderer.lock().await;
+                                    let images =
+                                        header_images(bg, &mut r, width, text, tier, deep_fry)?;
+                                    // ...release right after text rendering...
+                                    drop(r);
+                                    // ...process images to terminal image protocol.
+                                    let headers =
+                                        header_sources(&picker, width, id, images, deep_fry)?;
+                                    task_tx.send((width, Event::Update(headers)))?;
+                                    Ok::<(), Error>(())
+                                });
+                            }
                         }
                     }
                     ImgCmd::UrlImage(id, width, url, text, _title) => {

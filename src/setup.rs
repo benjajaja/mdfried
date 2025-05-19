@@ -1,7 +1,7 @@
 use cosmic_text::{FontSystem, SwashCache};
 use image::Rgba;
 use ratatui_image::{
-    picker::{cap_parser::QueryStdioOptions, Picker, ProtocolType},
+    picker::{cap_parser::QueryStdioOptions, Capability, Picker, ProtocolType},
     FontSize,
 };
 
@@ -45,10 +45,16 @@ impl FontRenderer {
     }
 }
 
+pub enum SetupResult {
+    Aborted,
+    TextSizing(Picker, Option<BgColor>),
+    Complete(Picker, Option<BgColor>, FontRenderer),
+}
+
 pub fn setup_graphics(
     font_family: Option<String>,
     force_font_setup: bool,
-) -> Result<Option<(Picker, FontRenderer, Option<BgColor>)>, Error> {
+) -> Result<SetupResult, Error> {
     print!("Detecting supported graphics protocols...");
     let mut picker = Picker::from_query_stdio_with_options(QueryStdioOptions {
         text_sizing_protocol: true,
@@ -62,6 +68,13 @@ pub fn setup_graphics(
             None
         }
     };
+
+    let has_text_size_protocol = picker
+        .capabilities()
+        .contains(&Capability::TextSizingProtocol);
+    if has_text_size_protocol {
+        return Ok(SetupResult::TextSizing(picker, bg));
+    }
 
     let mut font_system = FontSystem::new();
     let db = font_system.db_mut();
@@ -93,7 +106,7 @@ pub fn setup_graphics(
                     confy::store(CONFIG.0, CONFIG.1, new_config)?;
                     font_family = setup_font_family;
                 }
-                Ok(None) => return Ok(None),
+                Ok(None) => return Ok(SetupResult::Aborted),
                 Err(err) => return Err(err),
             }
         }
@@ -109,15 +122,15 @@ pub fn setup_graphics(
                 confy::store(CONFIG.0, CONFIG.1, new_config)?;
                 font_family
             }
-            Ok(None) => return Ok(None),
+            Ok(None) => return Ok(SetupResult::Aborted),
             Err(err) => return Err(err),
         }
     };
 
     let font_size = picker.font_size();
-    Ok(Some((
+    Ok(SetupResult::Complete(
         picker,
-        FontRenderer::new(font_system, SwashCache::new(), font_name, font_size),
         bg,
-    )))
+        FontRenderer::new(font_system, SwashCache::new(), font_name, font_size),
+    ))
 }
