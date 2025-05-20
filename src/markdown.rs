@@ -55,7 +55,8 @@ fn split_headers_and_images(text: &str) -> Vec<Block> {
             if !current_block.is_empty() {
                 current_block.push('\n');
             }
-            current_block.push_str(line);
+            let replaced_line = replace_links(line);
+            current_block.push_str(&replaced_line);
         }
     }
 
@@ -65,6 +66,11 @@ fn split_headers_and_images(text: &str) -> Vec<Block> {
     }
 
     blocks
+}
+
+fn replace_links(line: &str) -> String {
+    let re = Regex::new(r"\[([^\]]+)\]\(([^)]+)\)").unwrap();
+    re.replace_all(line, "**$1**↗$2").to_string()
 }
 
 pub fn parse(
