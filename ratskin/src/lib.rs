@@ -75,13 +75,8 @@ impl RatSkin {
         for line in fmt_text.lines {
             match line {
                 FmtLine::Normal(fmtcomp) => {
-                    let spans = fmt_composite_to_spans(
-                        &self.skin,
-                        fmtcomp,
-                        true,
-                        Some(width as usize),
-                        false,
-                    );
+                    let spans =
+                        fmt_composite_to_spans(&self.skin, fmtcomp, true, width as usize, false);
                     lines.push(Line::from(spans));
                     // self.add_line(&mut lines, spans);
                 }
@@ -116,13 +111,8 @@ impl RatSkin {
                             &self.skin.table.compound_style,
                         ));
 
-                        let cell_spans = fmt_composite_to_spans(
-                            &self.skin,
-                            cell,
-                            false,
-                            Some(width as usize),
-                            false,
-                        );
+                        let cell_spans =
+                            fmt_composite_to_spans(&self.skin, cell, false, width as usize, false);
                         spans.extend(cell_spans);
                     }
                     spans.push(compoundstyle_to_span(
@@ -194,14 +184,14 @@ fn fmt_composite_to_spans<'a>(
     skin: &MadSkin,
     fc: FmtComposite<'_>,
     with_margins: bool,
-    outer_width: Option<usize>,
+    outer_width: usize,
     with_right_completion: bool,
 ) -> Vec<Span<'a>> {
     let mut spans = vec![];
 
     let ls = skin.line_style(fc.kind);
     let (left_margin, right_margin) = if with_margins {
-        ls.margins_in(outer_width)
+        ls.margins_in(Some(outer_width))
     } else {
         (0, 0)
     };
@@ -210,7 +200,7 @@ fn fmt_composite_to_spans<'a>(
     let (lpo, rpo) = Spacing::optional_completions(
         ls.align,
         inner_width + left_margin + right_margin,
-        outer_width,
+        Some(outer_width),
     );
     if lpo + left_margin > 0 {
         spans.push(space(skin, lpo + left_margin));
@@ -250,7 +240,13 @@ fn fmt_composite_to_spans<'a>(
     // #[cfg(not(feature = "special-renders"))]
     for c in &fc.compounds {
         let os = skin.compound_style(ls, c);
-        spans.push(compoundstyle_to_span(c.as_str().to_string(), &os));
+        let text = if fc.kind == CompositeKind::Code {
+            // Make code blocks fill the whole outer_width.
+            format!("{:<width$}", c.as_str(), width = outer_width)
+        } else {
+            c.to_string()
+        };
+        spans.push(compoundstyle_to_span(text, &os));
     }
     if rpi > 0 {
         spans.push(space(skin, rpi));

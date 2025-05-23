@@ -33,6 +33,4 @@ tokio-util = "0.7.9"
 
 [package.metadata.release]
 sign-commit = true
-push = false
-no-tag = false
 sign-tag = true
