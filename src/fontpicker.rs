@@ -96,25 +96,26 @@ pub fn interactive_font_picker(
             f.set_cursor_position(((1 + input.len()) as u16, f.area().y + 1));
         })?;
 
-        if inner_width > 0 && (last_rendered.is_none() || last_rendered.clone().unwrap().0 != input)
-        {
+        if inner_width > 0 && first_match.is_some() {
             if let Some(first_match) = first_match {
-                renderer.font_name = first_match.clone();
-                let spans = vec!["The fox jumped over the goat or something".into()];
-                let dyn_imgs = header_images(
-                    bg,
-                    &mut renderer,
-                    inner_width,
-                    Line::from(spans).to_string(),
-                    1,
-                    false,
-                )?;
-                let sources = header_sources(picker, inner_width, 0, dyn_imgs, false)?;
+                if last_rendered.is_none() || last_rendered.clone().unwrap().0 != first_match {
+                    renderer.font_name = first_match.clone();
+                    let spans = vec!["The fox jumped over the goat or something".into()];
+                    let dyn_imgs = header_images(
+                        bg,
+                        &mut renderer,
+                        inner_width,
+                        Line::from(spans).to_string(),
+                        1,
+                        false,
+                    )?;
+                    let sources = header_sources(picker, inner_width, 0, dyn_imgs, false)?;
 
-                // Just render the first line if it got split.
-                if let Some(source) = sources.into_iter().next() {
-                    if let WidgetSourceData::Image(proto) = source.source {
-                        last_rendered = Some((input.clone(), proto));
+                    // Just render the first line if it got split.
+                    if let Some(source) = sources.into_iter().next() {
+                        if let WidgetSourceData::Image(proto) = source.source {
+                            last_rendered = Some((first_match.clone(), proto));
+                        }
                     }
                 }
             }
