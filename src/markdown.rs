@@ -25,38 +25,60 @@ fn split_headers_and_images(text: &str) -> Vec<Block> {
     let header_re = Regex::new(r"^(#+)\s*(.*)").unwrap();
     // Regex to match standalone image lines: ![alt](url)
     let image_re = Regex::new(r"^!\[(.*?)\]\((.*?)\)$").unwrap();
+    // Regex to match beginning or end of code fence
+    let codefence_re = Regex::new(r"^ {0,3}(`{3,}|~{3,})").unwrap();
 
     let mut blocks = Vec::new();
     let mut current_block = String::new();
+    let mut current_codefence: Option<String> = None;
 
     for line in text.lines() {
-        if let Some(captures) = header_re.captures(line) {
-            // If there's an ongoing block, push it as a plain text block
-            if !current_block.is_empty() {
-                blocks.push(Block::Markdown(current_block.clone()));
-                current_block.clear();
-            }
-            // Push the header as (level, text)
-            let level = captures[1].len().min(6) as u8;
-            let text = captures[2].to_string();
-            blocks.push(Block::Header(level, text));
-        } else if let Some(captures) = image_re.captures(line) {
-            // If there's an ongoing block, push it as a plain text block
-            if !current_block.is_empty() {
-                blocks.push(Block::Markdown(current_block.clone()));
-                current_block.clear();
-            }
-            // Push the image as (alt_text, url)
-            let alt_text = captures[1].to_string();
-            let url = captures[2].to_string();
-            blocks.push(Block::Image(alt_text, url));
-        } else {
-            // Accumulate lines that are neither headers nor images
+        if let Some(ref codefence_str) = current_codefence {
             if !current_block.is_empty() {
                 current_block.push('\n');
             }
-            let replaced_line = replace_links(line);
-            current_block.push_str(&replaced_line);
+            current_block.push_str(&line);
+            if let Some(captures) = codefence_re.captures(line) {
+                // End of codefence must match start, with at least as many characters
+                if captures[1].starts_with(codefence_str) {
+                    current_codefence = None;
+                }
+            }
+        } else {
+            if let Some(captures) = header_re.captures(line) {
+                // If there's an ongoing block, push it as a plain text block
+                if !current_block.is_empty() {
+                    blocks.push(Block::Markdown(current_block.clone()));
+                    current_block.clear();
+                }
+                // Push the header as (level, text)
+                let level = captures[1].len().min(6) as u8;
+                let text = captures[2].to_string();
+                blocks.push(Block::Header(level, text));
+            } else if let Some(captures) = image_re.captures(line) {
+                // If there's an ongoing block, push it as a plain text block
+                if !current_block.is_empty() {
+                    blocks.push(Block::Markdown(current_block.clone()));
+                    current_block.clear();
+                }
+                // Push the image as (alt_text, url)
+                let alt_text = captures[1].to_string();
+                let url = captures[2].to_string();
+                blocks.push(Block::Image(alt_text, url));
+            } else if let Some(captures) = codefence_re.captures(line) {
+                if !current_block.is_empty() {
+                    current_block.push('\n');
+                }
+                current_block.push_str(&line);
+                current_codefence = Some(captures[1].to_string());
+            } else {
+                // Accumulate lines that are neither headers nor images
+                if !current_block.is_empty() {
+                    current_block.push('\n');
+                }
+                let replaced_line = replace_links(line);
+                current_block.push_str(&replaced_line);
+            }
         }
     }
 
@@ -210,6 +232,65 @@ paragraph
                 markdown::Block::Header(1, "header".to_string()),
                 markdown::Block::Markdown("paragraph".to_string()),
                 markdown::Block::Header(1, "header".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_codefence() {
+        let blocks = markdown::split_headers_and_images(
+            r#"
+# header
+
+paragraph
+
+```c
+#ifdef FOO
+bar();
+#endif
+```
+
+paragraph
+
+  ~~~~
+  x("
+  ~~~
+  ");
+  #define Y
+  z();
+  ~~~~
+
+# header
+
+paragraph
+"#,
+        );
+        assert_eq!(
+            blocks,
+            vec![
+            markdown::Block::Header(1, "header".to_string()),
+            markdown::Block::Markdown(
+                r#"paragraph
+
+```c
+#ifdef FOO
+bar();
+#endif
+```
+
+paragraph
+
+  ~~~~
+  x("
+  ~~~
+  ");
+  #define Y
+  z();
+  ~~~~
+"#.to_string()
+            ),
+            markdown::Block::Header(1, "header".to_string()),
+            markdown::Block::Markdown("paragraph".to_string()),
             ]
         );
     }
