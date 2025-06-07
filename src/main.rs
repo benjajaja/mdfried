@@ -2,6 +2,7 @@
 use std::os::fd::IntoRawFd;
 
 use std::{
+    cmp::min,
     fs::File,
     io::{self, stdout, Read},
     path::{Path, PathBuf},
@@ -321,12 +322,19 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         }
     }
 
-    fn process_events(&mut self, screen_width: u16) -> Result<bool, Error> {
-        let inner_width = match self.padding {
-            Padding::None => screen_width,
-            Padding::Empty | Padding::Border => screen_width - 2,
-        };
+    fn inner_height(&self, screen_height: u16) -> u16 {
+        match self.padding {
+            Padding::None | Padding::Empty => screen_height,
+            Padding::Border => screen_height - 2,
+        }
+    }
 
+    fn total_lines(&self) -> u16 {
+        self.sources.iter().map(|s| s.height).sum()
+    }
+
+    fn process_events(&mut self, screen_width: u16) -> Result<bool, Error> {
+        let inner_width = self.inner_width(screen_width);
         let mut had_events = false;
         while let Ok((id, ev)) = self.event_rx.try_recv() {
             if id == inner_width {
@@ -396,6 +404,10 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         }
         Ok(had_events)
     }
+
+    fn scroll_by(&mut self, lines: i16) {
+        self.scroll = self.scroll.saturating_add_signed(lines);
+    }
 }
 
 fn model_reload<'a>(model: &mut Model<'a, 'a>, width: u16) -> Result<(), Error> {
@@ -416,13 +428,13 @@ fn model_reload<'a>(model: &mut Model<'a, 'a>, width: u16) -> Result<(), Error> 
 }
 
 fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<(), Error> {
-    let screen_size = terminal.size()?;
-    let page_scroll_count = screen_size.height / 2;
-    let mut screen_width = screen_size.width;
-
     terminal.draw(|frame| view(&mut model, frame))?;
 
     loop {
+        let screen_size = terminal.size()?;
+        let page_scroll_count = model.inner_height(screen_size.height) as i16 - 2;
+        let screen_width = screen_size.width;
+
         let had_events = model.process_events(screen_width)?;
 
         let mut had_input = false;
@@ -445,42 +457,45 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                             KeyCode::Char('r') => {
                                 model_reload(&mut model, screen_width)?;
                             }
-                            KeyCode::Char('j') => {
-                                model.scroll += 1;
+                            KeyCode::Char('j') | KeyCode::Down => {
+                                model.scroll_by(1);
                             }
-                            KeyCode::Char('k') => {
-                                if model.scroll > 0 {
-                                    model.scroll -= 1;
-                                }
+                            KeyCode::Char('k') | KeyCode::Up => {
+                                model.scroll_by(-1);
                             }
-                            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                                model.scroll += page_scroll_count;
+                            KeyCode::Char('d') => {
+                                model.scroll_by((page_scroll_count + 1) / 2);
                             }
-                            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                                if page_scroll_count < model.scroll {
-                                    model.scroll -= page_scroll_count;
-                                } else {
-                                    model.scroll = 0;
-                                }
+                            KeyCode::Char('u') => {
+                                model.scroll_by(-(page_scroll_count + 1) / 2);
+                            }
+                            KeyCode::Char('f') | KeyCode::PageDown | KeyCode::Char(' ') => {
+                                model.scroll_by(page_scroll_count);
+                            }
+                            KeyCode::Char('b') | KeyCode::PageUp => {
+                                model.scroll_by(-page_scroll_count);
+                            }
+                            KeyCode::Char('g') => {
+                                model.scroll = 0;
+                            }
+                            KeyCode::Char('G') => {
+                                model.scroll = model.total_lines();
                             }
                             _ => {}
                         }
                     }
                 }
-                event::Event::Resize(width, _) => {
-                    screen_width = width;
-                    model_reload(&mut model, screen_width)?;
+                event::Event::Resize(new_width, _) => {
+                    if screen_width != new_width {
+                        model_reload(&mut model, new_width)?;
+                    }
                 }
                 event::Event::Mouse(mouse) => match mouse.kind {
                     MouseEventKind::ScrollUp => {
-                        if model.scroll > 0 {
-                            if let Some(yea) = model.scroll.checked_sub(2) {
-                                model.scroll = yea;
-                            }
-                        }
+                        model.scroll_by(-2);
                     }
                     MouseEventKind::ScrollDown => {
-                        model.scroll += 2;
+                        model.scroll_by(2);
                     }
                     _ => {}
                 },
@@ -513,6 +528,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
     let inner_area = block.inner(frame_area);
     frame.render_widget(block, frame_area);
 
+    model.scroll = min(model.scroll, model.total_lines().saturating_sub(inner_area.height) + 1);
     let mut y: i16 = 0 - (model.scroll as i16);
     for source in &mut model.sources {
         if y >= 0 {
