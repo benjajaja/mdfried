@@ -54,8 +54,9 @@ The font is rendered directly as a preview.
 Once confirmed, the choice is written into the configuration file.
 Use `--setup` to force the font-setup again if the font is not right, or you switch terminals.
 
-Press `q` or `Ctrl-c` to quit. `j`/`k` to scroll by lines, `Ctrl-d`/`Ctrl-u` to scroll by pages. `r` reloads
-the file (if not using stdin pipe). Mouse scroll also works.
+Press `q` or `Ctrl-c` to quit. `j`/`k` to scroll by lines, `d`/`u` to scroll by half pages, `f`/`b`/space to
+scroll by pages, `g`/`G` to go to start/end of file. `r` reloads the file (if not using stdin pipe).
+Mouse scroll also works.
 
 ### Configuration
 
