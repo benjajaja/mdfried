@@ -528,7 +528,10 @@ fn view(model: &mut Model, frame: &mut Frame) {
     let inner_area = block.inner(frame_area);
     frame.render_widget(block, frame_area);
 
-    model.scroll = min(model.scroll, model.total_lines().saturating_sub(inner_area.height) + 1);
+    model.scroll = min(
+        model.scroll,
+        model.total_lines().saturating_sub(inner_area.height) + 1,
+    );
     let mut y: i16 = 0 - (model.scroll as i16);
     for source in &mut model.sources {
         if y >= 0 {
