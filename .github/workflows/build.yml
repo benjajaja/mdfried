@@ -51,11 +51,30 @@ jobs:
         run: |
           nix build . --print-build-logs
 
+      - name: Patchelf
+        run: |
+          cp ./result/bin/mdfried .
+          chmod u+w ./mdfried
+          patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 mdfried
+
+      - name: Test binary portability for Ubuntu 24.04
+        run: |
+          expected="mdfried 0.12.2"
+          actual=$(docker run --rm -v $(pwd):/work ubuntu:24.04 /work/mdfried --version)
+          echo "Expected: $expected"
+          echo "Actual: $actual"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "❌ Binary test failed!"
+            exit 1
+          else
+            echo "✅ Binary works on Ubuntu 24.04"
+          fi
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: mdfried-linux
-          path: ./result/bin/mdfried
+          path: ./mdfried
 
   nix-build-windows:
     name: Nix build (windows)
