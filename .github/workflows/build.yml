@@ -59,15 +59,13 @@ jobs:
 
       - name: Test binary portability for Ubuntu 24.04
         run: |
-          expected="mdfried 0.12.2"
-          actual=$(docker run --rm -v $(pwd):/work ubuntu:24.04 /work/mdfried --version)
-          echo "Expected: $expected"
-          echo "Actual: $actual"
-          if [[ "$actual" != "$expected" ]]; then
-            echo "❌ Binary test failed!"
-            exit 1
+          output=$(docker run --rm -v $(pwd):/work ubuntu:24.04 /work/mdfried --version)
+          echo "Output: $output"
+          if [[ "$output" =~ ^mdfried\ [0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+            echo "✅ Binary works on Ubuntu 24.04 - Version: $output"
           else
-            echo "✅ Binary works on Ubuntu 24.04"
+            echo "❌ Binary test failed! Expected format: 'mdfried x.y.z'"
+            exit 1
           fi
 
       - name: Upload artifact
