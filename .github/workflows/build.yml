@@ -1,4 +1,4 @@
-name: Test and Build Flake ❄️
+name: Test and Build
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 
 jobs:
   nix-flake-test:
-    name: Flake check
+    name: Flake check ❄️
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -30,7 +30,7 @@ jobs:
           nix flake check --print-build-logs
 
   nix-build:
-    name: Nix build
+    name: Nix build ❄️
     runs-on: ubuntu-latest
     outputs:
       artifact_path: ${{ steps.upload-artifact.outputs.artifact_path }}
@@ -68,14 +68,69 @@ jobs:
             exit 1
           fi
 
+      - name: Suffix binary artifact
+        run: mv ./mdfried ./mdfried_nix_glibc_2_38
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mdfried-linux
-          path: ./mdfried
+          name: mdfried-nix
+          path: ./mdfried_nix_glibc_2_38
+
+  ubuntu-build:
+    name: Ubuntu 20.04 build 🫂
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:20.04 # Ubuntu 20.04 uses glibc 2.31 (or 2.29?)
+    outputs:
+      artifact_path: ${{ steps.upload-artifact.outputs.artifact_path }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            build-essential \
+            curl \
+            git \
+            clang \
+            lld \
+            ca-certificates
+
+      - name: Set up Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly-2025-01-24
+          override: true
+      
+      - name: Cache Rust dependencies
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build release with specific features
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --locked
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mdfried
+          path: ./target/release/mdfried
 
   nix-build-windows:
-    name: Nix build (windows)
+    name: Nix build (windows) ❄️
     runs-on: ubuntu-latest
     outputs:
       artifact_path: ${{ steps.upload-artifact.outputs.artifact_path }}
