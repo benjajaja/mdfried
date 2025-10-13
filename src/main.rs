@@ -4,17 +4,17 @@ use std::os::fd::IntoRawFd;
 use std::{
     cmp::min,
     fs::File,
-    io::{self, stdout, Read},
+    io::{self, Read, stdout},
     path::{Path, PathBuf},
     sync::{
-        mpsc::{self, Receiver, Sender},
         Arc,
+        mpsc::{self, Receiver, Sender},
     },
     thread,
     time::Duration,
 };
 
-use clap::{arg, command, value_parser, ArgMatches};
+use clap::{ArgMatches, arg, command, value_parser};
 use config::Config;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture, KeyModifiers, MouseEventKind},
@@ -23,26 +23,26 @@ use crossterm::{
 use error::Error;
 use markdown::parse;
 use ratatui::{
+    DefaultTerminal, Frame, Terminal,
     crossterm::event::{self, KeyCode, KeyEventKind},
     layout::Rect,
     prelude::CrosstermBackend,
     style::{Style, Stylize},
     text::{Line, Span, Text},
     widgets::{Block, Paragraph, Widget},
-    DefaultTerminal, Frame, Terminal,
 };
 
-use ratatui_image::{picker::ProtocolType, Image};
+use ratatui_image::{Image, picker::ProtocolType};
 use ratskin::RatSkin;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use setup::{setup_graphics, BgColor, SetupResult};
+use setup::{BgColor, SetupResult, setup_graphics};
 use tokio::{
     runtime::Builder,
     sync::{Mutex, RwLock},
 };
 use widget_sources::{
-    header_images, header_sources, image_source, BigText, SourceID, WidgetSource, WidgetSourceData,
+    BigText, SourceID, WidgetSource, WidgetSourceData, header_images, header_sources, image_source,
 };
 
 mod config;

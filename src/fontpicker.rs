@@ -3,15 +3,15 @@ use std::{collections::BTreeMap, io};
 use cosmic_text::{FontSystem, SwashCache};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
-    layout::Rect, prelude::CrosstermBackend, style::Stylize, text::Line, widgets::Paragraph,
-    Terminal, TerminalOptions,
+    Terminal, TerminalOptions, layout::Rect, prelude::CrosstermBackend, style::Stylize, text::Line,
+    widgets::Paragraph,
 };
-use ratatui_image::{picker::Picker, protocol::Protocol, Image};
+use ratatui_image::{Image, picker::Picker, protocol::Protocol};
 
 use crate::{
-    setup::{BgColor, FontRenderer},
-    widget_sources::{header_images, header_sources, WidgetSourceData},
     Error,
+    setup::{BgColor, FontRenderer},
+    widget_sources::{WidgetSourceData, header_images, header_sources},
 };
 
 pub fn interactive_font_picker(

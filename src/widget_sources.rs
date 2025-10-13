@@ -7,20 +7,20 @@ use std::{
 
 use cosmic_text::{Attrs, Buffer, Color, Family, Metrics, Shaping};
 use image::{
-    imageops, DynamicImage, GenericImage, ImageFormat, ImageReader, Pixel, Rgba, RgbaImage,
+    DynamicImage, GenericImage, ImageFormat, ImageReader, Pixel, Rgba, RgbaImage, imageops,
 };
 use ratatui::{layout::Rect, text::Line, widgets::Widget};
 
-use ratatui_image::{picker::Picker, protocol::Protocol, Resize};
+use ratatui_image::{Resize, picker::Picker, protocol::Protocol};
 use reqwest::{
-    header::{HeaderMap, HeaderValue, ACCEPT, CONTENT_TYPE},
     Client,
+    header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue},
 };
 use tokio::sync::RwLock;
 
 use crate::{
-    setup::{BgColor, FontRenderer},
     Error,
+    setup::{BgColor, FontRenderer},
 };
 
 pub type SourceID = usize;

@@ -5,8 +5,8 @@ use ratskin::RatSkin;
 use regex::Regex;
 
 use crate::{
-    widget_sources::{SourceID, WidgetSourceData},
     Error, Event, WidgetSource, WidthEvent,
+    widget_sources::{SourceID, WidgetSourceData},
 };
 
 // Crude "pre-parsing" of markdown by lines.
