@@ -4,7 +4,7 @@ members = [ ".", "ratskin" ]
 [package]
 name = "mdfried"
 version = "0.12.6"
-edition = "2021"
+edition = "2024"
 authors = ["Benjamin Große <ste3ls@gmail.com>"]
 description = "A markdown viewer for the terminal that renders images and big headers"
 repository = "https://github.com/benjajaja/mdfried"
@@ -12,7 +12,7 @@ homepage = "https://github.com/benjajaja/mdfried"
 readme = "README.md"
 license = "GPL-3.0-or-later"
 exclude = ["assets/*"]
-rust-version = "1.81.0"
+rust-version = "1.86.0"
 
 [dependencies]
 clap = { version = "4.5.21", features = ["cargo", "derive"] }
@@ -21,7 +21,7 @@ cosmic-text = "0.14.2"
 crossterm = { version = "0.28.1", features = ["event-stream"] }
 image = "0.25.2"
 ratatui = "^0.29.0"
-ratatui-image = { version = "8.0.0" }
+ratatui-image = { version = "8.0.2" }
 ratskin = "0.2.0"
 regex = "1.11.1"
 serde = { version = "^1.0", features = ["derive"] }
