@@ -49,7 +49,7 @@ impl From<Error> for io::Error {
     fn from(value: Error) -> Self {
         match value {
             Error::Io(io_err) => io_err,
-            err => io::Error::new(io::ErrorKind::Other, format!("{err:?}")),
+            err => io::Error::other(format!("{err:?}")),
         }
     }
 }

@@ -1,11 +1,11 @@
 use cosmic_text::{FontSystem, SwashCache};
 use image::Rgba;
 use ratatui_image::{
-    picker::{cap_parser::QueryStdioOptions, Capability, Picker, ProtocolType},
     FontSize,
+    picker::{Capability, Picker, ProtocolType, cap_parser::QueryStdioOptions},
 };
 
-use crate::{config::Config, error::Error, fontpicker::interactive_font_picker, CONFIG};
+use crate::{CONFIG, config::Config, error::Error, fontpicker::interactive_font_picker};
 
 #[derive(Default, Clone, Copy)]
 pub struct BgColor([u8; 4]);
@@ -48,7 +48,7 @@ impl FontRenderer {
 pub enum SetupResult {
     Aborted,
     TextSizing(Picker, Option<BgColor>),
-    Complete(Picker, Option<BgColor>, FontRenderer),
+    Complete(Picker, Option<BgColor>, Box<FontRenderer>),
 }
 
 pub fn setup_graphics(
@@ -131,6 +131,11 @@ pub fn setup_graphics(
     Ok(SetupResult::Complete(
         picker,
         bg,
-        FontRenderer::new(font_system, SwashCache::new(), font_name, font_size),
+        Box::new(FontRenderer::new(
+            font_system,
+            SwashCache::new(),
+            font_name,
+            font_size,
+        )),
     ))
 }
