@@ -288,6 +288,7 @@ struct Model<'a, 'b> {
     padding: Padding,
     cmd_tx: Sender<ImgCmd>,
     event_rx: Receiver<WidthEvent<'b>>,
+    mode: Mode,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -296,6 +297,12 @@ enum Padding {
     Border,
     #[default]
     Empty,
+}
+
+#[derive(PartialEq)]
+enum Mode {
+    Normal,
+    Link,
 }
 
 impl<'a, 'b: 'a> Model<'a, 'b> {
@@ -313,6 +320,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
             padding: Padding::Empty,
             cmd_tx,
             event_rx,
+            mode: Mode::Normal,
         };
 
         // model_reload(&mut model, screen_width)?;
@@ -474,7 +482,7 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                             KeyCode::Char('u') => {
                                 model.scroll_by(-(page_scroll_count + 1) / 2);
                             }
-                            KeyCode::Char('f') | KeyCode::PageDown | KeyCode::Char(' ') => {
+                            KeyCode::PageDown | KeyCode::Char(' ') => {
                                 model.scroll_by(page_scroll_count);
                             }
                             KeyCode::Char('b') | KeyCode::PageUp => {
@@ -485,6 +493,12 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                             }
                             KeyCode::Char('G') => {
                                 model.scroll = model.total_lines();
+                            }
+                            KeyCode::Char('f') => {
+                                model.mode = Mode::Link;
+                            }
+                            KeyCode::Esc if model.mode == Mode::Link => {
+                                model.mode = Mode::Normal;
                             }
                             _ => {}
                         }
@@ -572,7 +586,17 @@ fn view(model: &mut Model, frame: &mut Frame) {
         }
     }
 
-    frame.set_cursor_position((0, frame.area().height - 1));
+    let mode_str = match model.mode {
+        Mode::Normal => "N",
+        Mode::Link => "L",
+    };
+    let mode_widget =
+        Paragraph::new(" ".repeat(frame_area.width as usize - mode_str.len()) + mode_str);
+    frame.render_widget(
+        mode_widget,
+        Rect::new(0, frame_area.height - 1, frame_area.width, 1),
+    );
+    frame.set_cursor_position((0, frame_area.height - 1));
 }
 
 fn render_widget<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, f: &mut Frame) {
