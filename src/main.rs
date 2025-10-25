@@ -54,7 +54,8 @@ mod widget_sources;
 
 const OK_END: &str = " ok.";
 
-const CONFIG: (&str, Option<&str>) = ("mdfried", Some("config"));
+const CONFIG_APP_NAME: &str = "mdfried";
+const CONFIG_CONFIG_NAME: &str = "config";
 
 fn main() -> io::Result<()> {
     let mut cmd = command!() // requires `cargo` feature
@@ -116,7 +117,7 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
         return Err(Error::Usage(Some("no input or emtpy")));
     }
 
-    let config: Config = confy::load(CONFIG.0, CONFIG.1)?;
+    let config: Config = confy::load(CONFIG_APP_NAME, CONFIG_CONFIG_NAME)?;
 
     #[cfg(not(windows))]
     if !io::stdin().is_tty() {

@@ -5,7 +5,10 @@ use ratatui_image::{
     picker::{Capability, Picker, ProtocolType, cap_parser::QueryStdioOptions},
 };
 
-use crate::{CONFIG, config::Config, error::Error, fontpicker::interactive_font_picker};
+use crate::{
+    CONFIG_APP_NAME, CONFIG_CONFIG_NAME, config::Config, error::Error,
+    fontpicker::interactive_font_picker,
+};
 
 #[derive(Default, Clone, Copy)]
 pub struct BgColor([u8; 4]);
@@ -103,7 +106,7 @@ pub fn setup_graphics(
                         font_family: Some(setup_font_family.clone()),
                         ..Default::default()
                     };
-                    confy::store(CONFIG.0, CONFIG.1, new_config)?;
+                    confy::store(CONFIG_APP_NAME, CONFIG_CONFIG_NAME, new_config)?;
                     font_family = setup_font_family;
                 }
                 Ok(None) => return Ok(SetupResult::Aborted),
@@ -119,7 +122,7 @@ pub fn setup_graphics(
                     font_family: Some(font_family.clone()),
                     ..Default::default()
                 };
-                confy::store(CONFIG.0, CONFIG.1, new_config)?;
+                confy::store(CONFIG_APP_NAME, CONFIG_CONFIG_NAME, new_config)?;
                 font_family
             }
             Ok(None) => return Ok(SetupResult::Aborted),
