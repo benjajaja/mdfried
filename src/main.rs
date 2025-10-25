@@ -237,7 +237,9 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
     crossterm::terminal::enable_raw_mode()?;
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
-    crossterm::execute!(std::io::stderr(), EnableMouseCapture)?;
+    if config.enable_mouse_capture {
+        crossterm::execute!(std::io::stderr(), EnableMouseCapture)?;
+    }
     terminal.clear()?;
 
     let inner_width = model.inner_width(terminal.size()?.width);
@@ -248,7 +250,9 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
 
     run(terminal, model)?;
 
-    crossterm::execute!(std::io::stderr(), DisableMouseCapture)?;
+    if config.enable_mouse_capture {
+        crossterm::execute!(std::io::stderr(), DisableMouseCapture)?;
+    }
     crossterm::terminal::disable_raw_mode()?;
 
     if let Err(e) = cmd_thread.join() {

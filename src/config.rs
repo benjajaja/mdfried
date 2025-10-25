@@ -18,6 +18,7 @@ pub struct Config {
     pub font_family: Option<String>,
     pub padding: Padding,
     pub skin: ratskin::MadSkin,
+    pub enable_mouse_capture: bool,
 }
 
 impl Default for Config {
@@ -34,10 +35,13 @@ impl Default for Config {
         skin.quote_mark.set_fg(Color::AnsiValue(63));
         skin.bullet.set_fg(Color::AnsiValue(63));
 
+        let enable_mouse_capture = false;
+
         Self {
             font_family: Default::default(),
             padding: Default::default(),
             skin,
+            enable_mouse_capture,
         }
     }
 }
