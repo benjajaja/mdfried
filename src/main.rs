@@ -34,6 +34,7 @@ use ratatui::{
 
 use ratatui_image::{Image, picker::ProtocolType};
 use ratskin::RatSkin;
+use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use setup::{BgColor, SetupResult, setup_graphics};
@@ -547,6 +548,8 @@ fn view(model: &mut Model, frame: &mut Frame) {
     let inner_area = block.inner(frame_area);
     frame.render_widget(block, frame_area);
 
+    let mut links = Vec::new();
+
     model.scroll = min(
         model.scroll,
         model.total_lines().saturating_sub(inner_area.height) + 1,
@@ -555,8 +558,19 @@ fn view(model: &mut Model, frame: &mut Frame) {
     for source in &mut model.sources {
         if y >= 0 {
             match &mut source.source {
-                WidgetSourceData::Line(text) => {
-                    let p = Paragraph::new(text.clone());
+                WidgetSourceData::Line(line) => {
+                    let p = Paragraph::new(line.clone());
+
+                    if model.mode == Mode::Link {
+                        let raw_line = line.to_string();
+                        let re = Regex::new(r"https?://[^\s]+").unwrap();
+                        for mat in re.find_iter(&raw_line) {
+                            let char_start = raw_line[..mat.start()].chars().count();
+                            let char_end = raw_line[..mat.end()].chars().count();
+                            links.push((mat.as_str().to_string(), y, char_start, char_end));
+                        }
+                    }
+
                     render_widget(p, source.height, y as u16, inner_area, frame);
                 }
                 WidgetSourceData::Image(proto) => {
@@ -583,6 +597,16 @@ fn view(model: &mut Model, frame: &mut Frame) {
         y += source.height as i16;
         if y >= inner_area.height as i16 {
             break;
+        }
+    }
+
+    if model.mode == Mode::Link {
+        for (url, y, start, end) in links {
+            let x = frame_area.x + (start as u16) + 1;
+            let width = (end - start) as u16;
+            let area = Rect::new(x, y as u16, width, 1);
+            let link_overlay_widget = Paragraph::new(url).black().on_yellow();
+            frame.render_widget(link_overlay_widget, area);
         }
     }
 
