@@ -1,11 +1,11 @@
 use core::fmt;
-use std::{io, path::PathBuf, sync::mpsc::SendError};
+use std::{error::Error as StdError, io, path::PathBuf, sync::mpsc::SendError};
 
 use confy::ConfyError;
 use image::ImageError;
 use tokio::task::JoinError;
 
-use crate::{ImgCmd, WidthEvent};
+use crate::{CONFIG_APP_NAME, CONFIG_CONFIG_NAME, ImgCmd, WidthEvent};
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -13,7 +13,7 @@ pub enum Error {
     Usage(Option<&'static str>),
     UserAbort(&'static str),
     Cli(clap::error::Error),
-    Config(ConfyError),
+    Config(String, ConfyError),
     Io(io::Error),
     Parse(&'static str),
     Image(image::ImageError),
@@ -31,7 +31,15 @@ impl fmt::Display for Error {
             Error::Usage(_) => write!(f, "Bad arguments"), // Never shown to user, just a signal.
             Error::UserAbort(msg) => write!(f, "Aborted by user ({msg})"),
             Error::Cli(err) => write!(f, "Command line argument error: {err}"),
-            Error::Config(err) => write!(f, "Configuration error: {err}"),
+            Error::Config(path_str, err) => {
+                write!(
+                    f,
+                    "Configuration file {path_str} error: {err} ({})",
+                    err.source()
+                        .map(|s| s.to_string())
+                        .unwrap_or("no additional info".into())
+                )
+            }
             Error::Io(err) => write!(f, "I/O error: {err}"),
             Error::Parse(msg) => write!(f, "Parse error: {msg}"),
             Error::Image(err) => write!(f, "Image manipulation error: {err}"),
@@ -74,7 +82,10 @@ impl From<ratatui_image::errors::Errors> for Error {
 
 impl From<ConfyError> for Error {
     fn from(value: ConfyError) -> Self {
-        Self::Config(value)
+        let path = confy::get_configuration_file_path(CONFIG_APP_NAME, CONFIG_CONFIG_NAME)
+            .map(|p| p.display().to_string())
+            .unwrap_or("(unknown config file path)".into());
+        Self::Config(path, value)
     }
 }
 
