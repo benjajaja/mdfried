@@ -6,7 +6,7 @@ use regex::Regex;
 
 use crate::{
     Error, Event, WidgetSource, WidthEvent,
-    widget_sources::{SourceID, WidgetSourceData},
+    widget_sources::{LineExtra, SourceID, WidgetSourceData},
 };
 
 // Crude "pre-parsing" of markdown by lines.
@@ -100,6 +100,8 @@ pub fn parse(
     tx: &Sender<WidthEvent>,
     has_text_size_protocol: bool,
 ) -> Result<(), Error> {
+    let http_url_regex = Regex::new(r"https?://[^\s]+").unwrap();
+
     let mut sender = SendTracker {
         width,
         tx,
@@ -137,7 +139,27 @@ pub fn parse(
                 needs_space = true;
                 let madtext = RatSkin::parse_text(&text);
                 for line in skin.parse(madtext, width) {
-                    sender.send_line(WidgetSourceData::Line(line), 1)?;
+                    let raw_line = line.to_string();
+
+                    // TODO: push this crap up to where we regex-match for markdown links anyway:
+                    let mut links = Vec::new();
+                    for mat in http_url_regex.find_iter(&raw_line) {
+                        let char_start = raw_line[..mat.start()].chars().count();
+                        let char_end = raw_line[..mat.end()].chars().count();
+                        links.push(LineExtra::Link(
+                            mat.as_str().to_string(),
+                            char_start as u16,
+                            char_end as u16,
+                        ));
+                    }
+                    sender.send_line(
+                        if !links.is_empty() {
+                            WidgetSourceData::LineExtra(line, links)
+                        } else {
+                            WidgetSourceData::Line(line)
+                        },
+                        1,
+                    )?;
                 }
             }
         }

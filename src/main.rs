@@ -34,7 +34,6 @@ use ratatui::{
 
 use ratatui_image::{Image, picker::ProtocolType};
 use ratskin::RatSkin;
-use regex::Regex;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use setup::{BgColor, SetupResult, setup_graphics};
@@ -45,6 +44,8 @@ use tokio::{
 use widget_sources::{
     BigText, SourceID, WidgetSource, WidgetSourceData, header_images, header_sources, image_source,
 };
+
+use crate::widget_sources::LineExtra;
 
 mod config;
 mod error;
@@ -226,6 +227,12 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
                             Ok::<(), Error>(())
                         });
                     }
+                    ImgCmd::XdgOpen(url) => {
+                        std::process::Command::new("xdg-open")
+                            .arg(&url)
+                            .spawn()
+                            .ok();
+                    }
                 };
             }
             Ok::<(), Error>(())
@@ -267,6 +274,7 @@ enum ImgCmd {
     Parse(u16, String),
     UrlImage(usize, u16, String, String, String),
     Header(usize, u16, u8, String),
+    XdgOpen(String),
 }
 
 #[derive(Debug)]
@@ -303,7 +311,22 @@ enum Padding {
 #[derive(PartialEq)]
 enum Mode {
     Normal,
-    Link,
+    Link(LinkModeState),
+}
+
+#[derive(Default, PartialEq)]
+struct LinkModeState {
+    links: Vec<(String, i16, u16, u16)>,
+    cursor: usize,
+}
+
+impl Mode {
+    fn link(&mut self) {
+        *self = Mode::Link(LinkModeState::default());
+    }
+    fn normal(&mut self) {
+        *self = Mode::Normal
+    }
 }
 
 impl<'a, 'b: 'a> Model<'a, 'b> {
@@ -471,12 +494,22 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                             KeyCode::Char('r') => {
                                 model_reload(&mut model, screen_width)?;
                             }
-                            KeyCode::Char('j') | KeyCode::Down => {
-                                model.scroll_by(1);
-                            }
-                            KeyCode::Char('k') | KeyCode::Up => {
-                                model.scroll_by(-1);
-                            }
+                            KeyCode::Char('j') | KeyCode::Down => match model.mode {
+                                Mode::Normal => model.scroll_by(1),
+                                Mode::Link(ref mut state) => {
+                                    if state.cursor < state.links.len().saturating_sub(1) {
+                                        state.cursor += 1;
+                                    }
+                                }
+                            },
+                            KeyCode::Char('k') | KeyCode::Up => match model.mode {
+                                Mode::Normal => model.scroll_by(-1),
+                                Mode::Link(ref mut state) => {
+                                    if state.cursor > 0 {
+                                        state.cursor -= 1;
+                                    }
+                                }
+                            },
                             KeyCode::Char('d') => {
                                 model.scroll_by((page_scroll_count + 1) / 2);
                             }
@@ -496,11 +529,21 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                                 model.scroll = model.total_lines();
                             }
                             KeyCode::Char('f') => {
-                                model.mode = Mode::Link;
+                                model.mode.link();
                             }
-                            KeyCode::Esc if model.mode == Mode::Link => {
-                                model.mode = Mode::Normal;
+                            KeyCode::Esc if matches!(model.mode, Mode::Link(_)) => {
+                                model.mode.normal();
                             }
+                            KeyCode::Enter => match model.mode {
+                                Mode::Normal => {}
+                                Mode::Link(ref state) => {
+                                    if let Some(url) =
+                                        state.links.get(state.cursor).map(|t| t.0.clone())
+                                    {
+                                        model.cmd_tx.send(ImgCmd::XdgOpen(url))?;
+                                    }
+                                }
+                            },
                             _ => {}
                         }
                     }
@@ -548,7 +591,7 @@ fn view(model: &mut Model, frame: &mut Frame) {
     let inner_area = block.inner(frame_area);
     frame.render_widget(block, frame_area);
 
-    let mut links = Vec::new();
+    let mut rendered_links = Vec::new();
 
     model.scroll = min(
         model.scroll,
@@ -558,16 +601,18 @@ fn view(model: &mut Model, frame: &mut Frame) {
     for source in &mut model.sources {
         if y >= 0 {
             match &mut source.source {
-                WidgetSourceData::Line(line) => {
+                WidgetSourceData::Line(line) | WidgetSourceData::LineExtra(line, _) => {
                     let p = Paragraph::new(line.clone());
 
-                    if model.mode == Mode::Link {
-                        let raw_line = line.to_string();
-                        let re = Regex::new(r"https?://[^\s]+").unwrap();
-                        for mat in re.find_iter(&raw_line) {
-                            let char_start = raw_line[..mat.start()].chars().count();
-                            let char_end = raw_line[..mat.end()].chars().count();
-                            links.push((mat.as_str().to_string(), y, char_start, char_end));
+                    if matches!(model.mode, Mode::Link(_))
+                        && let WidgetSourceData::LineExtra(_, extra) = &source.source
+                    {
+                        for link in extra {
+                            match link {
+                                LineExtra::Link(url, start, end) => {
+                                    rendered_links.push((url.clone(), y, *start, *end))
+                                }
+                            }
                         }
                     }
 
@@ -600,19 +645,24 @@ fn view(model: &mut Model, frame: &mut Frame) {
         }
     }
 
-    if model.mode == Mode::Link {
-        for (url, y, start, end) in links {
-            let x = frame_area.x + (start as u16) + 1;
-            let width = (end - start) as u16;
-            let area = Rect::new(x, y as u16, width, 1);
-            let link_overlay_widget = Paragraph::new(url).black().on_yellow();
+    if let Mode::Link(LinkModeState {
+        ref mut links,
+        cursor,
+    }) = model.mode
+    {
+        *links = rendered_links;
+        if let Some((url, y, start, end)) = links.get(cursor) {
+            let x = frame_area.x + *start + 1;
+            let width = end - start;
+            let area = Rect::new(x, *y as u16, width, 1);
+            let link_overlay_widget = Paragraph::new(url.clone()).black().on_yellow();
             frame.render_widget(link_overlay_widget, area);
         }
     }
 
     let mode_str = match model.mode {
         Mode::Normal => "N",
-        Mode::Link => "L",
+        Mode::Link(_) => "L",
     };
     let mode_widget =
         Paragraph::new(" ".repeat(frame_area.width as usize - mode_str.len()) + mode_str);

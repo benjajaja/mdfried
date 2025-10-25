@@ -36,7 +36,12 @@ pub enum WidgetSourceData<'a> {
     Image(Protocol),
     BrokenImage(String, String),
     Line(Line<'a>),
+    LineExtra(Line<'a>, Vec<LineExtra>),
     SizedLine(String, u8),
+}
+
+pub enum LineExtra {
+    Link(String, u16, u16),
 }
 
 impl Debug for WidgetSourceData<'_> {
@@ -45,6 +50,7 @@ impl Debug for WidgetSourceData<'_> {
             Self::Image(_) => f.debug_tuple("Image").finish(),
             Self::BrokenImage(_, _) => f.debug_tuple("BrokenImage").finish(),
             Self::Line(arg0) => f.debug_tuple("Line").field(arg0).finish(),
+            Self::LineExtra(arg0, _) => f.debug_tuple("LineExtra").field(arg0).finish(),
             Self::SizedLine(text, tier) => {
                 f.debug_tuple("SizedLine").field(text).field(tier).finish()
             }
