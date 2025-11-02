@@ -297,7 +297,7 @@ struct Model<'a, 'b> {
     padding: Padding,
     cmd_tx: Sender<ImgCmd>,
     event_rx: Receiver<WidthEvent<'b>>,
-    mode: Mode,
+    link_cursor: Option<SourceID>,
 }
 
 #[derive(Default, Debug, Serialize, Deserialize)]
@@ -306,28 +306,6 @@ enum Padding {
     Border,
     #[default]
     Empty,
-}
-
-#[derive(PartialEq)]
-enum Mode {
-    Normal,
-    Link(LinkModeState),
-}
-
-#[derive(Default, PartialEq)]
-struct LinkModeState {
-    cursor: Option<SourceID>,
-}
-
-impl Mode {
-    fn link(&mut self, next: Option<(SourceID, LineExtra)>) {
-        *self = Mode::Link(LinkModeState {
-            cursor: next.map(|t| t.0),
-        });
-    }
-    fn normal(&mut self) {
-        *self = Mode::Normal
-    }
 }
 
 impl<'a, 'b: 'a> Model<'a, 'b> {
@@ -347,7 +325,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
             padding: Padding::Empty,
             cmd_tx,
             event_rx,
-            mode: Mode::Normal,
+            link_cursor: None,
         };
 
         // model_reload(&mut model, screen_width)?;
@@ -482,32 +460,10 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                                 model_reload(&mut model, screen_width)?;
                             }
                             KeyCode::Char('j') | KeyCode::Down => {
-                                if matches!(model.mode, Mode::Normal) {
-                                    model.scroll_by(1);
-                                } else {
-                                    let visible_lines = model.visible_lines();
-                                    if let Mode::Link(ref mut state) = model.mode {
-                                        if let Some(link) =
-                                            model.sources.links_next(state.cursor, visible_lines)
-                                        {
-                                            state.cursor = Some(link.0);
-                                        }
-                                    }
-                                }
+                                model.scroll_by(1);
                             }
                             KeyCode::Char('k') | KeyCode::Up => {
-                                if matches!(model.mode, Mode::Normal) {
-                                    model.scroll_by(-1);
-                                } else {
-                                    let visible_lines = model.visible_lines();
-                                    if let Mode::Link(ref mut state) = model.mode {
-                                        if let Some(link) =
-                                            model.sources.links_prev(state.cursor, visible_lines)
-                                        {
-                                            state.cursor = Some(link.0);
-                                        }
-                                    }
-                                }
+                                model.scroll_by(-1);
                             }
                             KeyCode::Char('d') => {
                                 model.scroll_by((page_scroll_count + 1) / 2);
@@ -527,25 +483,31 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                             KeyCode::Char('G') => {
                                 model.scroll = model.total_lines();
                             }
-                            KeyCode::Char('f') => {
-                                let cursor = model.sources.links_first(model.visible_lines(), None);
-                                model.mode.link(cursor);
+                            KeyCode::Char('n') => {
+                                let visible_lines = model.visible_lines();
+                                if let Some(link) =
+                                    model.sources.links_next(model.link_cursor, visible_lines)
+                                {
+                                    model.link_cursor = Some(link.0);
+                                }
                             }
-                            KeyCode::Esc if matches!(model.mode, Mode::Link(_)) => {
-                                model.mode.normal();
+                            KeyCode::Char('N') => {
+                                let visible_lines = model.visible_lines();
+                                if let Some(link) =
+                                    model.sources.links_prev(model.link_cursor, visible_lines)
+                                {
+                                    model.link_cursor = Some(link.0);
+                                }
                             }
-                            KeyCode::Enter => match model.mode {
-                                Mode::Normal => {}
-                                Mode::Link(ref state) => {
-                                    if let Some(id) = state.cursor {
-                                        if let Some((_, LineExtra::Link(url, _, _))) =
-                                            model.sources.links_by_id(Some(id))
-                                        {
-                                            model.cmd_tx.send(ImgCmd::XdgOpen(url.clone()))?;
-                                        }
+                            KeyCode::Enter => {
+                                if let Some(id) = model.link_cursor {
+                                    if let Some((_, LineExtra::Link(url, _, _))) =
+                                        model.sources.links_by_id(Some(id))
+                                    {
+                                        model.cmd_tx.send(ImgCmd::XdgOpen(url.clone()))?;
                                     }
                                 }
-                            },
+                            }
                             _ => {}
                         }
                     }
@@ -607,10 +569,7 @@ fn view(model: &Model, frame: &mut Frame) {
                     render_widget(p, source.height, y as u16, inner_area, frame);
 
                     // Render links now on top, again, this shouldn't be a performance concern.
-                    if let Mode::Link(LinkModeState {
-                        cursor: Some(cursor),
-                        ..
-                    }) = model.mode
+                    if let Some(cursor) = model.link_cursor
                         && source.id == cursor
                         && let WidgetSourceData::LineExtra(_, extra) = &source.data
                     {
@@ -655,16 +614,6 @@ fn view(model: &Model, frame: &mut Frame) {
         }
     }
 
-    let mode_str = match model.mode {
-        Mode::Normal => "N",
-        Mode::Link(_) => "L",
-    };
-    let mode_widget =
-        Paragraph::new(" ".repeat(frame_area.width as usize - mode_str.len()) + mode_str);
-    frame.render_widget(
-        mode_widget,
-        Rect::new(0, frame_area.height - 1, frame_area.width, 1),
-    );
     frame.set_cursor_position((0, frame_area.height - 1));
 }
 
