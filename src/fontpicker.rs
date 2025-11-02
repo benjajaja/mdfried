@@ -113,7 +113,7 @@ pub fn interactive_font_picker(
 
                     // Just render the first line if it got split.
                     if let Some(source) = sources.into_iter().next() {
-                        if let WidgetSourceData::Image(proto) = source.source {
+                        if let WidgetSourceData::Image(proto) = source.data {
                             last_rendered = Some((first_match.clone(), proto));
                         }
                     }

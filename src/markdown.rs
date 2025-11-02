@@ -90,6 +90,8 @@ fn split_headers_and_images(text: &str) -> Vec<Block> {
 
 fn replace_links(line: &str) -> String {
     let re = Regex::new(r"\[([^\]]+)\]\(([^)]+)\)").unwrap();
+    // The text is not line-broken to a width yet. The important thing is that the fancy
+    // formatted link's width should now be less than originally.
     re.replace_all(line, "**$1**↗$2").to_string()
 }
 
@@ -176,11 +178,11 @@ struct SendTracker<'a, 'b> {
 }
 
 impl<'b> SendTracker<'_, 'b> {
-    fn send_line(&mut self, source: WidgetSourceData<'b>, height: u16) -> Result<(), Error> {
+    fn send_line(&mut self, data: WidgetSourceData<'b>, height: u16) -> Result<(), Error> {
         self.send_event(Event::Parsed(WidgetSource {
             id: self.index,
             height,
-            source,
+            data,
         }))
     }
     fn send_event(&mut self, ev: Event<'b>) -> Result<(), Error> {

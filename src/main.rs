@@ -45,7 +45,7 @@ use widget_sources::{
     BigText, SourceID, WidgetSource, WidgetSourceData, header_images, header_sources, image_source,
 };
 
-use crate::widget_sources::LineExtra;
+use crate::widget_sources::{LineExtra, WidgetSources};
 
 mod config;
 mod error;
@@ -240,8 +240,6 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
         Ok::<(), Error>(())
     });
 
-    let model = Model::new(bg, path.cloned(), cmd_tx, event_rx)?;
-
     crossterm::terminal::enable_raw_mode()?;
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
@@ -250,6 +248,7 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
     }
     terminal.clear()?;
 
+    let model = Model::new(bg, path.cloned(), cmd_tx, event_rx, terminal.size()?.height)?;
     let inner_width = model.inner_width(terminal.size()?.width);
     model
         .cmd_tx
@@ -292,8 +291,9 @@ pub(crate) type WidthEvent<'a> = (u16, Event<'a>);
 struct Model<'a, 'b> {
     original_file_path: Option<PathBuf>,
     bg: Option<BgColor>,
+    terminal_height: u16,
     scroll: u16,
-    sources: Vec<WidgetSource<'a>>,
+    sources: WidgetSources<'a>,
     padding: Padding,
     cmd_tx: Sender<ImgCmd>,
     event_rx: Receiver<WidthEvent<'b>>,
@@ -316,13 +316,14 @@ enum Mode {
 
 #[derive(Default, PartialEq)]
 struct LinkModeState {
-    links: Vec<(String, i16, u16, u16)>,
-    cursor: usize,
+    cursor: Option<SourceID>,
 }
 
 impl Mode {
-    fn link(&mut self) {
-        *self = Mode::Link(LinkModeState::default());
+    fn link(&mut self, next: Option<(SourceID, LineExtra)>) {
+        *self = Mode::Link(LinkModeState {
+            cursor: next.map(|t| t.0),
+        });
     }
     fn normal(&mut self) {
         *self = Mode::Normal
@@ -335,12 +336,14 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         original_file_path: Option<PathBuf>,
         cmd_tx: Sender<ImgCmd>,
         event_rx: Receiver<WidthEvent<'b>>,
+        terminal_height: u16,
     ) -> Result<Model<'a, 'b>, Error> {
         let model = Model {
             original_file_path,
             bg,
+            terminal_height,
             scroll: 0,
-            sources: vec![],
+            sources: WidgetSources::new(),
             padding: Padding::Empty,
             cmd_tx,
             event_rx,
@@ -380,32 +383,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                     Event::Parsed(source) => {
                         self.sources.push(source);
                     }
-                    Event::Update(updates) => {
-                        if let Some(id) = updates.first().map(|s| s.id) {
-                            let mut first_position = None;
-                            let mut i = 0;
-                            self.sources.retain(|w| {
-                                if w.id == id {
-                                    first_position = match first_position {
-                                        None => Some((i, i)),
-                                        Some((f, _)) => Some((f, i)),
-                                    };
-                                    return false;
-                                }
-                                i += 1;
-                                true
-                            });
-
-                            if let Some((from, to)) = first_position {
-                                self.sources.splice(from..to, updates);
-                            }
-                            debug_assert!(
-                                first_position.is_some(),
-                                "Update #{:?} not found anymore",
-                                id,
-                            );
-                        }
-                    }
+                    Event::Update(updates) => self.sources.update(updates),
                     Event::ParseImage(id, url, text, title) => {
                         self.cmd_tx.send(ImgCmd::UrlImage(
                             id,
@@ -417,7 +395,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                         self.sources.push(WidgetSource {
                             id,
                             height: 1,
-                            source: WidgetSourceData::Line(Line::from(format!(
+                            data: WidgetSourceData::Line(Line::from(format!(
                                 "![Loading...]({url})"
                             ))),
                         });
@@ -433,7 +411,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                         self.sources.push(WidgetSource {
                             id,
                             height: 2,
-                            source: WidgetSourceData::Line(line),
+                            data: WidgetSourceData::Line(line),
                         });
                     }
                 }
@@ -443,7 +421,12 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
     }
 
     fn scroll_by(&mut self, lines: i16) {
-        self.scroll = self.scroll.saturating_add_signed(lines);
+        self.scroll = min(
+            self.scroll.saturating_add_signed(lines),
+            self.total_lines()
+                .saturating_sub(self.inner_height(self.terminal_height))
+                + 1,
+        );
     }
 }
 
@@ -455,7 +438,7 @@ fn model_reload<'a>(model: &mut Model<'a, 'a>, width: u16) -> Result<(), Error> 
                 .ok_or(Error::Path(original_file_path.to_path_buf()))?,
         )?;
 
-        model.sources = vec![];
+        model.sources = WidgetSources::new();
         model.scroll = 0;
 
         let inner_width = model.inner_width(width);
@@ -465,7 +448,7 @@ fn model_reload<'a>(model: &mut Model<'a, 'a>, width: u16) -> Result<(), Error> 
 }
 
 fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<(), Error> {
-    terminal.draw(|frame| view(&mut model, frame))?;
+    terminal.draw(|frame| view(&model, frame))?;
 
     loop {
         let screen_size = terminal.size()?;
@@ -497,16 +480,18 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                             KeyCode::Char('j') | KeyCode::Down => match model.mode {
                                 Mode::Normal => model.scroll_by(1),
                                 Mode::Link(ref mut state) => {
-                                    if state.cursor < state.links.len().saturating_sub(1) {
-                                        state.cursor += 1;
+                                    if let Some(link) = model.sources.links_next(state.cursor) {
+                                        // TODO: can we filter by "visible"?
+                                        state.cursor = Some(link.0);
                                     }
                                 }
                             },
                             KeyCode::Char('k') | KeyCode::Up => match model.mode {
                                 Mode::Normal => model.scroll_by(-1),
                                 Mode::Link(ref mut state) => {
-                                    if state.cursor > 0 {
-                                        state.cursor -= 1;
+                                    if let Some(link) = model.sources.links_prev(state.cursor) {
+                                        // TODO: can we filter by "visible"?
+                                        state.cursor = Some(link.0);
                                     }
                                 }
                             },
@@ -529,7 +514,20 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                                 model.scroll = model.total_lines();
                             }
                             KeyCode::Char('f') => {
-                                model.mode.link();
+                                let mut y: i16 = 0 - (model.scroll as i16);
+                                let inner_height = model.terminal_height - 2; // TODO padding?
+                                let visible_sources = model.sources.iter().filter(|source| {
+                                    // TODO: is looks like view(), maybe we will need this
+                                    // repeatedly?
+                                    let include = y >= 0;
+                                    y += source.height as i16;
+                                    if y >= inner_height as i16 {
+                                        return false;
+                                    }
+                                    include
+                                });
+                                let cursor = model.sources.links_first_in(visible_sources, None);
+                                model.mode.link(cursor);
                             }
                             KeyCode::Esc if matches!(model.mode, Mode::Link(_)) => {
                                 model.mode.normal();
@@ -537,10 +535,12 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                             KeyCode::Enter => match model.mode {
                                 Mode::Normal => {}
                                 Mode::Link(ref state) => {
-                                    if let Some(url) =
-                                        state.links.get(state.cursor).map(|t| t.0.clone())
-                                    {
-                                        model.cmd_tx.send(ImgCmd::XdgOpen(url))?;
+                                    if let Some(id) = state.cursor {
+                                        if let Some((_, LineExtra::Link(url, _, _))) =
+                                            model.sources.links_first(Some(id))
+                                        {
+                                            model.cmd_tx.send(ImgCmd::XdgOpen(url.clone()))?;
+                                        }
                                     }
                                 }
                             },
@@ -567,12 +567,16 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
         }
 
         if had_events || had_input {
-            terminal.draw(|frame| view(&mut model, frame))?;
+            if terminal.size()?.height != model.terminal_height {
+                // TODO: can we maybe only do this in Resize event?
+                model.terminal_height = terminal.size()?.height;
+            }
+            terminal.draw(|frame| view(&model, frame))?;
         }
     }
 }
 
-fn view(model: &mut Model, frame: &mut Frame) {
+fn view(model: &Model, frame: &mut Frame) {
     let frame_area = frame.area();
     let mut block = Block::new();
     match model.padding {
@@ -591,32 +595,36 @@ fn view(model: &mut Model, frame: &mut Frame) {
     let inner_area = block.inner(frame_area);
     frame.render_widget(block, frame_area);
 
-    let mut rendered_links = Vec::new();
-
-    model.scroll = min(
-        model.scroll,
-        model.total_lines().saturating_sub(inner_area.height) + 1,
-    );
     let mut y: i16 = 0 - (model.scroll as i16);
-    for source in &mut model.sources {
+    for source in model.sources.iter() {
         if y >= 0 {
-            match &mut source.source {
+            match &source.data {
                 WidgetSourceData::Line(line) | WidgetSourceData::LineExtra(line, _) => {
                     let p = Paragraph::new(line.clone());
 
-                    if matches!(model.mode, Mode::Link(_))
-                        && let WidgetSourceData::LineExtra(_, extra) = &source.source
+                    render_widget(p, source.height, y as u16, inner_area, frame);
+
+                    // Render links now on top, again, this shouldn't be a performance concern.
+                    if let Mode::Link(LinkModeState {
+                        cursor: Some(cursor),
+                        ..
+                    }) = model.mode
+                        && source.id == cursor
+                        && let WidgetSourceData::LineExtra(_, extra) = &source.data
                     {
                         for link in extra {
                             match link {
                                 LineExtra::Link(url, start, end) => {
-                                    rendered_links.push((url.clone(), y, *start, *end))
+                                    let x = frame_area.x + *start + 1;
+                                    let width = end - start;
+                                    let area = Rect::new(x, y as u16, width, 1);
+                                    let link_overlay_widget =
+                                        Paragraph::new(url.clone()).black().on_yellow();
+                                    frame.render_widget(link_overlay_widget, area);
                                 }
                             }
                         }
                     }
-
-                    render_widget(p, source.height, y as u16, inner_area, frame);
                 }
                 WidgetSourceData::Image(proto) => {
                     let img = Image::new(proto);
@@ -642,21 +650,6 @@ fn view(model: &mut Model, frame: &mut Frame) {
         y += source.height as i16;
         if y >= inner_area.height as i16 {
             break;
-        }
-    }
-
-    if let Mode::Link(LinkModeState {
-        ref mut links,
-        cursor,
-    }) = model.mode
-    {
-        *links = rendered_links;
-        if let Some((url, y, start, end)) = links.get(cursor) {
-            let x = frame_area.x + *start + 1;
-            let width = end - start;
-            let area = Rect::new(x, *y as u16, width, 1);
-            let link_overlay_widget = Paragraph::new(url.clone()).black().on_yellow();
-            frame.render_widget(link_overlay_widget, area);
         }
     }
 

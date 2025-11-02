@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Write},
     io::Cursor,
+    ops::Deref,
     path::PathBuf,
     sync::Arc,
 };
@@ -23,13 +24,115 @@ use crate::{
     setup::{BgColor, FontRenderer},
 };
 
+pub struct WidgetSources<'a> {
+    sources: Vec<WidgetSource<'a>>,
+}
+
+impl<'a> WidgetSources<'a> {
+    pub fn new() -> WidgetSources<'a> {
+        WidgetSources {
+            sources: Vec::new(),
+        }
+    }
+
+    pub fn push(&mut self, source: WidgetSource<'a>) {
+        self.sources.push(source);
+    }
+
+    // Update widgets with a list by id
+    pub fn update(&mut self, updates: Vec<WidgetSource<'a>>) {
+        let Some(first_id) = updates.first().map(|s| s.id) else {
+            return;
+        };
+
+        let mut range = None;
+
+        for (i, source) in self.sources.iter().enumerate() {
+            if source.id == first_id {
+                range = match range {
+                    None => Some((i, i)),
+                    Some((start, _)) => Some((start, i)),
+                };
+            } else if range.is_some() {
+                break; // Found the end of consecutive ID sources
+            }
+        }
+
+        debug_assert!(range.is_some(), "Update #{first_id} not found anymore");
+
+        if let Some((start, end)) = range {
+            self.sources.splice(start..end, updates);
+        }
+    }
+
+    fn links_find(
+        &self,
+        cursor: Option<SourceID>,
+        iter: impl Iterator<Item = &'a WidgetSource<'a>>,
+        mut first: bool,
+    ) -> Option<(SourceID, LineExtra)> {
+        // let mut found = false;
+        for source in iter {
+            if let WidgetSourceData::LineExtra(_, ref extras) = source.data {
+                for extra in extras {
+                    if matches!(extra, LineExtra::Link(_, _, _)) {
+                        match cursor {
+                            None => {
+                                return Some((source.id, extra.clone()));
+                            }
+                            Some(cursor_id) => {
+                                if !first && source.id == cursor_id {
+                                    first = true;
+                                } else if first {
+                                    return Some((source.id, extra.clone()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    // Find the link that matches the SourceID
+    pub fn links_first(&self, cursor: Option<SourceID>) -> Option<(SourceID, LineExtra)> {
+        self.links_find(cursor, self.sources.iter(), true)
+    }
+
+    // Find the link that follows the link that matches the SourceID
+    pub fn links_next(&self, cursor: Option<SourceID>) -> Option<(SourceID, LineExtra)> {
+        self.links_find(cursor, self.sources.iter(), false)
+    }
+
+    // Find the link that precedes the link that matches the SourceID
+    pub fn links_prev(&self, cursor: Option<SourceID>) -> Option<(SourceID, LineExtra)> {
+        self.links_find(cursor, self.sources.iter().rev(), false)
+    }
+
+    pub fn links_first_in(
+        &self,
+        iter: impl Iterator<Item = &'a WidgetSource<'a>>,
+        cursor: Option<SourceID>,
+    ) -> Option<(SourceID, LineExtra)> {
+        self.links_find(cursor, iter, true)
+    }
+}
+
+impl<'a> Deref for WidgetSources<'a> {
+    type Target = Vec<WidgetSource<'a>>;
+    fn deref(&self) -> &Vec<WidgetSource<'a>> {
+        &self.sources
+    }
+}
+
 pub type SourceID = usize;
 
 #[derive(Debug)]
 pub struct WidgetSource<'a> {
     pub id: SourceID,
     pub height: u16,
-    pub source: WidgetSourceData<'a>,
+    pub data: WidgetSourceData<'a>,
 }
 
 pub enum WidgetSourceData<'a> {
@@ -40,6 +143,7 @@ pub enum WidgetSourceData<'a> {
     SizedLine(String, u8),
 }
 
+#[derive(Clone)]
 pub enum LineExtra {
     Link(String, u16, u16),
 }
@@ -63,7 +167,7 @@ impl<'a> WidgetSource<'a> {
         WidgetSource {
             id,
             height: 1,
-            source: WidgetSourceData::BrokenImage(url, text),
+            data: WidgetSourceData::BrokenImage(url, text),
         }
     }
 }
@@ -184,7 +288,7 @@ pub fn header_sources<'a>(
         sources.push(WidgetSource {
             id,
             height: HEADER_ROW_COUNT,
-            source: WidgetSourceData::Image(proto),
+            data: WidgetSourceData::Image(proto),
         });
     }
 
@@ -252,7 +356,7 @@ pub async fn image_source<'a>(
     Ok(WidgetSource {
         id,
         height,
-        source: WidgetSourceData::Image(proto),
+        data: WidgetSourceData::Image(proto),
     })
 }
 
