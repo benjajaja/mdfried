@@ -473,7 +473,7 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                             KeyCode::Char('u') => {
                                 model.scroll_by(-(page_scroll_count + 1) / 2);
                             }
-                            KeyCode::PageDown | KeyCode::Char(' ') => {
+                            KeyCode::Char('f') | KeyCode::PageDown | KeyCode::Char(' ') => {
                                 model.scroll_by(page_scroll_count);
                             }
                             KeyCode::Char('b') | KeyCode::PageUp => {
@@ -483,7 +483,9 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                                 model.scroll = 0;
                             }
                             KeyCode::Char('G') => {
-                                model.scroll = model.total_lines();
+                                model.scroll = model.total_lines().saturating_sub(
+                                    page_scroll_count as u16 + 1, // Why +1?
+                                );
                             }
                             KeyCode::Char('n') => {
                                 let visible_lines = model.visible_lines();

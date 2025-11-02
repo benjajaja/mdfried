@@ -95,17 +95,9 @@ impl<'a> WidgetSources<'a> {
         self.links_find(cursor, visible.into_iter(), false)
     }
 
-    pub fn links_first(
-        &self,
-        visible_lines: (i16, i16),
-        cursor: Option<SourceID>,
-    ) -> Option<(SourceID, LineExtra)> {
-        self.links_find(cursor, self.visible(visible_lines), false)
-    }
-
     fn visible(&self, (start_y, end_y): (i16, i16)) -> impl Iterator<Item = &'_ WidgetSource<'_>> {
         // Quick & dirty without allocations, we only need to reverse when user presses "up" and
-        // there we can allocate inline.
+        // there we can just allocate inline.
         let mut y = start_y;
         self.sources.iter().filter(move |source| {
             let include = y >= 0;
@@ -190,6 +182,7 @@ impl Debug for WidgetSourceData<'_> {
     }
 }
 
+#[allow(dead_code)]
 impl<'a> WidgetSourceData<'a> {
     pub fn to_string(&self) -> String {
         match self {

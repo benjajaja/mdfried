@@ -55,9 +55,22 @@ The font is rendered directly as a preview.
 Once confirmed, the choice is written into the configuration file.
 Use `--setup` to force the font-setup again if the font is not right, or you switch terminals.
 
-Press `q` or `Ctrl-c` to quit. `j`/`k` to scroll by lines, `d`/`u` to scroll by half pages, `f`/`b`/space to
-scroll by pages, `g`/`G` to go to start/end of file. `r` reloads the file (if not using stdin pipe).
-Mouse scroll also works.
+### Key bindings
+
+Key | Description
+----|------------
+`q` or `Ctrl-c` | Quit and leave contents on terminal
+`r` | Reload the file (unless piped stdin)
+`j` | Scroll down one line
+`k` | Scroll up one line
+`d` or `Ctrl-d` | Scroll down half page
+`u` or `Ctrl-u` | Scroll up half page
+`f` or `PageDown` or `Space` | Scroll down a page
+`b` or `PageUp` | Scroll up a page
+`g` | Go to start of file
+`G` | Go to end of file
+
+Mouse scroll only works if enabled in settings as `enable_mouse_capture = true`, but then you can't select text.
 
 ### Configuration
 
