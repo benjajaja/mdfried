@@ -65,6 +65,45 @@ impl<'a> WidgetSources<'a> {
         }
     }
 
+    pub fn visible(
+        &self,
+        start_y: i16,
+        render_height: i16,
+    ) -> impl Iterator<Item = &'_ WidgetSource<'_>> {
+        let mut y = start_y;
+        self.sources.iter().filter(move |source| {
+            let include = y >= 0;
+            y += source.height as i16;
+            if y >= render_height as i16 {
+                return false;
+            }
+            include
+        })
+    }
+
+    // Find the link that matches the SourceID
+    pub fn links_first(&self, cursor: Option<SourceID>) -> Option<(SourceID, LineExtra)> {
+        self.links_find(cursor, self.sources.iter(), true)
+    }
+
+    // Find the link that follows the link that matches the SourceID
+    pub fn links_next(&self, cursor: Option<SourceID>) -> Option<(SourceID, LineExtra)> {
+        self.links_find(cursor, self.sources.iter(), false)
+    }
+
+    // Find the link that precedes the link that matches the SourceID
+    pub fn links_prev(&self, cursor: Option<SourceID>) -> Option<(SourceID, LineExtra)> {
+        self.links_find(cursor, self.sources.iter().rev(), false)
+    }
+
+    pub fn links_first_in(
+        &self,
+        iter: impl Iterator<Item = &'a WidgetSource<'a>>,
+        cursor: Option<SourceID>,
+    ) -> Option<(SourceID, LineExtra)> {
+        self.links_find(cursor, iter, true)
+    }
+
     fn links_find(
         &self,
         cursor: Option<SourceID>,
@@ -93,29 +132,6 @@ impl<'a> WidgetSources<'a> {
             }
         }
         None
-    }
-
-    // Find the link that matches the SourceID
-    pub fn links_first(&self, cursor: Option<SourceID>) -> Option<(SourceID, LineExtra)> {
-        self.links_find(cursor, self.sources.iter(), true)
-    }
-
-    // Find the link that follows the link that matches the SourceID
-    pub fn links_next(&self, cursor: Option<SourceID>) -> Option<(SourceID, LineExtra)> {
-        self.links_find(cursor, self.sources.iter(), false)
-    }
-
-    // Find the link that precedes the link that matches the SourceID
-    pub fn links_prev(&self, cursor: Option<SourceID>) -> Option<(SourceID, LineExtra)> {
-        self.links_find(cursor, self.sources.iter().rev(), false)
-    }
-
-    pub fn links_first_in(
-        &self,
-        iter: impl Iterator<Item = &'a WidgetSource<'a>>,
-        cursor: Option<SourceID>,
-    ) -> Option<(SourceID, LineExtra)> {
-        self.links_find(cursor, iter, true)
     }
 }
 

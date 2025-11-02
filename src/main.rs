@@ -514,18 +514,9 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                                 model.scroll = model.total_lines();
                             }
                             KeyCode::Char('f') => {
-                                let mut y: i16 = 0 - (model.scroll as i16);
+                                let y: i16 = 0 - (model.scroll as i16);
                                 let inner_height = model.terminal_height - 2; // TODO padding?
-                                let visible_sources = model.sources.iter().filter(|source| {
-                                    // TODO: is looks like view(), maybe we will need this
-                                    // repeatedly?
-                                    let include = y >= 0;
-                                    y += source.height as i16;
-                                    if y >= inner_height as i16 {
-                                        return false;
-                                    }
-                                    include
-                                });
+                                let visible_sources = model.sources.visible(y, inner_height as i16);
                                 let cursor = model.sources.links_first_in(visible_sources, None);
                                 model.mode.link(cursor);
                             }
