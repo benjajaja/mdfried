@@ -405,6 +405,8 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                 .saturating_sub(self.inner_height(self.terminal_height))
                 + 1,
         );
+        // For now we just clear the link cursor, maybe we could keep it if still visible.
+        self.link_cursor = None;
     }
 
     fn visible_lines(&self) -> (i16, i16) {
