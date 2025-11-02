@@ -65,43 +65,56 @@ impl<'a> WidgetSources<'a> {
         }
     }
 
-    pub fn visible(
-        &self,
-        start_y: i16,
-        render_height: i16,
-    ) -> impl Iterator<Item = &'_ WidgetSource<'_>> {
-        let mut y = start_y;
-        self.sources.iter().filter(move |source| {
-            let include = y >= 0;
-            y += source.height as i16;
-            if y >= render_height as i16 {
-                return false;
-            }
-            include
-        })
-    }
-
     // Find the link that matches the SourceID
-    pub fn links_first(&self, cursor: Option<SourceID>) -> Option<(SourceID, LineExtra)> {
+    pub fn links_by_id(&self, cursor: Option<SourceID>) -> Option<(SourceID, LineExtra)> {
+        // TODO take visible_lines too, why not
         self.links_find(cursor, self.sources.iter(), true)
     }
 
     // Find the link that follows the link that matches the SourceID
-    pub fn links_next(&self, cursor: Option<SourceID>) -> Option<(SourceID, LineExtra)> {
-        self.links_find(cursor, self.sources.iter(), false)
+    pub fn links_next(
+        &self,
+        cursor: Option<SourceID>,
+        visible_lines: (i16, i16),
+    ) -> Option<(SourceID, LineExtra)> {
+        self.links_find(cursor, self.visible(visible_lines), false)
     }
 
     // Find the link that precedes the link that matches the SourceID
-    pub fn links_prev(&self, cursor: Option<SourceID>) -> Option<(SourceID, LineExtra)> {
-        self.links_find(cursor, self.sources.iter().rev(), false)
+    pub fn links_prev(
+        &self,
+        cursor: Option<SourceID>,
+        visible_lines: (i16, i16),
+    ) -> Option<(SourceID, LineExtra)> {
+        let visible: Vec<_> = self
+            .visible(visible_lines)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        self.links_find(cursor, visible.into_iter(), false)
     }
 
-    pub fn links_first_in(
+    pub fn links_first(
         &self,
-        iter: impl Iterator<Item = &'a WidgetSource<'a>>,
+        visible_lines: (i16, i16),
         cursor: Option<SourceID>,
     ) -> Option<(SourceID, LineExtra)> {
-        self.links_find(cursor, iter, true)
+        self.links_find(cursor, self.visible(visible_lines), false)
+    }
+
+    fn visible(&self, (start_y, end_y): (i16, i16)) -> impl Iterator<Item = &'_ WidgetSource<'_>> {
+        // Quick & dirty without allocations, we only need to reverse when user presses "up" and
+        // there we can allocate inline.
+        let mut y = start_y;
+        self.sources.iter().filter(move |source| {
+            let include = y >= 0;
+            y += source.height as i16;
+            if y >= end_y as i16 {
+                return false;
+            }
+            include
+        })
     }
 
     fn links_find(
@@ -110,7 +123,6 @@ impl<'a> WidgetSources<'a> {
         iter: impl Iterator<Item = &'a WidgetSource<'a>>,
         mut first: bool,
     ) -> Option<(SourceID, LineExtra)> {
-        // let mut found = false;
         for source in iter {
             if let WidgetSourceData::LineExtra(_, ref extras) = source.data {
                 for extra in extras {
@@ -174,6 +186,18 @@ impl Debug for WidgetSourceData<'_> {
             Self::SizedLine(text, tier) => {
                 f.debug_tuple("SizedLine").field(text).field(tier).finish()
             }
+        }
+    }
+}
+
+impl<'a> WidgetSourceData<'a> {
+    pub fn to_string(&self) -> String {
+        match self {
+            Self::Image(_) => String::from("[Image]"),
+            Self::BrokenImage(_, _) => String::from("[BrokenImage]"),
+            Self::Line(arg0) => arg0.to_string(),
+            Self::LineExtra(arg0, _) => arg0.to_string(),
+            Self::SizedLine(text, _) => format!("# {}", text),
         }
     }
 }

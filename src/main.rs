@@ -428,6 +428,10 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                 + 1,
         );
     }
+
+    fn visible_lines(&self) -> (i16, i16) {
+        (0 - (self.scroll as i16), self.terminal_height as i16) // TODO padding?
+    }
 }
 
 fn model_reload<'a>(model: &mut Model<'a, 'a>, width: u16) -> Result<(), Error> {
@@ -477,24 +481,34 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                             KeyCode::Char('r') => {
                                 model_reload(&mut model, screen_width)?;
                             }
-                            KeyCode::Char('j') | KeyCode::Down => match model.mode {
-                                Mode::Normal => model.scroll_by(1),
-                                Mode::Link(ref mut state) => {
-                                    if let Some(link) = model.sources.links_next(state.cursor) {
-                                        // TODO: can we filter by "visible"?
-                                        state.cursor = Some(link.0);
+                            KeyCode::Char('j') | KeyCode::Down => {
+                                if matches!(model.mode, Mode::Normal) {
+                                    model.scroll_by(1);
+                                } else {
+                                    let visible_lines = model.visible_lines();
+                                    if let Mode::Link(ref mut state) = model.mode {
+                                        if let Some(link) =
+                                            model.sources.links_next(state.cursor, visible_lines)
+                                        {
+                                            state.cursor = Some(link.0);
+                                        }
                                     }
                                 }
-                            },
-                            KeyCode::Char('k') | KeyCode::Up => match model.mode {
-                                Mode::Normal => model.scroll_by(-1),
-                                Mode::Link(ref mut state) => {
-                                    if let Some(link) = model.sources.links_prev(state.cursor) {
-                                        // TODO: can we filter by "visible"?
-                                        state.cursor = Some(link.0);
+                            }
+                            KeyCode::Char('k') | KeyCode::Up => {
+                                if matches!(model.mode, Mode::Normal) {
+                                    model.scroll_by(-1);
+                                } else {
+                                    let visible_lines = model.visible_lines();
+                                    if let Mode::Link(ref mut state) = model.mode {
+                                        if let Some(link) =
+                                            model.sources.links_prev(state.cursor, visible_lines)
+                                        {
+                                            state.cursor = Some(link.0);
+                                        }
                                     }
                                 }
-                            },
+                            }
                             KeyCode::Char('d') => {
                                 model.scroll_by((page_scroll_count + 1) / 2);
                             }
@@ -514,10 +528,7 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                                 model.scroll = model.total_lines();
                             }
                             KeyCode::Char('f') => {
-                                let y: i16 = 0 - (model.scroll as i16);
-                                let inner_height = model.terminal_height - 2; // TODO padding?
-                                let visible_sources = model.sources.visible(y, inner_height as i16);
-                                let cursor = model.sources.links_first_in(visible_sources, None);
+                                let cursor = model.sources.links_first(model.visible_lines(), None);
                                 model.mode.link(cursor);
                             }
                             KeyCode::Esc if matches!(model.mode, Mode::Link(_)) => {
@@ -528,7 +539,7 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                                 Mode::Link(ref state) => {
                                     if let Some(id) = state.cursor {
                                         if let Some((_, LineExtra::Link(url, _, _))) =
-                                            model.sources.links_first(Some(id))
+                                            model.sources.links_by_id(Some(id))
                                         {
                                             model.cmd_tx.send(ImgCmd::XdgOpen(url.clone()))?;
                                         }
