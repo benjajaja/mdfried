@@ -102,7 +102,7 @@ impl<'a> WidgetSources<'a> {
         self.sources.iter().filter(move |source| {
             let include = y >= 0;
             y += source.height as i16;
-            if y >= end_y as i16 {
+            if y >= end_y {
                 return false;
             }
             include
@@ -178,19 +178,6 @@ impl Debug for WidgetSourceData<'_> {
             Self::SizedLine(text, tier) => {
                 f.debug_tuple("SizedLine").field(text).field(tier).finish()
             }
-        }
-    }
-}
-
-#[allow(dead_code)]
-impl<'a> WidgetSourceData<'a> {
-    pub fn to_string(&self) -> String {
-        match self {
-            Self::Image(_) => String::from("[Image]"),
-            Self::BrokenImage(_, _) => String::from("[BrokenImage]"),
-            Self::Line(arg0) => arg0.to_string(),
-            Self::LineExtra(arg0, _) => arg0.to_string(),
-            Self::SizedLine(text, _) => format!("# {}", text),
         }
     }
 }
