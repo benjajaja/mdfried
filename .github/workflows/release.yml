@@ -26,6 +26,11 @@ jobs:
         with:
           name: mdfried-windows
 
+      - name: Download .deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: mdfried-deb
+
       - name: Verify build outputs (removeme)
         run: |
           echo "Files in build-output directory:"
@@ -61,3 +66,20 @@ jobs:
           asset_path: ./mdfried.exe
           asset_name: mdfried.exe
           asset_content_type: application/octet-stream
+
+      - name: Find .deb file
+        id: find_deb
+        run: |
+          DEB_FILE=$(ls *.deb)
+          echo "deb_file=$DEB_FILE" >> $GITHUB_OUTPUT
+          echo "Found .deb file: $DEB_FILE"
+
+      - name: Add .deb release asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./${{ steps.find_deb.outputs.deb_file }}
+          asset_name: ${{ steps.find_deb.outputs.deb_file }}
+          asset_content_type: application/vnd.debian.binary-package

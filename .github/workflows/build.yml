@@ -129,6 +129,24 @@ jobs:
           name: mdfried-linux
           path: ./target/release/mdfried
 
+      - name: Install cargo-deb
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: cargo-deb
+
+      - name: Build .deb package
+        uses: actions-rs/cargo@v1
+        with:
+          command: deb
+          args: --no-build
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mdfried-deb
+          path: ./target/debian/*.deb
+
   nix-build-windows:
     name: Nix build (windows) ❄️
     runs-on: ubuntu-latest
