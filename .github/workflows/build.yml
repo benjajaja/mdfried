@@ -103,7 +103,7 @@ jobs:
         uses: actions-rs/toolchain@v1
         with:
           profile: minimal
-          toolchain: nightly-2025-01-24
+          toolchain: nightly-2025-08-04
           override: true
       
       - name: Cache Rust dependencies
@@ -117,7 +117,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
-      - name: Build release with specific features
+      - name: Build locked release
         uses: actions-rs/cargo@v1
         with:
           command: build
