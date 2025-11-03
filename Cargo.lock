@@ -1353,7 +1353,7 @@ dependencies = [
 
 [[package]]
 name = "mdfried"
-version = "0.12.9"
+version = "0.13.0"
 dependencies = [
  "clap",
  "confy",
