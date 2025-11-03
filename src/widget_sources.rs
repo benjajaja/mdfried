@@ -24,17 +24,12 @@ use crate::{
     setup::{BgColor, FontRenderer},
 };
 
+#[derive(Default)]
 pub struct WidgetSources<'a> {
     sources: Vec<WidgetSource<'a>>,
 }
 
 impl<'a> WidgetSources<'a> {
-    pub fn new() -> WidgetSources<'a> {
-        WidgetSources {
-            sources: Vec::new(),
-        }
-    }
-
     pub fn push(&mut self, source: WidgetSource<'a>) {
         self.sources.push(source);
     }
@@ -44,14 +39,15 @@ impl<'a> WidgetSources<'a> {
         let Some(first_id) = updates.first().map(|s| s.id) else {
             return;
         };
+        debug_assert!(updates[1..].iter().all(|s| s.id == first_id));
 
         let mut range = None;
 
         for (i, source) in self.sources.iter().enumerate() {
             if source.id == first_id {
                 range = match range {
-                    None => Some((i, i)),
-                    Some((start, _)) => Some((start, i)),
+                    None => Some((i, i + 1)),
+                    Some((start, _)) => Some((start, i + 1)),
                 };
             } else if range.is_some() {
                 break; // Found the end of consecutive ID sources
@@ -487,4 +483,36 @@ fn truncate_str(s: &str, max_chars: usize) -> &str {
     }
 
     &s[..end]
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::*;
+
+    #[test]
+    fn test_widgestsources_update() {
+        let mut ws = WidgetSources::default();
+        ws.push(WidgetSource {
+            id: 1,
+            height: 2,
+            data: WidgetSourceData::SizedLine(String::from("one"), 1),
+        });
+        ws.push(WidgetSource {
+            id: 2,
+            height: 2,
+            data: WidgetSourceData::SizedLine(String::from("two"), 1),
+        });
+        ws.push(WidgetSource {
+            id: 3,
+            height: 2,
+            data: WidgetSourceData::SizedLine(String::from("three"), 1),
+        });
+
+        ws.update(vec![WidgetSource {
+            id: 2,
+            height: 2,
+            data: WidgetSourceData::SizedLine(String::from("two updated"), 1),
+        }]);
+        assert_eq!(ws.sources.len(), 3);
+    }
 }

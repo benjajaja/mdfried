@@ -321,7 +321,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
             bg,
             terminal_height,
             scroll: 0,
-            sources: WidgetSources::new(),
+            sources: WidgetSources::default(),
             padding: Padding::Empty,
             cmd_tx,
             event_rx,
@@ -358,18 +358,9 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
             if id == inner_width {
                 had_events = true;
                 match ev {
-                    Event::Parsed(source) => {
-                        self.sources.push(source);
-                    }
+                    Event::Parsed(source) => self.sources.push(source),
                     Event::Update(updates) => self.sources.update(updates),
                     Event::ParseImage(id, url, text, title) => {
-                        self.cmd_tx.send(ImgCmd::UrlImage(
-                            id,
-                            inner_width,
-                            url.clone(),
-                            text,
-                            title,
-                        ))?;
                         self.sources.push(WidgetSource {
                             id,
                             height: 1,
@@ -377,20 +368,21 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                                 "![Loading...]({url})"
                             ))),
                         });
+                        self.cmd_tx
+                            .send(ImgCmd::UrlImage(id, inner_width, url, text, title))?;
                     }
                     Event::ParseHeader(id, tier, text) => {
-                        self.cmd_tx
-                            .send(ImgCmd::Header(id, inner_width, tier, text.clone()))?;
-
                         let line = Line::from(vec![
                             Span::from("#".repeat(tier as usize) + " ").light_blue(),
-                            Span::from(text),
+                            Span::from(text.clone()),
                         ]);
                         self.sources.push(WidgetSource {
                             id,
                             height: 2,
                             data: WidgetSourceData::Line(line),
                         });
+                        self.cmd_tx
+                            .send(ImgCmd::Header(id, inner_width, tier, text))?;
                     }
                 }
             }
@@ -422,7 +414,7 @@ fn model_reload<'a>(model: &mut Model<'a, 'a>, width: u16) -> Result<(), Error> 
                 .ok_or(Error::Path(original_file_path.to_path_buf()))?,
         )?;
 
-        model.sources = WidgetSources::new();
+        model.sources = WidgetSources::default();
         model.scroll = 0;
 
         let inner_width = model.inner_width(width);
