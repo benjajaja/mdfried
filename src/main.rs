@@ -37,10 +37,7 @@ use ratskin::RatSkin;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use setup::{BgColor, SetupResult, setup_graphics};
-use tokio::{
-    runtime::Builder,
-    sync::{Mutex, RwLock},
-};
+use tokio::{runtime::Builder, sync::RwLock};
 use widget_sources::{
     BigText, SourceID, WidgetSource, WidgetSourceData, header_images, header_sources, image_source,
 };
@@ -166,7 +163,9 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
             let basepath = basepath.clone();
             let client = Arc::new(RwLock::new(Client::new()));
             let protocol_type = picker.protocol_type(); // Won't change
-            let thread_renderer = renderer.map(|renderer| Arc::new(Mutex::new(renderer)));
+            // Specifically not a tokio Mutex, because we use it in spawn_blocking.
+            let thread_renderer =
+                renderer.map(|renderer| Arc::new(std::sync::Mutex::new(renderer)));
             let thread_picker = Arc::new(picker);
             let skin = RatSkin { skin: config.skin };
             for cmd in cmd_rx {
@@ -185,15 +184,16 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
                                 let renderer = thread_renderer.clone();
                                 let picker = thread_picker.clone();
                                 tokio::spawn(async move {
-                                    // Grab lock...
-                                    let mut r = renderer.lock().await;
-                                    let images =
-                                        header_images(bg, &mut r, width, text, tier, deep_fry)?;
-                                    // ...release right after text rendering...
-                                    drop(r);
-                                    // ...process images to terminal image protocol.
-                                    let headers =
-                                        header_sources(&picker, width, id, images, deep_fry)?;
+                                    let images = tokio::task::spawn_blocking(move || {
+                                        let mut r = renderer.lock()?;
+                                        header_images(bg, &mut r, width, text, tier, deep_fry)
+                                    })
+                                    .await??;
+
+                                    let headers = tokio::task::spawn_blocking(move || {
+                                        header_sources(&picker, width, id, images, deep_fry)
+                                    })
+                                    .await??;
                                     task_tx.send((width, Event::Update(headers)))?;
                                     Ok::<(), Error>(())
                                 });

@@ -313,7 +313,7 @@ pub fn header_sources<'a>(
 
 #[allow(clippy::too_many_arguments)]
 pub async fn image_source<'a>(
-    picker: &Picker,
+    picker: &Arc<Picker>,
     width: u16,
     basepath: &Option<PathBuf>,
     client: Arc<RwLock<Client>>,
@@ -321,7 +321,11 @@ pub async fn image_source<'a>(
     url: &str,
     deep_fry_meme: bool,
 ) -> Result<WidgetSource<'a>, Error> {
-    let mut dyn_img = if url.starts_with("https://") || url.starts_with("http://") {
+    enum ImageSource {
+        Bytes(Vec<u8>, ImageFormat),
+        Path(String),
+    }
+    let image_source = if url.starts_with("https://") || url.starts_with("http://") {
         let mut headers = HeaderMap::new();
         headers.insert(ACCEPT, HeaderValue::from_static("image/png,image/jpg")); // or "image/jpeg"
         let client = client.read().await;
@@ -342,8 +346,7 @@ pub async fn image_source<'a>(
             _ => Err(Error::UnknownImage(id, url.to_string())),
         }?;
 
-        let bytes = response.bytes().await?;
-        ImageReader::with_format(Cursor::new(bytes), format).decode()?
+        ImageSource::Bytes(response.bytes().await?.to_vec(), format)
     } else {
         let path: String = match basepath {
             Some(basepath) if url.starts_with("./") => basepath
@@ -353,27 +356,41 @@ pub async fn image_source<'a>(
                 .unwrap_or(url.to_string()),
             _ => url.to_string(),
         };
-        ImageReader::open(path)?.decode()?
+        ImageSource::Path(path)
     };
-    if deep_fry_meme {
-        dyn_img = deep_fry(dyn_img);
-    }
 
-    let max_height: u16 = 20;
-    let max_width: u16 = (max_height * 3 / 2).min(width);
+    // Now do all the blocking stuff
+    let picker = picker.clone();
+    let source = tokio::task::spawn_blocking(move || {
+        let mut dyn_img = match image_source {
+            ImageSource::Bytes(bytes, format) => {
+                ImageReader::with_format(Cursor::new(bytes), format).decode()?
+            }
+            ImageSource::Path(path) => ImageReader::open(path)?.decode()?,
+        };
 
-    let proto = picker.new_protocol(
-        dyn_img,
-        Rect::new(0, 0, max_width, max_height),
-        Resize::Fit(None),
-    )?;
+        if deep_fry_meme {
+            dyn_img = deep_fry(dyn_img);
+        }
 
-    let height = proto.area().height;
-    Ok(WidgetSource {
-        id,
-        height,
-        data: WidgetSourceData::Image(proto),
+        let max_height: u16 = 20;
+        let max_width: u16 = (max_height * 3 / 2).min(width);
+
+        let proto = picker.new_protocol(
+            dyn_img,
+            Rect::new(0, 0, max_width, max_height),
+            Resize::Fit(None),
+        )?;
+
+        let height = proto.area().height;
+        Ok::<WidgetSource<'_>, Error>(WidgetSource {
+            id,
+            height,
+            data: WidgetSourceData::Image(proto),
+        })
     })
+    .await??;
+    Ok(source)
 }
 
 fn deep_fry(mut dyn_img: DynamicImage) -> DynamicImage {

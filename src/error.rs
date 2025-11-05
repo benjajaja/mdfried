@@ -1,11 +1,16 @@
 use core::fmt;
-use std::{error::Error as StdError, io, path::PathBuf, sync::mpsc::SendError};
+use std::{
+    error::Error as StdError,
+    io,
+    path::PathBuf,
+    sync::{PoisonError, mpsc::SendError},
+};
 
 use confy::ConfyError;
 use image::ImageError;
 use tokio::task::JoinError;
 
-use crate::{CONFIG_APP_NAME, CONFIG_CONFIG_NAME, ImgCmd, WidthEvent};
+use crate::{CONFIG_APP_NAME, CONFIG_CONFIG_NAME, ImgCmd, WidthEvent, setup::FontRenderer};
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -115,6 +120,12 @@ impl From<SendError<ImgCmd>> for Error {
 
 impl From<JoinError> for Error {
     fn from(_: JoinError) -> Self {
+        Self::Thread
+    }
+}
+
+impl From<PoisonError<std::sync::MutexGuard<'_, Box<FontRenderer>>>> for Error {
+    fn from(_: PoisonError<std::sync::MutexGuard<'_, Box<FontRenderer>>>) -> Self {
         Self::Thread
     }
 }
