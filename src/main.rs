@@ -1,31 +1,35 @@
+mod config;
+mod error;
+mod fontpicker;
+mod markdown;
+mod model;
+mod setup;
+mod widget_sources;
+
 #[cfg(not(windows))]
 use std::os::fd::IntoRawFd;
 
 use std::{
-    cmp::min,
     fs::File,
     io::{self, Read, stdout},
     path::{Path, PathBuf},
     sync::{
         Arc,
-        mpsc::{self, Receiver, Sender},
+        mpsc::{self},
     },
     thread,
     time::Duration,
 };
 
 use clap::{ArgMatches, arg, command, value_parser};
-use config::Config;
 use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture, KeyModifiers, MouseEventKind},
     tty::IsTty,
 };
-use error::Error;
-use markdown::parse;
 use ratatui::{
     DefaultTerminal, Frame, Terminal,
     crossterm::event::{self, KeyCode, KeyEventKind},
-    layout::Rect,
+    layout::{Rect, Size},
     prelude::CrosstermBackend,
     style::{Style, Stylize},
     text::{Line, Span, Text},
@@ -35,21 +39,19 @@ use ratatui::{
 use ratatui_image::{Image, picker::ProtocolType};
 use ratskin::RatSkin;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use setup::{BgColor, SetupResult, setup_graphics};
+use setup::{SetupResult, setup_graphics};
 use tokio::{runtime::Builder, sync::RwLock};
-use widget_sources::{
-    BigText, SourceID, WidgetSource, WidgetSourceData, header_images, header_sources, image_source,
+
+use crate::{
+    config::Config,
+    error::Error,
+    markdown::parse,
+    model::{Model, Padding},
+    widget_sources::{
+        BigText, LineExtra, SourceID, WidgetSource, WidgetSourceData, header_images,
+        header_sources, image_source,
+    },
 };
-
-use crate::widget_sources::{LineExtra, WidgetSources};
-
-mod config;
-mod error;
-mod fontpicker;
-mod markdown;
-mod setup;
-mod widget_sources;
 
 const OK_END: &str = " ok.";
 
@@ -249,11 +251,7 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
     terminal.clear()?;
 
     let model = Model::new(bg, path.cloned(), cmd_tx, event_rx, terminal.size()?.height)?;
-    let inner_width = model.inner_width(terminal.size()?.width);
-    model
-        .cmd_tx
-        .send(ImgCmd::Parse(inner_width, text))
-        .map_err(Error::from)?;
+    model.parse(terminal.size()?, text).map_err(Error::from)?;
 
     run(terminal, model)?;
 
@@ -280,7 +278,6 @@ enum ImgCmd {
 enum Event<'a> {
     Parsed(WidgetSource<'a>),
     Update(Vec<WidgetSource<'a>>),
-    #[allow(dead_code)]
     ParseImage(SourceID, String, String, String),
     ParseHeader(SourceID, u8, String),
 }
@@ -288,150 +285,14 @@ enum Event<'a> {
 // Just a width key, to discard events for stale screen widths.
 pub(crate) type WidthEvent<'a> = (u16, Event<'a>);
 
-struct Model<'a, 'b> {
-    original_file_path: Option<PathBuf>,
-    bg: Option<BgColor>,
-    terminal_height: u16,
-    scroll: u16,
-    sources: WidgetSources<'a>,
-    padding: Padding,
-    cmd_tx: Sender<ImgCmd>,
-    event_rx: Receiver<WidthEvent<'b>>,
-    link_cursor: Option<SourceID>,
-}
-
-#[derive(Default, Debug, Serialize, Deserialize)]
-enum Padding {
-    None,
-    Border,
-    #[default]
-    Empty,
-}
-
-impl<'a, 'b: 'a> Model<'a, 'b> {
-    fn new(
-        bg: Option<BgColor>,
-        original_file_path: Option<PathBuf>,
-        cmd_tx: Sender<ImgCmd>,
-        event_rx: Receiver<WidthEvent<'b>>,
-        terminal_height: u16,
-    ) -> Result<Model<'a, 'b>, Error> {
-        let model = Model {
-            original_file_path,
-            bg,
-            terminal_height,
-            scroll: 0,
-            sources: WidgetSources::default(),
-            padding: Padding::Empty,
-            cmd_tx,
-            event_rx,
-            link_cursor: None,
-        };
-
-        // model_reload(&mut model, screen_width)?;
-
-        Ok(model)
-    }
-
-    fn inner_width(&self, screen_width: u16) -> u16 {
-        match self.padding {
-            Padding::None => screen_width,
-            Padding::Empty | Padding::Border => screen_width - 2,
-        }
-    }
-
-    fn inner_height(&self, screen_height: u16) -> u16 {
-        match self.padding {
-            Padding::None | Padding::Empty => screen_height,
-            Padding::Border => screen_height - 2,
-        }
-    }
-
-    fn total_lines(&self) -> u16 {
-        self.sources.iter().map(|s| s.height).sum()
-    }
-
-    fn process_events(&mut self, screen_width: u16) -> Result<bool, Error> {
-        let inner_width = self.inner_width(screen_width);
-        let mut had_events = false;
-        while let Ok((id, ev)) = self.event_rx.try_recv() {
-            if id == inner_width {
-                had_events = true;
-                match ev {
-                    Event::Parsed(source) => self.sources.push(source),
-                    Event::Update(updates) => self.sources.update(updates),
-                    Event::ParseImage(id, url, text, title) => {
-                        self.sources.push(WidgetSource {
-                            id,
-                            height: 1,
-                            data: WidgetSourceData::Line(Line::from(format!(
-                                "![Loading...]({url})"
-                            ))),
-                        });
-                        self.cmd_tx
-                            .send(ImgCmd::UrlImage(id, inner_width, url, text, title))?;
-                    }
-                    Event::ParseHeader(id, tier, text) => {
-                        let line = Line::from(vec![
-                            Span::from("#".repeat(tier as usize) + " ").light_blue(),
-                            Span::from(text.clone()),
-                        ]);
-                        self.sources.push(WidgetSource {
-                            id,
-                            height: 2,
-                            data: WidgetSourceData::Line(line),
-                        });
-                        self.cmd_tx
-                            .send(ImgCmd::Header(id, inner_width, tier, text))?;
-                    }
-                }
-            }
-        }
-        Ok(had_events)
-    }
-
-    fn scroll_by(&mut self, lines: i16) {
-        self.scroll = min(
-            self.scroll.saturating_add_signed(lines),
-            self.total_lines()
-                .saturating_sub(self.inner_height(self.terminal_height))
-                + 1,
-        );
-        // For now we just clear the link cursor, maybe we could keep it if still visible.
-        self.link_cursor = None;
-    }
-
-    fn visible_lines(&self) -> (i16, i16) {
-        (0 - (self.scroll as i16), self.terminal_height as i16) // TODO padding?
-    }
-}
-
-fn model_reload<'a>(model: &mut Model<'a, 'a>, width: u16) -> Result<(), Error> {
-    if let Some(original_file_path) = &model.original_file_path {
-        let text = read_file_to_str(
-            original_file_path
-                .to_str()
-                .ok_or(Error::Path(original_file_path.to_path_buf()))?,
-        )?;
-
-        model.sources = WidgetSources::default();
-        model.scroll = 0;
-
-        let inner_width = model.inner_width(width);
-        model.cmd_tx.send(ImgCmd::Parse(inner_width, text))?;
-    }
-    Ok(())
-}
-
 fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<(), Error> {
     terminal.draw(|frame| view(&model, frame))?;
+    let mut screen_size = terminal.size()?;
 
     loop {
-        let screen_size = terminal.size()?;
         let page_scroll_count = model.inner_height(screen_size.height) as i16 - 2;
-        let screen_width = screen_size.width;
 
-        let had_events = model.process_events(screen_width)?;
+        let had_events = model.process_events(screen_size.width)?;
 
         let mut had_input = false;
         if event::poll(if had_events {
@@ -451,7 +312,7 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                                 return Ok(());
                             }
                             KeyCode::Char('r') => {
-                                model_reload(&mut model, screen_width)?;
+                                model.reload(screen_size)?;
                             }
                             KeyCode::Char('j') | KeyCode::Down => {
                                 model.scroll_by(1);
@@ -500,7 +361,7 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                                     if let Some((_, LineExtra::Link(url, _, _))) =
                                         model.sources.links_by_id(Some(id))
                                     {
-                                        model.cmd_tx.send(ImgCmd::XdgOpen(url.clone()))?;
+                                        model.open_link(url.clone())?;
                                     }
                                 }
                             }
@@ -508,9 +369,10 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                         }
                     }
                 }
-                event::Event::Resize(new_width, _) => {
-                    if screen_width != new_width {
-                        model_reload(&mut model, new_width)?;
+                event::Event::Resize(new_width, new_height) => {
+                    if screen_size.width != new_width || screen_size.height != new_height {
+                        screen_size = Size::new(new_width, new_height);
+                        model.reload(screen_size)?;
                     }
                 }
                 event::Event::Mouse(mouse) => match mouse.kind {
@@ -527,10 +389,6 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
         }
 
         if had_events || had_input {
-            if terminal.size()?.height != model.terminal_height {
-                // TODO: can we maybe only do this in Resize event?
-                model.terminal_height = terminal.size()?.height;
-            }
             terminal.draw(|frame| view(&model, frame))?;
         }
     }
@@ -622,7 +480,7 @@ fn render_widget<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, f
     }
 }
 
-fn read_file_to_str(path: &str) -> io::Result<String> {
+pub fn read_file_to_str(path: &str) -> io::Result<String> {
     let mut file = File::open(path)?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;

@@ -13,7 +13,6 @@ use tokio::task::JoinError;
 use crate::{CONFIG_APP_NAME, CONFIG_CONFIG_NAME, ImgCmd, WidthEvent, setup::FontRenderer};
 
 #[derive(Debug)]
-#[allow(dead_code)]
 pub enum Error {
     Usage(Option<&'static str>),
     UserAbort(&'static str),
