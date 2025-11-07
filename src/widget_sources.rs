@@ -64,7 +64,7 @@ impl<'a> WidgetSources<'a> {
     // Find the link that matches the SourceID
     pub fn links_by_id(&self, cursor: Option<SourceID>) -> Option<(SourceID, LineExtra)> {
         // TODO take visible_lines too, why not
-        self.links_find(cursor, self.sources.iter(), true)
+        self.links_find(cursor, self.sources.iter(), false)
     }
 
     // Find the link that follows the link that matches the SourceID
@@ -73,7 +73,7 @@ impl<'a> WidgetSources<'a> {
         cursor: Option<SourceID>,
         visible_lines: (i16, i16),
     ) -> Option<(SourceID, LineExtra)> {
-        self.links_find(cursor, self.visible(visible_lines), false)
+        self.links_find(cursor, self.visible(visible_lines), true)
     }
 
     // Find the link that precedes the link that matches the SourceID
@@ -88,7 +88,7 @@ impl<'a> WidgetSources<'a> {
             .into_iter()
             .rev()
             .collect();
-        self.links_find(cursor, visible.into_iter(), false)
+        self.links_find(cursor, visible.into_iter(), true)
     }
 
     fn visible(&self, (start_y, end_y): (i16, i16)) -> impl Iterator<Item = &'_ WidgetSource<'_>> {
@@ -109,8 +109,9 @@ impl<'a> WidgetSources<'a> {
         &self,
         cursor: Option<SourceID>,
         iter: impl Iterator<Item = &'a WidgetSource<'a>>,
-        mut first: bool,
+        find_next: bool,
     ) -> Option<(SourceID, LineExtra)> {
+        let mut found = false;
         for source in iter {
             if let WidgetSourceData::LineExtra(_, ref extras) = source.data {
                 for extra in extras {
@@ -120,9 +121,13 @@ impl<'a> WidgetSources<'a> {
                                 return Some((source.id, extra.clone()));
                             }
                             Some(cursor_id) => {
-                                if !first && source.id == cursor_id {
-                                    first = true;
-                                } else if first {
+                                if find_next {
+                                    if !found && source.id == cursor_id {
+                                        found = true;
+                                    } else if found {
+                                        return Some((source.id, extra.clone()));
+                                    }
+                                } else if source.id == cursor_id {
                                     return Some((source.id, extra.clone()));
                                 }
                             }
@@ -159,7 +164,7 @@ pub enum WidgetSourceData<'a> {
     SizedLine(String, u8),
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum LineExtra {
     Link(String, u16, u16),
 }
