@@ -445,10 +445,10 @@ fn view(model: &Model, frame: &mut Frame) {
 
     let inner_area = if let Some(ref snapshot) = model.log_snapshot {
         let debug_block = Block::bordered().title("logs");
-        let mut half_area_left = frame_area.clone();
-        half_area_left.width = half_area_left.width / 2;
+        let mut half_area_left = frame_area;
+        half_area_left.width /= 2;
 
-        let mut half_area_right = half_area_left.clone();
+        let mut half_area_right = half_area_left;
         half_area_right.x = frame_area.width / 2;
 
         let inner_area = debug_block.inner(half_area_right);
