@@ -102,7 +102,7 @@ pub fn parse(
     tx: &Sender<WidthEvent>,
     has_text_size_protocol: bool,
 ) -> Result<(), Error> {
-    let http_url_regex = Regex::new(r"https?://[^\s]+").unwrap();
+    let http_url_regex = Regex::new(r"https?://[^\s)]+").unwrap();
 
     let mut sender = SendTracker {
         width,
