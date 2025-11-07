@@ -14,7 +14,7 @@ You can [cook](https://ratatui.rs/) a terminal. But can you **deep fry** a termi
 
 ## Video
 
-![Screenshot](./assets/demo.gif)
+https://github.com/user-attachments/assets/e69154a7-bea8-4e14-a677-be7ccf0d3cac
 
 # Why?
 
