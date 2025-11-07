@@ -153,7 +153,7 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
 
     let deep_fry = *matches.get_one("deep").unwrap_or(&false);
 
-    let (cmd_tx, cmd_rx) = mpsc::channel::<ImgCmd>();
+    let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
     let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
 
     let cmd_thread = thread::spawn(move || {
@@ -172,10 +172,10 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
             let skin = RatSkin { skin: config.skin };
             for cmd in cmd_rx {
                 match cmd {
-                    ImgCmd::Parse(width, text) => {
+                    Cmd::Parse(width, text) => {
                         parse(&text, &skin, width, &event_tx, has_text_size_protocol)?;
                     }
-                    ImgCmd::Header(id, width, tier, text) => {
+                    Cmd::Header(id, width, tier, text) => {
                         debug_assert!(
                             thread_renderer.is_some(),
                             "should not have sent ImgCmd::Header without renderer"
@@ -202,7 +202,7 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
                             }
                         }
                     }
-                    ImgCmd::UrlImage(id, width, url, text, _title) => {
+                    Cmd::UrlImage(id, width, url, text, _title) => {
                         let task_tx = event_tx.clone();
                         let basepath = basepath.clone();
                         let client = client.clone();
@@ -229,7 +229,7 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
                             Ok::<(), Error>(())
                         });
                     }
-                    ImgCmd::XdgOpen(url) => {
+                    Cmd::XdgOpen(url) => {
                         std::process::Command::new("xdg-open")
                             .arg(&url)
                             .spawn()
@@ -267,7 +267,7 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
 }
 
 #[derive(Debug)]
-enum ImgCmd {
+enum Cmd {
     Parse(u16, String),
     UrlImage(usize, u16, String, String, String),
     Header(usize, u16, u8, String),
@@ -277,9 +277,9 @@ enum ImgCmd {
 #[derive(Debug)]
 enum Event<'a> {
     Parsed(WidgetSource<'a>),
-    Update(Vec<WidgetSource<'a>>),
     ParseImage(SourceID, String, String, String),
     ParseHeader(SourceID, u8, String),
+    Update(Vec<WidgetSource<'a>>),
 }
 
 // Just a width key, to discard events for stale screen widths.

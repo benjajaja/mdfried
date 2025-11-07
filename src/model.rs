@@ -11,8 +11,8 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::{Cmd, error::Error};
 use crate::{Event, widget_sources::WidgetSources};
-use crate::{ImgCmd, error::Error};
 use crate::{WidthEvent, setup::BgColor};
 use crate::{
     read_file_to_str,
@@ -27,7 +27,7 @@ pub(crate) struct Model<'a, 'b> {
     pub scroll: u16,
     original_file_path: Option<PathBuf>,
     terminal_height: u16,
-    cmd_tx: Sender<ImgCmd>,
+    cmd_tx: Sender<Cmd>,
     event_rx: Receiver<WidthEvent<'b>>,
 }
 
@@ -43,7 +43,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
     pub fn new(
         bg: Option<BgColor>,
         original_file_path: Option<PathBuf>,
-        cmd_tx: Sender<ImgCmd>,
+        cmd_tx: Sender<Cmd>,
         event_rx: Receiver<WidthEvent<'b>>,
         terminal_height: u16,
     ) -> Result<Model<'a, 'b>, Error> {
@@ -80,9 +80,9 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         Ok(())
     }
 
-    pub fn parse(&self, screen_size: Size, text: String) -> Result<(), SendError<ImgCmd>> {
+    pub fn parse(&self, screen_size: Size, text: String) -> Result<(), SendError<Cmd>> {
         let inner_width = self.inner_width(screen_size.width);
-        self.cmd_tx.send(ImgCmd::Parse(inner_width, text))
+        self.cmd_tx.send(Cmd::Parse(inner_width, text))
     }
 
     pub fn inner_width(&self, screen_width: u16) -> u16 {
@@ -121,7 +121,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                             ))),
                         });
                         self.cmd_tx
-                            .send(ImgCmd::UrlImage(id, inner_width, url, text, title))?;
+                            .send(Cmd::UrlImage(id, inner_width, url, text, title))?;
                     }
                     Event::ParseHeader(id, tier, text) => {
                         let line = Line::from(vec![
@@ -133,8 +133,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                             height: 2,
                             data: WidgetSourceData::Line(line),
                         });
-                        self.cmd_tx
-                            .send(ImgCmd::Header(id, inner_width, tier, text))?;
+                        self.cmd_tx.send(Cmd::Header(id, inner_width, tier, text))?;
                     }
                 }
             }
@@ -157,7 +156,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         (0 - (self.scroll as i16), self.terminal_height as i16) // TODO padding?
     }
 
-    pub fn open_link(&self, url: String) -> Result<(), SendError<ImgCmd>> {
-        self.cmd_tx.send(ImgCmd::XdgOpen(url))
+    pub fn open_link(&self, url: String) -> Result<(), SendError<Cmd>> {
+        self.cmd_tx.send(Cmd::XdgOpen(url))
     }
 }

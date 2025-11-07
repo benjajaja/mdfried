@@ -10,7 +10,7 @@ use confy::ConfyError;
 use image::ImageError;
 use tokio::task::JoinError;
 
-use crate::{CONFIG_APP_NAME, CONFIG_CONFIG_NAME, ImgCmd, WidthEvent, setup::FontRenderer};
+use crate::{CONFIG_APP_NAME, CONFIG_CONFIG_NAME, Cmd, WidthEvent, setup::FontRenderer};
 
 #[derive(Debug)]
 pub enum Error {
@@ -111,8 +111,8 @@ impl From<SendError<WidthEvent<'_>>> for Error {
     }
 }
 
-impl From<SendError<ImgCmd>> for Error {
-    fn from(_: SendError<ImgCmd>) -> Self {
+impl From<SendError<Cmd>> for Error {
+    fn from(_: SendError<Cmd>) -> Self {
         Self::Thread
     }
 }

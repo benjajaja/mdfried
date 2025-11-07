@@ -504,7 +504,7 @@ fn truncate_str(s: &str, max_chars: usize) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use crate::*;
+    use crate::{widget_sources::WidgetSources, *};
 
     #[test]
     fn test_widgestsources_update() {
