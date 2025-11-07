@@ -25,6 +25,7 @@ pub(crate) struct Model<'a, 'b> {
     pub link_cursor: Option<SourceID>,
     pub padding: Padding,
     pub scroll: u16,
+    pub log_snapshot: Option<flexi_logger::Snapshot>,
     original_file_path: Option<PathBuf>,
     terminal_height: u16,
     cmd_tx: Sender<Cmd>,
@@ -57,6 +58,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
             cmd_tx,
             event_rx,
             link_cursor: None,
+            log_snapshot: None,
         };
 
         // model_reload(&mut model, screen_width)?;
@@ -65,6 +67,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
     }
 
     pub fn reload(&mut self, screen_size: Size) -> Result<(), Error> {
+        log::debug!("reload");
         if let Some(original_file_path) = &self.original_file_path {
             let text = read_file_to_str(
                 original_file_path
@@ -109,6 +112,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         while let Ok((id, ev)) = self.event_rx.try_recv() {
             if id == inner_width {
                 had_events = true;
+                log::info!("Event: {ev:?}");
                 match ev {
                     Event::Parsed(source) => self.sources.push(source),
                     Event::Update(updates) => self.sources.update(updates),
@@ -135,7 +139,10 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                         });
                         self.cmd_tx.send(Cmd::Header(id, inner_width, tier, text))?;
                     }
+                    Event::MarkHadEvents => {}
                 }
+            } else if id == 0 && matches!(ev, Event::MarkHadEvents) {
+                had_events = true;
             }
         }
         Ok(had_events)

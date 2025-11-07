@@ -26,6 +26,7 @@ use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture, KeyModifiers, MouseEventKind},
     tty::IsTty,
 };
+use flexi_logger::{Logger, LoggerHandle};
 use ratatui::{
     DefaultTerminal, Frame, Terminal,
     crossterm::event::{self, KeyCode, KeyEventKind},
@@ -68,7 +69,7 @@ fn main() -> io::Result<()> {
         .arg(arg!(-d --deep "Extra deep fried images").value_parser(value_parser!(bool)));
     let matches = cmd.get_matches_mut();
 
-    match start(&matches) {
+    match main_with_args(&matches) {
         Err(Error::Usage(msg)) => {
             if let Some(msg) = msg {
                 println!("Usage error: {msg}");
@@ -85,7 +86,11 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn start(matches: &ArgMatches) -> Result<(), Error> {
+fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
+    let logger = Logger::try_with_env_or_str("debug")?
+        .log_to_buffer(10000, None)
+        .start()?;
+
     let path = matches.get_one::<PathBuf>("path");
 
     let (text, basepath) = match path {
@@ -170,7 +175,9 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
                 renderer.map(|renderer| Arc::new(std::sync::Mutex::new(renderer)));
             let thread_picker = Arc::new(picker);
             let skin = RatSkin { skin: config.skin };
+            log::info!("cmd thread running");
             for cmd in cmd_rx {
+                log::debug!("Cmd: {cmd:?}");
                 match cmd {
                     Cmd::Parse(width, text) => {
                         parse(&text, &skin, width, &event_tx, has_text_size_protocol)?;
@@ -236,6 +243,7 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
                             .ok();
                     }
                 };
+                event_tx.send((0, Event::MarkHadEvents))?
             }
             Ok::<(), Error>(())
         })?;
@@ -253,7 +261,7 @@ fn start(matches: &ArgMatches) -> Result<(), Error> {
     let model = Model::new(bg, path.cloned(), cmd_tx, event_rx, terminal.size()?.height)?;
     model.parse(terminal.size()?, text).map_err(Error::from)?;
 
-    run(terminal, model)?;
+    run(terminal, model, logger)?;
 
     if config.enable_mouse_capture {
         crossterm::execute!(std::io::stderr(), DisableMouseCapture)?;
@@ -280,12 +288,17 @@ enum Event<'a> {
     ParseImage(SourceID, String, String, String),
     ParseHeader(SourceID, u8, String),
     Update(Vec<WidgetSource<'a>>),
+    MarkHadEvents,
 }
 
 // Just a width key, to discard events for stale screen widths.
 pub(crate) type WidthEvent<'a> = (u16, Event<'a>);
 
-fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<(), Error> {
+fn run<'a>(
+    mut terminal: DefaultTerminal,
+    mut model: Model<'a, 'a>,
+    logger: LoggerHandle,
+) -> Result<(), Error> {
     terminal.draw(|frame| view(&model, frame))?;
     let mut screen_size = terminal.size()?;
 
@@ -345,7 +358,10 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                                 if let Some(link) =
                                     model.sources.links_next(model.link_cursor, visible_lines)
                                 {
+                                    log::debug!("link_cursor {}", link.0);
                                     model.link_cursor = Some(link.0);
+                                } else {
+                                    log::debug!("no links visible");
                                 }
                             }
                             KeyCode::Char('N') => {
@@ -353,7 +369,10 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                                 if let Some(link) =
                                     model.sources.links_prev(model.link_cursor, visible_lines)
                                 {
+                                    log::debug!("link_cursor {}", link.0);
                                     model.link_cursor = Some(link.0);
+                                } else {
+                                    log::debug!("no links visible");
                                 }
                             }
                             KeyCode::Enter => {
@@ -361,15 +380,25 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
                                     if let Some((_, LineExtra::Link(url, _, _))) =
                                         model.sources.links_by_id(Some(id))
                                     {
+                                        log::debug!("open link_cursor {}", id);
                                         model.open_link(url.clone())?;
+                                    } else {
+                                        log::error!("no links visible to open");
                                     }
                                 }
+                            }
+                            KeyCode::F(11) => {
+                                model.log_snapshot = match model.log_snapshot {
+                                    None => Some(flexi_logger::Snapshot::new()),
+                                    Some(_) => None,
+                                };
                             }
                             _ => {}
                         }
                     }
                 }
                 event::Event::Resize(new_width, new_height) => {
+                    log::debug!("Resize {new_width},{new_height}");
                     if screen_size.width != new_width || screen_size.height != new_height {
                         screen_size = Size::new(new_width, new_height);
                         model.reload(screen_size)?;
@@ -389,6 +418,9 @@ fn run<'a>(mut terminal: DefaultTerminal, mut model: Model<'a, 'a>) -> Result<()
         }
 
         if had_events || had_input {
+            if let Some(ref mut snapshot) = model.log_snapshot {
+                logger.update_snapshot(snapshot)?;
+            }
             terminal.draw(|frame| view(&model, frame))?;
         }
     }
@@ -410,7 +442,36 @@ fn view(model: &Model, frame: &mut Frame) {
     if let Some(bg) = model.bg {
         block = block.style(Style::default().bg(bg.into()));
     }
-    let inner_area = block.inner(frame_area);
+
+    let inner_area = if let Some(ref snapshot) = model.log_snapshot {
+        let debug_block = Block::bordered().title("logs");
+        let mut half_area_left = frame_area.clone();
+        half_area_left.width = half_area_left.width / 2;
+
+        let mut half_area_right = half_area_left.clone();
+        half_area_right.x = frame_area.width / 2;
+
+        let inner_area = debug_block.inner(half_area_right);
+        frame.render_widget(debug_block, half_area_right);
+        for (i, log_line) in snapshot.text.split('\n').rev().enumerate() {
+            if i as u16 >= inner_area.height {
+                break;
+            }
+            let line = Line::from(log_line);
+            let rect = Rect::new(
+                inner_area.x,
+                inner_area.height - i as u16,
+                inner_area.width,
+                1,
+            );
+            frame.render_widget(line, rect);
+        }
+
+        block.inner(half_area_left)
+    } else {
+        block.inner(frame_area)
+    };
+
     frame.render_widget(block, frame_area);
 
     let mut y: i16 = 0 - (model.scroll as i16);

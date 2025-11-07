@@ -7,6 +7,7 @@ use std::{
 };
 
 use confy::ConfyError;
+use flexi_logger::FlexiLoggerError;
 use image::ImageError;
 use tokio::task::JoinError;
 
@@ -17,6 +18,7 @@ pub enum Error {
     Usage(Option<&'static str>),
     UserAbort(&'static str),
     Cli(clap::error::Error),
+    Logger(FlexiLoggerError),
     Config(String, ConfyError),
     Io(io::Error),
     Parse(&'static str),
@@ -35,6 +37,7 @@ impl fmt::Display for Error {
             Error::Usage(_) => write!(f, "Bad arguments"), // Never shown to user, just a signal.
             Error::UserAbort(msg) => write!(f, "Aborted by user ({msg})"),
             Error::Cli(err) => write!(f, "Command line argument error: {err}"),
+            Error::Logger(err) => write!(f, "Logger error: {err}"),
             Error::Config(path_str, err) => {
                 write!(
                     f,
@@ -126,5 +129,11 @@ impl From<JoinError> for Error {
 impl From<PoisonError<std::sync::MutexGuard<'_, Box<FontRenderer>>>> for Error {
     fn from(_: PoisonError<std::sync::MutexGuard<'_, Box<FontRenderer>>>) -> Self {
         Self::Thread
+    }
+}
+
+impl From<FlexiLoggerError> for Error {
+    fn from(value: FlexiLoggerError) -> Self {
+        Self::Logger(value)
     }
 }
