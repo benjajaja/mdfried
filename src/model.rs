@@ -112,7 +112,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         while let Ok((id, ev)) = self.event_rx.try_recv() {
             if id == inner_width {
                 had_events = true;
-                log::info!("Event: {ev:?}");
+                log::debug!("Event: {ev:?}");
                 match ev {
                     Event::Parsed(source) => self.sources.push(source),
                     Event::Update(updates) => self.sources.update(updates),

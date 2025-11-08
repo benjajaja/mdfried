@@ -7,7 +7,7 @@ use ratatui::{Frame, layout::Rect, widgets::Block};
 use ratskin::RatSkin;
 
 pub fn ui_logger() -> Result<flexi_logger::LoggerHandle, FlexiLoggerError> {
-    Logger::try_with_env_or_str("debug")?
+    Logger::try_with_env_or_str("info")?
         .log_to_buffer(10000, Some(markdown_format))
         .start()
 }
