@@ -36,12 +36,15 @@ In general, Kitty, WezTerm, iTerm2, Ghostty, Foot, `xterm -ti vt340`, *should* w
 
 # Installation
 
-* Rust cargo: `cargo install mdfried` (on errors, try with `--locked`)
-* Nix flake: `github:benjajaja/mdfried` (`github:benjajaja/mdfried/v0.11.0`)
+* Rust cargo: `cargo install mdfried`
+* Nix flake: `github:benjajaja/mdfried`
+* Nixpkgs: [`mdfried`](https://search.nixos.org/packages?channel=unstable&query=mdfried)
 * Arch Linux: `paru -S mdfried` ([AUR](https://aur.archlinux.org/packages/mdfried))
 * Ubuntu: [Download release .deb](https://github.com/benjajaja/mdfried/releases/latest)
 * Windows: [Download release .exe](https://github.com/benjajaja/mdfried/releases/latest)
-* From source : `cargo install --path .` (on errors, try with `--locked`)
+* From source : `cargo install --path .`
+
+If `cargo install ...` fails, try it with `--locked`.
 
 # Usage
 
@@ -51,12 +54,21 @@ In general, Kitty, WezTerm, iTerm2, Ghostty, Foot, `xterm -ti vt340`, *should* w
 mdfried ./path/to.md
 ```
 
-Unless you're using Kitty version 0.40 or greater, or a terminal that does not support any graphics protocol, the first time you run `mdfried` you will have to pick a font.
+Unless you're using Kitty version 0.40 or greater, or a terminal that does not support any graphics
+protocol, the first time you run `mdfried` you will have to pick a font.
 You should pick the same font that your terminal is using, but you could pick any.
-The font-setup screen lets you search the system fonts - you will want to pick the same font that your terminal is using.
+The font-setup screen lets you search the system fonts - you will want to pick the same font that
+your terminal is using.
 The font is rendered directly as a preview.
 Once confirmed, the choice is written into the configuration file.
-Use `--setup` to force the font-setup again if the font is not right, or you switch terminals.
+
+Use `--setup` to force the font-setup again if the font is not right.
+
+You can also pipe markdown into it:
+
+```
+readable https://lobste.rs | markdownify | mdfried
+```
 
 ### Key bindings
 
@@ -76,7 +88,8 @@ Key | Description
 `N` | Jump to previous link
 `Enter` | Open selected link with `xdg-open`
 
-Mouse scroll only works if enabled in settings as `enable_mouse_capture = true`, but then you can't select text.
+Mouse scroll only works if enabled in settings as `enable_mouse_capture = true`, but then you can't
+select text.
 
 ### Configuration
 
