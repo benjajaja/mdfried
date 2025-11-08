@@ -1,4 +1,5 @@
 mod config;
+mod debug;
 mod error;
 mod fontpicker;
 mod markdown;
@@ -358,7 +359,7 @@ fn run<'a>(
                                 if let Some(link) =
                                     model.sources.links_next(model.link_cursor, visible_lines)
                                 {
-                                    log::debug!("link_cursor {}", link.0);
+                                    log::debug!("link_cursor {:?}", link);
                                     model.link_cursor = Some(link.0);
                                 } else {
                                     log::debug!("no links visible");
@@ -444,30 +445,8 @@ fn view(model: &Model, frame: &mut Frame) {
     }
 
     let inner_area = if let Some(ref snapshot) = model.log_snapshot {
-        let debug_block = Block::bordered().title("logs");
-        let mut half_area_left = frame_area;
-        half_area_left.width /= 2;
-
-        let mut half_area_right = half_area_left;
-        half_area_right.x = frame_area.width / 2;
-
-        let inner_area = debug_block.inner(half_area_right);
-        frame.render_widget(debug_block, half_area_right);
-        for (i, log_line) in snapshot.text.split('\n').rev().enumerate() {
-            if i as u16 >= inner_area.height {
-                break;
-            }
-            let line = Line::from(log_line);
-            let rect = Rect::new(
-                inner_area.x,
-                inner_area.height - i as u16,
-                inner_area.width,
-                1,
-            );
-            frame.render_widget(line, rect);
-        }
-
-        block.inner(half_area_left)
+        let area = debug::render_snapshot(snapshot, frame);
+        block.inner(area)
     } else {
         block.inner(frame_area)
     };
