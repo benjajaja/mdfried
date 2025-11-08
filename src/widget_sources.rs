@@ -1,6 +1,8 @@
+#[cfg(test)]
+use std::fmt::Display;
 use std::{
+    any::Any,
     fmt::{Debug, Write},
-    io::Cursor,
     ops::Deref,
     path::PathBuf,
     sync::Arc,
@@ -27,6 +29,16 @@ use crate::{
 #[derive(Default)]
 pub struct WidgetSources<'a> {
     sources: Vec<WidgetSource<'a>>,
+    cursor: Option<Cursor>,
+}
+
+#[derive(Debug)]
+pub struct Cursor {
+    // The WidgetSource (line(s))
+    pub id: SourceID,
+    // The matched part index (e.g. LineExtra::Link)
+    // This should change when we add support for searching any text.
+    pub index: usize,
 }
 
 impl<'a> WidgetSources<'a> {
@@ -61,34 +73,96 @@ impl<'a> WidgetSources<'a> {
         }
     }
 
-    // Find the link that matches the SourceID
-    pub fn links_by_id(&self, cursor: Option<SourceID>) -> Option<(SourceID, LineExtra)> {
-        // TODO take visible_lines too, why not
-        self.links_find(cursor, self.sources.iter(), false)
+    pub fn is_cursor(&self, source: &WidgetSource) -> Option<&Cursor> {
+        if let Some(Cursor { id, .. }) = self.cursor
+            && id == source.id
+        {
+            self.cursor.as_ref()
+        } else {
+            None
+        }
     }
 
-    // Find the link that follows the link that matches the SourceID
-    pub fn links_next(
-        &self,
-        cursor: Option<SourceID>,
-        visible_lines: (i16, i16),
-    ) -> Option<(SourceID, LineExtra)> {
-        self.links_find(cursor, self.visible(visible_lines), true)
+    pub fn get_extra_by_cursor(&self) -> Option<&LineExtra> {
+        if let Some((_, _, extra)) =
+            WidgetSources::cursor_find(self.sources.iter(), &self.cursor, 0)
+        {
+            Some(extra)
+        } else {
+            None
+        }
     }
 
-    // Find the link that precedes the link that matches the SourceID
-    pub fn links_prev(
-        &self,
-        cursor: Option<SourceID>,
-        visible_lines: (i16, i16),
-    ) -> Option<(SourceID, LineExtra)> {
-        let visible: Vec<_> = self
-            .visible(visible_lines)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
-        self.links_find(cursor, visible.into_iter(), true)
+    pub fn clear_cursor(&mut self) {
+        self.cursor = None;
+    }
+
+    pub fn cursor_next(&mut self, visible_lines: (i16, i16)) {
+        if let Some((source, index, _)) = WidgetSources::cursor_find(
+            self.visible(visible_lines),
+            &self.cursor,
+            if self.cursor.is_some() { 1 } else { 0 },
+        ) {
+            self.cursor = Some(Cursor {
+                id: source.id,
+                index,
+            });
+        }
+    }
+
+    pub fn cursor_prev(&mut self, visible_lines: (i16, i16)) {
+        if let Some((source, index, _)) = WidgetSources::cursor_find(
+            self.visible(visible_lines)
+                .collect::<Vec<&WidgetSource>>()
+                .into_iter()
+                .rev(),
+            &self.cursor,
+            if self.cursor.is_some() { -1 } else { 0 },
+        ) {
+            self.cursor = Some(Cursor {
+                id: source.id,
+                index,
+            });
+        }
+    }
+
+    fn cursor_find<'b>(
+        iter: impl Iterator<Item = &'b WidgetSource<'b>>,
+        cursor: &Option<Cursor>,
+        next: i8,
+    ) -> Option<(&'b WidgetSource<'b>, usize, &'b LineExtra)> {
+        let mut found = false;
+        for source in iter {
+            if let WidgetSourceData::LineExtra(_, ref extras) = source.data {
+                // We're reversing the sources outside, but then reversing the extras here.
+                // This should be unified, flat_map (and reverse) sounds good, but we will have to
+                // do text searches in just the source (not in extras).
+                let mut extras: Vec<(usize, &LineExtra)> = extras.iter().enumerate().collect();
+                if next == -1 {
+                    extras.reverse();
+                }
+
+                for (i, extra) in extras {
+                    match cursor {
+                        None => {
+                            return Some((source, i, extra));
+                        }
+                        Some(Cursor { id, index, .. }) => {
+                            if next == 0 {
+                                if source.id == *id && i == *index {
+                                    return Some((source, i, extra));
+                                }
+                            } else if !found && source.id == *id && i == *index {
+                                found = true;
+                            } else if found {
+                                return Some((source, i, extra));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
     }
 
     fn visible(&self, (start_y, end_y): (i16, i16)) -> impl Iterator<Item = &'_ WidgetSource<'_>> {
@@ -104,40 +178,6 @@ impl<'a> WidgetSources<'a> {
             include
         })
     }
-
-    fn links_find(
-        &self,
-        cursor: Option<SourceID>,
-        iter: impl Iterator<Item = &'a WidgetSource<'a>>,
-        find_next: bool,
-    ) -> Option<(SourceID, LineExtra)> {
-        let mut found = false;
-        for source in iter {
-            if let WidgetSourceData::LineExtra(_, ref extras) = source.data {
-                for extra in extras {
-                    if matches!(extra, LineExtra::Link(_, _, _)) {
-                        match cursor {
-                            None => {
-                                return Some((source.id, extra.clone()));
-                            }
-                            Some(cursor_id) => {
-                                if find_next {
-                                    if !found && source.id == cursor_id {
-                                        found = true;
-                                    } else if found {
-                                        return Some((source.id, extra.clone()));
-                                    }
-                                } else if source.id == cursor_id {
-                                    return Some((source.id, extra.clone()));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        None
-    }
 }
 
 impl<'a> Deref for WidgetSources<'a> {
@@ -149,7 +189,7 @@ impl<'a> Deref for WidgetSources<'a> {
 
 pub type SourceID = usize;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct WidgetSource<'a> {
     pub id: SourceID,
     pub height: u16,
@@ -164,9 +204,17 @@ pub enum WidgetSourceData<'a> {
     SizedLine(String, u8),
 }
 
-#[derive(Clone, Debug)]
-pub enum LineExtra {
-    Link(String, u16, u16),
+impl<'a> PartialEq for WidgetSourceData<'a> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Image(l0), Self::Image(r0)) => l0.type_id() == r0.type_id(),
+            (Self::BrokenImage(l0, l1), Self::BrokenImage(r0, r1)) => l0 == r0 && l1 == r1,
+            (Self::Line(l0), Self::Line(r0)) => l0 == r0,
+            (Self::LineExtra(l0, l1), Self::LineExtra(r0, r1)) => l0 == r0 && l1 == r1,
+            (Self::SizedLine(l0, l1), Self::SizedLine(r0, r1)) => l0 == r0 && l1 == r1,
+            _ => false,
+        }
+    }
 }
 
 impl Debug for WidgetSourceData<'_> {
@@ -175,7 +223,9 @@ impl Debug for WidgetSourceData<'_> {
             Self::Image(_) => f.debug_tuple("Image").finish(),
             Self::BrokenImage(_, _) => f.debug_tuple("BrokenImage").finish(),
             Self::Line(arg0) => f.debug_tuple("Line").field(arg0).finish(),
-            Self::LineExtra(arg0, _) => f.debug_tuple("LineExtra").field(arg0).finish(),
+            Self::LineExtra(arg0, arg1) => {
+                f.debug_tuple("LineExtra").field(arg0).field(arg1).finish()
+            }
             Self::SizedLine(text, tier) => {
                 f.debug_tuple("SizedLine").field(text).field(tier).finish()
             }
@@ -191,6 +241,26 @@ impl<'a> WidgetSource<'a> {
             data: WidgetSourceData::BrokenImage(url, text),
         }
     }
+}
+
+#[cfg(test)]
+impl Display for WidgetSource<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.data {
+            WidgetSourceData::Image(_) => write!(f, "<image>"),
+            WidgetSourceData::BrokenImage(_, _) => write!(f, "<broken-image>"),
+            WidgetSourceData::Line(line) => std::fmt::Display::fmt(&line, f),
+            WidgetSourceData::LineExtra(line, _) => std::fmt::Display::fmt(&line, f),
+            WidgetSourceData::SizedLine(text, tier) => {
+                write!(f, "{} {}", "#".repeat(*tier as usize), text)
+            }
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum LineExtra {
+    Link(String, u16, u16),
 }
 
 /// Layout/shape and render `text` into a list of [DynamicImage] with a given terminal width.
@@ -370,7 +440,7 @@ pub async fn image_source<'a>(
     let source = tokio::task::spawn_blocking(move || {
         let mut dyn_img = match image_source {
             ImageSource::Bytes(bytes, format) => {
-                ImageReader::with_format(Cursor::new(bytes), format).decode()?
+                ImageReader::with_format(std::io::Cursor::new(bytes), format).decode()?
             }
             ImageSource::Path(path) => ImageReader::open(path)?.decode()?,
         };
@@ -536,5 +606,77 @@ mod tests {
             data: WidgetSourceData::SizedLine(String::from("two updated"), 1),
         }]);
         assert_eq!(ws.sources.len(), 3);
+    }
+
+    #[test]
+    fn test_finds_multiple_links_per_line_next() {
+        let mut ws = WidgetSources::default();
+        ws.push(WidgetSource {
+            id: 1,
+            height: 1,
+            data: WidgetSourceData::LineExtra(
+                Line::from("http://a.com http://b.com"),
+                vec![
+                    LineExtra::Link("http://a.com".into(), 0, 11),
+                    LineExtra::Link("http://b.com".into(), 12, 21),
+                ],
+            ),
+        });
+        ws.push(WidgetSource {
+            id: 2,
+            height: 1,
+            data: WidgetSourceData::LineExtra(
+                Line::from("http://c.com"),
+                vec![LineExtra::Link("http://c.com".into(), 0, 11)],
+            ),
+        });
+
+        ws.cursor_next((0, 30));
+        let LineExtra::Link(url, ..) = ws.get_extra_by_cursor().unwrap();
+        assert_eq!("http://a.com", url);
+
+        ws.cursor_next((0, 30));
+        let LineExtra::Link(url, ..) = ws.get_extra_by_cursor().unwrap();
+        assert_eq!("http://b.com", url);
+
+        ws.cursor_next((0, 30));
+        let LineExtra::Link(url, ..) = ws.get_extra_by_cursor().unwrap();
+        assert_eq!("http://c.com", url);
+    }
+
+    #[test]
+    fn test_finds_multiple_links_per_line_prev() {
+        let mut ws = WidgetSources::default();
+        ws.push(WidgetSource {
+            id: 1,
+            height: 1,
+            data: WidgetSourceData::LineExtra(
+                Line::from("http://a.com http://b.com"),
+                vec![
+                    LineExtra::Link("http://a.com".into(), 0, 11),
+                    LineExtra::Link("http://b.com".into(), 12, 21),
+                ],
+            ),
+        });
+        ws.push(WidgetSource {
+            id: 2,
+            height: 1,
+            data: WidgetSourceData::LineExtra(
+                Line::from("http://c.com"),
+                vec![LineExtra::Link("http://c.com".into(), 0, 11)],
+            ),
+        });
+
+        ws.cursor_prev((0, 30));
+        let LineExtra::Link(url, ..) = ws.get_extra_by_cursor().unwrap();
+        assert_eq!("http://c.com", url);
+
+        ws.cursor_prev((0, 30));
+        let LineExtra::Link(url, ..) = ws.get_extra_by_cursor().unwrap();
+        assert_eq!("http://b.com", url);
+
+        ws.cursor_prev((0, 30));
+        let LineExtra::Link(url, ..) = ws.get_extra_by_cursor().unwrap();
+        assert_eq!("http://a.com", url);
     }
 }

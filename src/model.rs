@@ -16,13 +16,12 @@ use crate::{Event, widget_sources::WidgetSources};
 use crate::{WidthEvent, setup::BgColor};
 use crate::{
     read_file_to_str,
-    widget_sources::{SourceID, WidgetSource, WidgetSourceData},
+    widget_sources::{WidgetSource, WidgetSourceData},
 };
 
-pub(crate) struct Model<'a, 'b> {
+pub struct Model<'a, 'b> {
     pub bg: Option<BgColor>,
     pub sources: WidgetSources<'a>,
-    pub link_cursor: Option<SourceID>,
     pub padding: Padding,
     pub scroll: u16,
     pub log_snapshot: Option<flexi_logger::Snapshot>,
@@ -57,7 +56,6 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
             padding: Padding::Empty,
             cmd_tx,
             event_rx,
-            link_cursor: None,
             log_snapshot: None,
         };
 
@@ -156,7 +154,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                 + 1,
         );
         // For now we just clear the link cursor, maybe we could keep it if still visible.
-        self.link_cursor = None;
+        self.sources.clear_cursor();
     }
 
     pub fn visible_lines(&self) -> (i16, i16) {

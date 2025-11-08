@@ -32,6 +32,9 @@ tokio-util = "0.7.9"
 log = { version = "0.4.28" }
 flexi_logger = { version = "0.31.7", features = ["buffer_writer"] }
 
+[dev-dependencies]
+pretty_assertions = "1.4"
+
 [package.metadata.release]
 sign-commit = true
 sign-tag = true

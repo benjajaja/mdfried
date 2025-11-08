@@ -52,7 +52,7 @@ use crate::{
     markdown::parse,
     model::{Model, Padding},
     widget_sources::{
-        BigText, LineExtra, SourceID, WidgetSource, WidgetSourceData, header_images,
+        BigText, Cursor, LineExtra, SourceID, WidgetSource, WidgetSourceData, header_images,
         header_sources, image_source,
     },
 };
@@ -182,7 +182,9 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
                 log::debug!("Cmd: {cmd:?}");
                 match cmd {
                     Cmd::Parse(width, text) => {
-                        parse(&text, &skin, width, &event_tx, has_text_size_protocol)?;
+                        for event in parse(text, &skin, width, has_text_size_protocol) {
+                            event_tx.send((width, event))?;
+                        }
                     }
                     Cmd::Header(id, width, tier, text) => {
                         debug_assert!(
@@ -291,7 +293,7 @@ enum Cmd {
     XdgOpen(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum Event<'a> {
     Parsed(WidgetSource<'a>),
     ParseImage(SourceID, String, String, String),
@@ -356,46 +358,26 @@ fn run<'a>(
                             }
                             KeyCode::Char('g') => {
                                 model.scroll = 0;
-                                model.link_cursor = None;
+                                model.sources.clear_cursor();
                             }
                             KeyCode::Char('G') => {
                                 model.scroll = model.total_lines().saturating_sub(
                                     page_scroll_count as u16 + 1, // Why +1?
                                 );
-                                model.link_cursor = None;
+                                model.sources.clear_cursor();
                             }
                             KeyCode::Char('n') => {
-                                let visible_lines = model.visible_lines();
-                                if let Some(link) =
-                                    model.sources.links_next(model.link_cursor, visible_lines)
-                                {
-                                    log::debug!("link_cursor {link:?}");
-                                    model.link_cursor = Some(link.0);
-                                } else {
-                                    log::debug!("no links visible");
-                                }
+                                model.sources.cursor_next(model.visible_lines());
                             }
                             KeyCode::Char('N') => {
-                                let visible_lines = model.visible_lines();
-                                if let Some(link) =
-                                    model.sources.links_prev(model.link_cursor, visible_lines)
-                                {
-                                    log::debug!("link_cursor {}", link.0);
-                                    model.link_cursor = Some(link.0);
-                                } else {
-                                    log::debug!("no links visible");
-                                }
+                                model.sources.cursor_prev(model.visible_lines());
                             }
                             KeyCode::Enter => {
-                                if let Some(id) = model.link_cursor {
-                                    if let Some((_, LineExtra::Link(url, _, _))) =
-                                        model.sources.links_by_id(Some(id))
-                                    {
-                                        log::debug!("open link_cursor {id}");
-                                        model.open_link(url.clone())?;
-                                    } else {
-                                        log::error!("no links visible to open");
-                                    }
+                                if let Some(LineExtra::Link(url, ..)) =
+                                    model.sources.get_extra_by_cursor()
+                                {
+                                    log::debug!("open link_cursor {url}");
+                                    model.open_link(url.clone())?;
                                 }
                             }
                             KeyCode::F(11) => {
@@ -473,11 +455,10 @@ fn view(model: &Model, frame: &mut Frame) {
                     render_widget(p, source.height, y as u16, inner_area, frame);
 
                     // Render links now on top, again, this shouldn't be a performance concern.
-                    if let Some(cursor) = model.link_cursor
-                        && source.id == cursor
+                    if let Some(Cursor { index, .. }) = model.sources.is_cursor(source)
                         && let WidgetSourceData::LineExtra(_, extra) = &source.data
                     {
-                        for link in extra {
+                        if let Some(link) = extra.get(*index) {
                             match link {
                                 LineExtra::Link(url, start, end) => {
                                     let x = frame_area.x + *start + 1;

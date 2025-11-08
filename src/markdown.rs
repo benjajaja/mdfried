@@ -1,13 +1,10 @@
-use std::sync::mpsc::Sender;
+mod links;
 
 use ratatui::text::Line;
 use ratskin::RatSkin;
 use regex::Regex;
 
-use crate::{
-    Error, Event, WidgetSource, WidthEvent,
-    widget_sources::{LineExtra, SourceID, WidgetSourceData},
-};
+use crate::{Event, WidgetSource, widget_sources::WidgetSourceData};
 
 // Crude "pre-parsing" of markdown by lines.
 // Headers are always on a line of their own.
@@ -75,8 +72,7 @@ fn split_headers_and_images(text: &str) -> Vec<Block> {
             if !current_block.is_empty() {
                 current_block.push('\n');
             }
-            let replaced_line = replace_links(line);
-            current_block.push_str(&replaced_line);
+            current_block.push_str(line);
         }
     }
 
@@ -88,35 +84,27 @@ fn split_headers_and_images(text: &str) -> Vec<Block> {
     blocks
 }
 
-fn replace_links(line: &str) -> String {
-    let re = Regex::new(r"\[([^\]]+)\]\(([^)]+)\)").unwrap();
-    // The text is not line-broken to a width yet. The important thing is that the fancy
-    // formatted link's width should now be less than originally.
-    re.replace_all(line, "**$1**↗$2").to_string()
-}
-
-pub fn parse(
-    text: &str,
+pub fn parse<'a>(
+    text: String,
     skin: &RatSkin,
     width: u16,
-    tx: &Sender<WidthEvent>,
     has_text_size_protocol: bool,
-) -> Result<(), Error> {
-    let http_url_regex = Regex::new(r"https?://[^\s)]+").unwrap();
+) -> impl Iterator<Item = Event<'a>> {
+    let mut id = 0;
 
-    let mut sender = SendTracker {
-        width,
-        tx,
-        index: 0,
-    };
-
-    let text_blocks = split_headers_and_images(text);
+    let blocks = split_headers_and_images(&text);
 
     let mut needs_space = false;
-    for block in text_blocks {
+
+    blocks.into_iter().flat_map(move |block| {
+        let mut events = Vec::new();
         if needs_space {
-            // Send a newline after Markdowns and Images, but not after the last block.
-            sender.send_line(WidgetSourceData::Line(Line::default()), 1)?;
+            // Send a newline after things like Markdowns and Images, but not after the last block.
+            events = vec![send_line(
+                &mut id,
+                WidgetSourceData::Line(Line::default()),
+                1,
+            )];
         }
 
         match block {
@@ -127,89 +115,76 @@ pub fn parse(
                     let madtext = RatSkin::parse_text(&text);
                     for line in skin.parse(madtext, width / 2) {
                         let text = line.to_string();
-                        sender.send_line(WidgetSourceData::SizedLine(text, tier), 2)?;
+                        events.push(send_line(
+                            &mut id,
+                            WidgetSourceData::SizedLine(text, tier),
+                            2,
+                        ));
                     }
                 } else {
-                    sender.send_event(Event::ParseHeader(sender.index, tier, text))?;
+                    let event = Event::ParseHeader(id, tier, text);
+                    events.push(send_event(&mut id, event));
                 }
             }
             Block::Image(alt, url) => {
                 needs_space = true;
-                sender.send_event(Event::ParseImage(sender.index, url, alt, "".to_string()))?;
+                let event = Event::ParseImage(id, url, alt, "".to_string());
+                events.push(send_event(&mut id, event));
             }
             Block::Markdown(text) => {
                 needs_space = true;
                 let madtext = RatSkin::parse_text(&text);
-                for line in skin.parse(madtext, width) {
-                    let raw_line = line.to_string();
 
-                    // TODO: push this crap up to where we regex-match for markdown links anyway:
+                for line in skin.parse(madtext, width).into_iter() {
                     let mut links = Vec::new();
-                    for mat in http_url_regex.find_iter(&raw_line) {
-                        let char_start = raw_line[..mat.start()].chars().count();
-                        let char_end = raw_line[..mat.end()].chars().count();
 
-                        let mut url = mat.as_str();
-                        if char_end as u16 == width
-                            && let Some(pos) = text.find(mat.as_str())
+                    let mut new_spans = Vec::new();
+                    for span in line.spans {
+                        if !links::capture_links(&span, &text, width, &mut new_spans, &mut links)
+                            && !links::capture_urls(&span, &text, width, &mut new_spans, &mut links)
                         {
-                            let line_end = text[pos..]
-                                .find('\n')
-                                .map(|n| pos + n)
-                                .unwrap_or(text.len());
-                            let line_slice = &text[pos..line_end];
-                            if let Some(full_match) = http_url_regex.find(line_slice) {
-                                url = full_match.as_str();
-                            }
+                            new_spans.push(span);
                         }
-
-                        links.push(LineExtra::Link(
-                            url.to_string(),
-                            char_start as u16,
-                            char_end as u16,
-                        ));
                     }
-                    sender.send_line(
+                    let line = Line::from(new_spans);
+
+                    events.push(send_line(
+                        &mut id,
                         if !links.is_empty() {
                             WidgetSourceData::LineExtra(line, links)
                         } else {
                             WidgetSourceData::Line(line)
                         },
                         1,
-                    )?;
+                    ));
                 }
             }
         }
-    }
-
-    Ok(())
+        events
+    })
 }
 
-// Just so that we don't miss an `index += 1`.
-struct SendTracker<'a, 'b> {
-    width: u16,
-    index: SourceID,
-    tx: &'a Sender<WidthEvent<'b>>,
-}
-
-impl<'b> SendTracker<'_, 'b> {
-    fn send_line(&mut self, data: WidgetSourceData<'b>, height: u16) -> Result<(), Error> {
-        self.send_event(Event::Parsed(WidgetSource {
-            id: self.index,
+fn send_line<'a>(id: &mut usize, data: WidgetSourceData<'a>, height: u16) -> Event<'a> {
+    send_event(
+        id,
+        Event::Parsed(WidgetSource {
+            id: *id,
             height,
             data,
-        }))
-    }
-    fn send_event(&mut self, ev: Event<'b>) -> Result<(), Error> {
-        self.tx.send((self.width, ev))?;
-        self.index += 1;
-        Ok(())
-    }
+        }),
+    )
+}
+
+fn send_event<'a>(id: &mut usize, ev: Event<'a>) -> Event<'a> {
+    *id += 1;
+    ev
 }
 
 #[cfg(test)]
 mod tests {
     use crate::*;
+    use pretty_assertions::assert_eq;
+    use ratatui::style::Color;
 
     #[test]
     fn test_split_headers_and_images() {
@@ -331,5 +306,185 @@ paragraph
                 markdown::Block::Markdown("paragraph".to_string()),
             ]
         );
+    }
+
+    #[test]
+    fn test_parse_one_basic_line() {
+        let text = String::from("*ah* ha ha");
+        let events: Vec<Event> = parse(text, &RatSkin::default(), 80, true).collect();
+        let expected = vec![Event::Parsed(WidgetSource {
+            id: 0,
+            height: 1,
+            data: WidgetSourceData::Line(Line::from(vec![
+                Span::from("ah").italic(),
+                Span::from(" ha ha"),
+            ])),
+        })];
+        assert_eq!(events, expected);
+    }
+
+    #[test]
+    fn test_parse_link() {
+        let text = String::from("[text](http://link.com)");
+        let events: Vec<Event> = parse(text, &RatSkin::default(), 80, true).collect();
+        let expected = vec![Event::Parsed(WidgetSource {
+            id: 0,
+            height: 1,
+            data: WidgetSourceData::LineExtra(
+                Line::from(vec![
+                    Span::from("[").fg(Color::DarkGray),
+                    Span::from("text").fg(Color::LightBlue),
+                    Span::from("]").fg(Color::DarkGray),
+                    Span::from("(").fg(Color::DarkGray),
+                    Span::from("http://link.com").fg(Color::Blue).underlined(),
+                    Span::from(")").fg(Color::DarkGray),
+                ]),
+                vec![LineExtra::Link("http://link.com".to_string(), 7, 22)],
+            ),
+        })];
+        assert_eq!(events, expected);
+    }
+
+    #[test]
+    fn test_parse_long_link() {
+        let text = String::from("[text](http://link.com/veeeeeeeeeeeeeeeeery/long/tail)");
+        let events: Vec<Event> = parse(text, &RatSkin::default(), 30, true).collect();
+        let expected = vec![
+            Event::Parsed(WidgetSource {
+                id: 0,
+                height: 1,
+                data: WidgetSourceData::LineExtra(
+                    Line::from(vec![
+                        Span::from("[").fg(Color::DarkGray),
+                        Span::from("text").fg(Color::LightBlue),
+                        Span::from("]").fg(Color::DarkGray),
+                        Span::from("(").fg(Color::DarkGray),
+                        Span::from("http://link.com/veeeeee")
+                            .fg(Color::Blue)
+                            .underlined(),
+                    ]),
+                    vec![LineExtra::Link(
+                        "http://link.com/veeeeeeeeeeeeeeeeery/long/tail".to_string(),
+                        7,
+                        30,
+                    )],
+                ),
+            }),
+            Event::Parsed(WidgetSource {
+                id: 1,
+                height: 1,
+                data: WidgetSourceData::Line(Line::from(vec![Span::from(
+                    "eeeeeeeeeeery/long/tail)",
+                )])),
+            }),
+        ];
+        assert_eq!(events, expected);
+    }
+
+    #[test]
+    fn test_parse_long_linebroken_link() {
+        let text = String::from("[a b](http://link.com/veeeeeeeeeeeeeeeeery/long/tail)");
+        let events: Vec<Event> = parse(text, &RatSkin::default(), 30, true).collect();
+
+        let str_lines: Vec<String> = events
+            .iter()
+            .map(|ev| {
+                if let Event::Parsed(source) = ev {
+                    return source.to_string();
+                }
+                "<unrelated event>".into()
+            })
+            .collect();
+        assert_eq!(
+            vec![
+                "[a ",
+                "b](http://link.com/veeeeeeeeee",
+                "eeeeeeery/long/tail)"
+            ],
+            str_lines,
+            "breaks into 3 lines",
+        );
+
+        let urls: Vec<String> = events
+            .iter()
+            .flat_map(|ev| {
+                if let Event::Parsed(WidgetSource {
+                    data: WidgetSourceData::LineExtra(_, links),
+                    ..
+                }) = ev
+                {
+                    let urls: Vec<String> = links
+                        .iter()
+                        .flat_map(|LineExtra::Link(url, _, _)| vec![url.to_owned()])
+                        .collect();
+                    return urls;
+                }
+                vec![]
+            })
+            .collect();
+        assert_eq!(
+            vec!["http://link.com/veeeeeeeeeeeeeeeeery/long/tail"],
+            urls,
+            "finds the full URL"
+        );
+
+        let expected = vec![
+            Event::Parsed(WidgetSource {
+                id: 0,
+                height: 1,
+                data: WidgetSourceData::Line(Line::from(vec![Span::from("[a"), Span::from(" ")])),
+            }),
+            Event::Parsed(WidgetSource {
+                id: 1,
+                height: 1,
+                data: WidgetSourceData::LineExtra(
+                    Line::from(vec![
+                        Span::from("b]("),
+                        Span::from("http://link.com/veeeeeeeeee")
+                            .fg(Color::Blue)
+                            .underlined(),
+                    ]),
+                    vec![LineExtra::Link(
+                        "http://link.com/veeeeeeeeeeeeeeeeery/long/tail".to_string(),
+                        3,
+                        30,
+                    )],
+                ),
+            }),
+            Event::Parsed(WidgetSource {
+                id: 2,
+                height: 1,
+                data: WidgetSourceData::Line(Line::from(vec![Span::from("eeeeeeery/long/tail)")])),
+            }),
+        ];
+        assert_eq!(
+            events, expected,
+            "stylizes the part of the URL that starts on one line"
+        );
+    }
+
+    #[test]
+    fn test_parse_multiple_links_same_line() {
+        let text = String::from("http://a.com http://b.com");
+        let events: Vec<Event> = parse(text, &RatSkin::default(), 80, true).collect();
+
+        let urls: Vec<String> = events
+            .iter()
+            .flat_map(|ev| {
+                if let Event::Parsed(WidgetSource {
+                    data: WidgetSourceData::LineExtra(_, links),
+                    ..
+                }) = ev
+                {
+                    let urls: Vec<String> = links
+                        .iter()
+                        .flat_map(|LineExtra::Link(url, _, _)| vec![url.to_owned()])
+                        .collect();
+                    return urls;
+                }
+                vec![]
+            })
+            .collect();
+        assert_eq!(vec!["http://a.com", "http://b.com"], urls, "finds all URLs");
     }
 }
