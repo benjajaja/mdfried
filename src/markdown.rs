@@ -151,7 +151,7 @@ pub fn parse(
 
                         let mut url = mat.as_str();
                         if char_end as u16 == width
-                            && let Some(pos) = text.find(&mat.as_str())
+                            && let Some(pos) = text.find(mat.as_str())
                         {
                             let line_end = text[pos..]
                                 .find('\n')
