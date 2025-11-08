@@ -1,12 +1,7 @@
 # mdfried
 
-You can [cook](https://ratatui.rs/) a terminal. But can you **deep fry** a terminal?
-*YES!* You can **cook *and* fry** your `tty`! ~~Run before it's too late!~~
-
-> The terminal is usually in "cooked" mode, or canonical mode.
-> With `ratatui`🐁, it's in raw mode, but it "cooks" for you.
-
-`mdfried` is a markdown viewer for the terminal that renders headers as bigger text than normal.
+`mdfried` is a markdown viewer for the terminal that renders headers as **Bigger Text** than the
+rest.
 
 ## Screenshots
 
@@ -18,23 +13,28 @@ https://github.com/user-attachments/assets/e69154a7-bea8-4e14-a677-be7ccf0d3cac
 
 # Why?
 
+You can [cook](https://ratatui.rs/) a terminal. But can you **deep fry** a terminal?
+*YES!* You can **cook *and* fry** your `tty`! ~~Run before it's too late!~~
+
+> The terminal is usually in "cooked" mode, or canonical mode.
+> With `ratatui`🐁, it's in raw mode, but it "cooks" for you.
+
 Markdown can obviously be rendered pretty well in terminals, but one key aspect is missing: 
 Big Headers™ make text more readable, and rendering images inline is very convenient.
 
 # How?
 
-By rendering the headers as images, and using one of several terminal graphics protocols: Sixels,
-Kitty, or iTerm2.
-The Kitty terminal also implements a "Text Sizing Protocol" to directly scale text without needing to render as images!
+By rendering the headers as [images with ratatui](https://sw.kovidgoyal.net/kitty/text-sizing-protocol/),
+and using one of several terminal graphics protocols: Sixels, Kitty, or iTerm2.
+The Kitty terminal also implements a [Text Sizing Protocol](https://sw.kovidgoyal.net/kitty/text-sizing-protocol/)
+to directly scale text without needing to render as images!
 
 See [ratatui-image](https://github.com/benjajaja/ratatui-image?tab=readme-ov-file#compatibility-matrix)
 to see if your terminal does even have graphics support, and for further details.
 
 In general, Kitty, WezTerm, iTerm2, Ghostty, Foot, `xterm -ti vt340`, *should* work.
 
-# Usage
-
-### Installation
+# Installation
 
 * Rust cargo: `cargo install mdfried`
 * Nix flake: `github:benjajaja/mdfried` (`github:benjajaja/mdfried/v0.11.0`)
@@ -42,6 +42,8 @@ In general, Kitty, WezTerm, iTerm2, Ghostty, Foot, `xterm -ti vt340`, *should* w
 * Ubuntu: [Download release .deb](https://github.com/benjajaja/mdfried/releases/latest)
 * Windows: [Download release .exe](https://github.com/benjajaja/mdfried/releases/latest)
 * From source : `cargo install --path . --locked`
+
+# Usage
 
 ### Running
 
