@@ -23,14 +23,16 @@ use std::{
 };
 
 use clap::{ArgMatches, arg, command, value_parser};
-use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture, KeyModifiers, MouseEventKind},
-    tty::IsTty,
-};
 use flexi_logger::LoggerHandle;
 use ratatui::{
     DefaultTerminal, Frame, Terminal,
-    crossterm::event::{self, KeyCode, KeyEventKind},
+    crossterm::{
+        event::{
+            self, DisableMouseCapture, EnableMouseCapture, KeyCode, KeyEventKind, KeyModifiers,
+            MouseEventKind,
+        },
+        tty::IsTty,
+    },
     layout::{Rect, Size},
     prelude::CrosstermBackend,
     style::{Style, Stylize},
@@ -249,11 +251,11 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         Ok::<(), Error>(())
     });
 
-    crossterm::terminal::enable_raw_mode()?;
+    ratatui::crossterm::terminal::enable_raw_mode()?;
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
     if config.enable_mouse_capture {
-        crossterm::execute!(std::io::stderr(), EnableMouseCapture)?;
+        ratatui::crossterm::execute!(std::io::stderr(), EnableMouseCapture)?;
     }
     terminal.clear()?;
 
@@ -263,9 +265,9 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     run(terminal, model, ui_logger)?;
 
     if config.enable_mouse_capture {
-        crossterm::execute!(std::io::stderr(), DisableMouseCapture)?;
+        ratatui::crossterm::execute!(std::io::stderr(), DisableMouseCapture)?;
     }
-    crossterm::terminal::disable_raw_mode()?;
+    ratatui::crossterm::terminal::disable_raw_mode()?;
 
     if let Err(e) = cmd_thread.join() {
         eprintln!("Thread error: {e:?}");
@@ -359,7 +361,7 @@ fn run<'a>(
                                 if let Some(link) =
                                     model.sources.links_next(model.link_cursor, visible_lines)
                                 {
-                                    log::debug!("link_cursor {:?}", link);
+                                    log::debug!("link_cursor {link:?}");
                                     model.link_cursor = Some(link.0);
                                 } else {
                                     log::debug!("no links visible");
@@ -381,7 +383,7 @@ fn run<'a>(
                                     if let Some((_, LineExtra::Link(url, _, _))) =
                                         model.sources.links_by_id(Some(id))
                                     {
-                                        log::debug!("open link_cursor {}", id);
+                                        log::debug!("open link_cursor {id}");
                                         model.open_link(url.clone())?;
                                     } else {
                                         log::error!("no links visible to open");

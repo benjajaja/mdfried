@@ -1,9 +1,13 @@
 use std::{collections::BTreeMap, io};
 
 use cosmic_text::{FontSystem, SwashCache};
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
-    Terminal, TerminalOptions, layout::Rect, prelude::CrosstermBackend, style::Stylize, text::Line,
+    Terminal, TerminalOptions,
+    crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    layout::Rect,
+    prelude::CrosstermBackend,
+    style::Stylize,
+    text::Line,
     widgets::Paragraph,
 };
 use ratatui_image::{Image, picker::Picker, protocol::Protocol};
@@ -47,7 +51,7 @@ pub fn interactive_font_picker(
 
     println!("{} system fonts detected.", lowercase_fonts.len());
 
-    crossterm::terminal::enable_raw_mode()?;
+    ratatui::crossterm::terminal::enable_raw_mode()?;
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::with_options(
         backend,

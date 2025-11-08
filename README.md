@@ -36,12 +36,12 @@ In general, Kitty, WezTerm, iTerm2, Ghostty, Foot, `xterm -ti vt340`, *should* w
 
 # Installation
 
-* Rust cargo: `cargo install mdfried`
+* Rust cargo: `cargo install mdfried` (on errors, try with `--locked`)
 * Nix flake: `github:benjajaja/mdfried` (`github:benjajaja/mdfried/v0.11.0`)
 * Arch Linux: `paru -S mdfried` ([AUR](https://aur.archlinux.org/packages/mdfried))
 * Ubuntu: [Download release .deb](https://github.com/benjajaja/mdfried/releases/latest)
 * Windows: [Download release .exe](https://github.com/benjajaja/mdfried/releases/latest)
-* From source : `cargo install --path . --locked`
+* From source : `cargo install --path .` (on errors, try with `--locked`)
 
 # Usage
 

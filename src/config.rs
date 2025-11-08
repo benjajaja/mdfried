@@ -1,5 +1,5 @@
 use clap::{Parser, command};
-use crossterm::style::Color;
+use ratatui::crossterm::style::Color;
 use serde::{Deserialize, Serialize};
 
 use crate::Padding;

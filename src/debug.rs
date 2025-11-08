@@ -1,9 +1,8 @@
 use std::io::Write;
 
-use crossterm::style::Color;
 use flexi_logger::{DeferredNow, FlexiLoggerError, Logger};
 use log::Record;
-use ratatui::{Frame, layout::Rect, widgets::Block};
+use ratatui::{Frame, crossterm::style::Color, layout::Rect, widgets::Block};
 use ratskin::RatSkin;
 
 pub fn ui_logger() -> Result<flexi_logger::LoggerHandle, FlexiLoggerError> {
