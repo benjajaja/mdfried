@@ -62,7 +62,7 @@ const CONFIG_CONFIG_NAME: &str = "config";
 fn main() -> io::Result<()> {
     let mut cmd = command!() // requires `cargo` feature
         .arg(
-            arg!([path] "The markdown file path, or '-' for stdin")
+            arg!([path] "The markdown file path, or '-', or omit, for stdin")
                 .value_parser(value_parser!(PathBuf)),
         )
         .arg(arg!(-s --setup "Force font setup").value_parser(value_parser!(bool)))
@@ -101,10 +101,6 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             println!("{OK_END}");
             (text, None)
         }
-        Some(path) => (
-            read_file_to_str(path.to_str().ok_or(Error::Path(path.to_owned()))?)?,
-            path.parent().map(Path::to_path_buf),
-        ),
         None => {
             if io::stdin().is_tty() {
                 return Err(Error::Usage(Some(
@@ -117,6 +113,10 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             println!("{OK_END}");
             (text, None)
         }
+        Some(path) => (
+            read_file_to_str(path.to_str().ok_or(Error::Path(path.to_owned()))?)?,
+            path.parent().map(Path::to_path_buf),
+        ),
     };
 
     if text.is_empty() {
