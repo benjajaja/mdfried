@@ -27,7 +27,7 @@ use crossterm::{
     event::{DisableMouseCapture, EnableMouseCapture, KeyModifiers, MouseEventKind},
     tty::IsTty,
 };
-use flexi_logger::{Logger, LoggerHandle};
+use flexi_logger::LoggerHandle;
 use ratatui::{
     DefaultTerminal, Frame, Terminal,
     crossterm::event::{self, KeyCode, KeyEventKind},
@@ -88,9 +88,7 @@ fn main() -> io::Result<()> {
 }
 
 fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
-    let logger = Logger::try_with_env_or_str("debug")?
-        .log_to_buffer(10000, None)
-        .start()?;
+    let ui_logger = debug::ui_logger()?;
 
     let path = matches.get_one::<PathBuf>("path");
 
@@ -262,7 +260,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let model = Model::new(bg, path.cloned(), cmd_tx, event_rx, terminal.size()?.height)?;
     model.parse(terminal.size()?, text).map_err(Error::from)?;
 
-    run(terminal, model, logger)?;
+    run(terminal, model, ui_logger)?;
 
     if config.enable_mouse_capture {
         crossterm::execute!(std::io::stderr(), DisableMouseCapture)?;
@@ -298,7 +296,7 @@ pub(crate) type WidthEvent<'a> = (u16, Event<'a>);
 fn run<'a>(
     mut terminal: DefaultTerminal,
     mut model: Model<'a, 'a>,
-    logger: LoggerHandle,
+    ui_logger: LoggerHandle,
 ) -> Result<(), Error> {
     terminal.draw(|frame| view(&model, frame))?;
     let mut screen_size = terminal.size()?;
@@ -420,7 +418,7 @@ fn run<'a>(
 
         if had_events || had_input {
             if let Some(ref mut snapshot) = model.log_snapshot {
-                logger.update_snapshot(snapshot)?;
+                ui_logger.update_snapshot(snapshot)?;
             }
             terminal.draw(|frame| view(&model, frame))?;
         }
