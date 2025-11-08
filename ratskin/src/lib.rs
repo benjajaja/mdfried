@@ -32,12 +32,12 @@
 //!
 //! Because termimad is very streamlined for writing terminal output directly (for good reasons),
 //! a small part of the logic had to be rewritten for ratatui Spans and Lines.
-use crossterm::style::Attribute;
 use ratatui::{
-    style::Stylize,
+    backend::FromCrossterm,
+    style::{Color, Stylize},
     text::{Line, Span},
 };
-pub use termimad::MadSkin;
+pub use termimad::{crossterm::style::Attribute, MadSkin};
 use termimad::{
     minimad::{parse_text, Text},
     CompositeKind, CompoundStyle, FmtComposite, FmtLine, FmtText, ListItemsIndentationMode,
@@ -62,7 +62,7 @@ pub struct RatSkin {
 impl RatSkin {
     /// Just a wrapper around termimad::parse_text. Returns an intermediate `Text`, which is just
     /// the text split into lines.
-    pub fn parse_text(text: &str) -> Text {
+    pub fn parse_text(text: &str) -> Text<'_> {
         parse_text(text, termimad::minimad::Options::default())
     }
 
@@ -276,10 +276,10 @@ fn compoundstyle_to_span<'a>(src: String, style: &CompoundStyle) -> Span<'a> {
 // Convert from crossterm style to ratatui generic style, and set it on the span.
 fn style_to_span<'a>(style: &CompoundStyle, mut span: Span<'a>) -> Span<'a> {
     if let Some(color) = style.object_style.foreground_color {
-        span = span.fg(color);
+        span = span.fg(Color::from_crossterm(color));
     }
     if let Some(color) = style.object_style.background_color {
-        span = span.bg(color);
+        span = span.bg(Color::from_crossterm(color));
     }
     if style.object_style.attributes.has(Attribute::Underlined) {
         span = span.underlined();

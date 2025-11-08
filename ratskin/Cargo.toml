@@ -1,6 +1,6 @@
 [package]
 name = "ratskin"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["Benjamin Große <ste3ls@gmail.com>"]
 description = "A wrapper around termimad that produces ratatui widgets from markdown"
@@ -11,10 +11,9 @@ license = "MIT"
 rust-version = "1.81.0"
 
 [dependencies]
-termimad = "0.31.2"
-ratatui = "^0.29.0"
+termimad = "0.34.0"
+ratatui = "^0.30.0-beta.0"
 regex = "1.11.1"
-crossterm = "0.28.1"
 
 [package.metadata.release]
 sign-commit = true
