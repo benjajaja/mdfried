@@ -148,8 +148,23 @@ pub fn parse(
                     for mat in http_url_regex.find_iter(&raw_line) {
                         let char_start = raw_line[..mat.start()].chars().count();
                         let char_end = raw_line[..mat.end()].chars().count();
+
+                        let mut url = mat.as_str();
+                        if char_end as u16 == width
+                            && let Some(pos) = text.find(&mat.as_str())
+                        {
+                            let line_end = text[pos..]
+                                .find('\n')
+                                .map(|n| pos + n)
+                                .unwrap_or(text.len());
+                            let line_slice = &text[pos..line_end];
+                            if let Some(full_match) = http_url_regex.find(line_slice) {
+                                url = full_match.as_str();
+                            }
+                        }
+
                         links.push(LineExtra::Link(
-                            mat.as_str().to_string(),
+                            url.to_string(),
                             char_start as u16,
                             char_end as u16,
                         ));
