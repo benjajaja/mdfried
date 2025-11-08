@@ -346,11 +346,13 @@ fn run<'a>(
                             }
                             KeyCode::Char('g') => {
                                 model.scroll = 0;
+                                model.link_cursor = None;
                             }
                             KeyCode::Char('G') => {
                                 model.scroll = model.total_lines().saturating_sub(
                                     page_scroll_count as u16 + 1, // Why +1?
                                 );
+                                model.link_cursor = None;
                             }
                             KeyCode::Char('n') => {
                                 let visible_lines = model.visible_lines();
