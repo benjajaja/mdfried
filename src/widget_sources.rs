@@ -319,6 +319,7 @@ pub fn header_sources<'a>(
 #[allow(clippy::too_many_arguments)]
 pub async fn image_source<'a>(
     picker: &Arc<Picker>,
+    max_height: u16,
     width: u16,
     basepath: &Option<PathBuf>,
     client: Arc<RwLock<Client>>,
@@ -378,7 +379,6 @@ pub async fn image_source<'a>(
             dyn_img = deep_fry(dyn_img);
         }
 
-        let max_height: u16 = 20;
         let max_width: u16 = (max_height * 3 / 2).min(width);
 
         let proto = picker.new_protocol(

@@ -19,6 +19,7 @@ pub struct Config {
     pub padding: Padding,
     pub skin: ratskin::MadSkin,
     pub enable_mouse_capture: bool,
+    pub max_image_height: u16,
 }
 
 impl Default for Config {
@@ -37,11 +38,14 @@ impl Default for Config {
 
         let enable_mouse_capture = false;
 
+        let max_image_height = 30;
+
         Self {
             font_family: Default::default(),
             padding: Default::default(),
             skin,
             enable_mouse_capture,
+            max_image_height,
         }
     }
 }

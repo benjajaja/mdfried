@@ -162,6 +162,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
     let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
 
+    let config_max_image_height = config.max_image_height;
     let cmd_thread = thread::spawn(move || {
         let runtime = Builder::new_multi_thread()
             .worker_threads(2)
@@ -218,7 +219,14 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
                         // TODO: handle spawned task result errors, right now it's just discarded.
                         tokio::spawn(async move {
                             match image_source(
-                                &picker, width, &basepath, client, id, &url, deep_fry,
+                                &picker,
+                                config_max_image_height,
+                                width,
+                                &basepath,
+                                client,
+                                id,
+                                &url,
+                                deep_fry,
                             )
                             .await
                             {
