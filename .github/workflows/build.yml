@@ -87,9 +87,13 @@ jobs:
             container: ubuntu:20.04
             artifact_name: mdfried-linux
             build_deb: true
+          - os: macos-13
+            container: null
+            artifact_name: mdfried_macos_x86_64
+            build_deb: false
           - os: macos-latest
             container: null
-            artifact_name: mdfried_macos
+            artifact_name: mdfried_macos_aarch64
             build_deb: false
     container: ${{ matrix.container }}
     outputs:
