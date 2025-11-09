@@ -83,7 +83,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-20.04
             container: ubuntu:20.04
             artifact_name: mdfried-linux
             build_deb: true
@@ -91,7 +91,7 @@ jobs:
             container: null
             artifact_name: mdfried_macos_x86_64
             build_deb: false
-          - os: macos-latest
+          - os: macos-14
             container: null
             artifact_name: mdfried_macos_aarch64
             build_deb: false
