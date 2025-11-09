@@ -77,18 +77,33 @@ jobs:
           name: mdfried-nix
           path: ./mdfried_nix_glibc_2_38
 
-  ubuntu-build:
-    name: Ubuntu 20.04 build 🫂
-    runs-on: ubuntu-latest
-    container:
-      image: ubuntu:20.04 # Ubuntu 20.04 uses glibc 2.31 (or 2.29?)
+  cargo-build:
+    name: Cargo build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            container: ubuntu:20.04
+            artifact_name: mdfried-linux
+            build_deb: true
+          - os: macos-15-intel
+            container: null
+            artifact_name: mdfried_macos_x86_64
+            build_deb: false
+          - os: macos-latest
+            container: null
+            artifact_name: mdfried_macos_aarch64
+            build_deb: false
+    container: ${{ matrix.container }}
     outputs:
       artifact_path: ${{ steps.upload-artifact.outputs.artifact_path }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Install dependencies
+      - name: Install dependencies (Ubuntu)
+        if: runner.os == 'Linux'
         run: |
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -105,7 +120,7 @@ jobs:
           profile: minimal
           toolchain: nightly-2025-08-04
           override: true
-      
+
       - name: Cache Rust dependencies
         uses: actions/cache@v3
         with:
@@ -123,25 +138,40 @@ jobs:
           command: build
           args: --release --locked
 
+      - name: Test binary works (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          output=$(./target/release/mdfried --version)
+          echo "Output: $output"
+          if [[ "$output" =~ ^mdfried\ [0-9]+\.[0-9]+\.[0-9]+.*$ ]]; then
+            echo "✅ Binary works on macOS - Version: $output"
+          else
+            echo "❌ Binary test failed! Expected format: 'mdfried x.y.z'"
+            exit 1
+          fi
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mdfried-linux
+          name: ${{ matrix.artifact_name }}
           path: ./target/release/mdfried
 
       - name: Install cargo-deb
+        if: matrix.build_deb
         uses: actions-rs/cargo@v1
         with:
           command: install
           args: cargo-deb
 
       - name: Build .deb package
+        if: matrix.build_deb
         uses: actions-rs/cargo@v1
         with:
           command: deb
           args: --no-build
 
       - name: Upload .deb artifact
+        if: matrix.build_deb
         uses: actions/upload-artifact@v4
         with:
           name: mdfried-deb

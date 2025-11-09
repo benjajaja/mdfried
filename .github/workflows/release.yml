@@ -26,6 +26,23 @@ jobs:
         with:
           name: mdfried-windows
 
+      - name: Download build artifact (macOS x86_64)
+        uses: actions/download-artifact@v4
+        with:
+          name: mdfried_macos_x86_64
+          path: macos-x86_64-build
+
+      - name: Download build artifact (macOS aarch64)
+        uses: actions/download-artifact@v4
+        with:
+          name: mdfried_macos_aarch64
+          path: macos-aarch64-build
+
+      - name: Rename macOS binaries
+        run: |
+          mv macos-x86_64-build/mdfried ./mdfried_macos_x86_64
+          mv macos-aarch64-build/mdfried ./mdfried_macos_aarch64
+
       - name: Download .deb artifact
         uses: actions/download-artifact@v4
         with:
@@ -65,6 +82,26 @@ jobs:
           upload_url: ${{ steps.create_release.outputs.upload_url }} # This pulls from the CREATE RELEASE step above, referencing it's ID to get its outputs object, which include a `upload_url`. See this blog post for more info: https://jasonet.co/posts/new-features-of-github-actions/#passing-data-to-future-steps
           asset_path: ./mdfried.exe
           asset_name: mdfried.exe
+          asset_content_type: application/octet-stream
+
+      - name: Add release assets (macOS x86_64)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./mdfried_macos_x86_64
+          asset_name: mdfried_macos_x86_64
+          asset_content_type: application/octet-stream
+
+      - name: Add release assets (macOS aarch64)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./mdfried_macos_aarch64
+          asset_name: mdfried_macos_aarch64
           asset_content_type: application/octet-stream
 
       - name: Find .deb file
