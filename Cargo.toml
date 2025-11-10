@@ -3,7 +3,7 @@ members = [ ".", "ratskin" ]
 
 [package]
 name = "mdfried"
-version = "0.14.3"
+version = "0.14.4"
 edition = "2024"
 authors = ["Benjamin Große <ste3ls@gmail.com>"]
 description = "A markdown viewer for the terminal that renders images and big headers"
