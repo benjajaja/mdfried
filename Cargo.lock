@@ -2287,6 +2287,7 @@ dependencies = [
  "rand",
  "ratatui",
  "rustix 0.38.44",
+ "serde",
  "thiserror 1.0.69",
  "windows",
 ]

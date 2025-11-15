@@ -1,5 +1,6 @@
 use clap::{Parser, command};
 use ratatui::crossterm::style::Color;
+use ratatui_image::picker::ProtocolType;
 use serde::{Deserialize, Serialize};
 
 use crate::Padding;
@@ -20,6 +21,7 @@ pub struct Config {
     pub skin: ratskin::MadSkin,
     pub enable_mouse_capture: bool,
     pub max_image_height: u16,
+    pub debug_override_protocol_type: Option<ProtocolType>,
 }
 
 impl Default for Config {
@@ -40,12 +42,15 @@ impl Default for Config {
 
         let max_image_height = 30;
 
+        let debug_override_protocol_type = None;
+
         Self {
             font_family: Default::default(),
             padding: Default::default(),
             skin,
             enable_mouse_capture,
             max_image_height,
+            debug_override_protocol_type,
         }
     }
 }

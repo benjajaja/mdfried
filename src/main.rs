@@ -24,6 +24,7 @@ use std::{
 
 use clap::{ArgMatches, arg, command, value_parser};
 use flexi_logger::LoggerHandle;
+use log::warn;
 use ratatui::{
     DefaultTerminal, Frame, Terminal,
     crossterm::{
@@ -69,6 +70,7 @@ fn main() -> io::Result<()> {
                 .value_parser(value_parser!(PathBuf)),
         )
         .arg(arg!(-s --setup "Force font setup").value_parser(value_parser!(bool)))
+        .arg(arg!(--debug_override_protocol_type <PROTOCOL> "Force graphics protocol type"))
         .arg(arg!(-d --deep "Extra deep fried images").value_parser(value_parser!(bool)));
     let matches = cmd.get_matches_mut();
 
@@ -148,7 +150,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     let force_setup = *matches.get_one("setup").unwrap_or(&false);
     let setup_result = setup_graphics(config.font_family, force_setup);
-    let (picker, bg, renderer, has_text_size_protocol) = match setup_result {
+    let (mut picker, bg, renderer, has_text_size_protocol) = match setup_result {
         Ok(result) => match result {
             SetupResult::Aborted => return Err(Error::UserAbort("cancelled setup")),
             SetupResult::TextSizing(picker, bg) => (picker, bg, None, true),
@@ -156,6 +158,19 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         },
         Err(err) => return Err(err),
     };
+
+    if let Some(debug_override_protocol_type) = config.debug_override_protocol_type.or(matches
+        .get_one::<String>("debug_override_protocol_type")
+        .map(|s| match s.as_str() {
+            "Sixel" => ProtocolType::Sixel,
+            "Iterm2" => ProtocolType::Iterm2,
+            "Kitty" => ProtocolType::Kitty,
+            _ => ProtocolType::Halfblocks,
+        }))
+    {
+        warn!("debug_override_protocol_type set to {debug_override_protocol_type:?}");
+        picker.set_protocol_type(debug_override_protocol_type);
+    }
 
     let deep_fry = *matches.get_one("deep").unwrap_or(&false);
 
