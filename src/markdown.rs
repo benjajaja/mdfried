@@ -339,7 +339,11 @@ paragraph
                     Span::from("http://link.com").fg(Color::Blue).underlined(),
                     Span::from(")").fg(Color::DarkGray),
                 ]),
-                vec![LineExtra::Link("http://link.com".to_string(), 7, 22)],
+                vec![LineExtra::Link(
+                    "http://link.com".to_string(),
+                    (7, 22),
+                    Some(("text".to_string(), 1, 5)),
+                )],
             ),
         })];
         assert_eq!(events, expected);
@@ -365,8 +369,8 @@ paragraph
                     ]),
                     vec![LineExtra::Link(
                         "http://link.com/veeeeeeeeeeeeeeeeery/long/tail".to_string(),
-                        7,
-                        30,
+                        (7, 30),
+                        Some(("text".to_string(), 1, 5)),
                     )],
                 ),
             }),
@@ -446,8 +450,8 @@ paragraph
                     ]),
                     vec![LineExtra::Link(
                         "http://link.com/veeeeeeeeeeeeeeeeery/long/tail".to_string(),
-                        3,
-                        30,
+                        (3, 30),
+                        None,
                     )],
                 ),
             }),

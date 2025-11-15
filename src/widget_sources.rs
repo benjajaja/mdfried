@@ -260,7 +260,7 @@ impl Display for WidgetSource<'_> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum LineExtra {
-    Link(String, u16, u16),
+    Link(String, (u16, u16), Option<(String, u16, u16)>),
 }
 
 /// Layout/shape and render `text` into a list of [DynamicImage] with a given terminal width.
@@ -617,8 +617,8 @@ mod tests {
             data: WidgetSourceData::LineExtra(
                 Line::from("http://a.com http://b.com"),
                 vec![
-                    LineExtra::Link("http://a.com".into(), 0, 11),
-                    LineExtra::Link("http://b.com".into(), 12, 21),
+                    LineExtra::Link("http://a.com".into(), (0, 11), None),
+                    LineExtra::Link("http://b.com".into(), (12, 21), None),
                 ],
             ),
         });
@@ -627,7 +627,7 @@ mod tests {
             height: 1,
             data: WidgetSourceData::LineExtra(
                 Line::from("http://c.com"),
-                vec![LineExtra::Link("http://c.com".into(), 0, 11)],
+                vec![LineExtra::Link("http://c.com".into(), (0, 11), None)],
             ),
         });
 
@@ -653,8 +653,8 @@ mod tests {
             data: WidgetSourceData::LineExtra(
                 Line::from("http://a.com http://b.com"),
                 vec![
-                    LineExtra::Link("http://a.com".into(), 0, 11),
-                    LineExtra::Link("http://b.com".into(), 12, 21),
+                    LineExtra::Link("http://a.com".into(), (0, 11), None),
+                    LineExtra::Link("http://b.com".into(), (12, 21), None),
                 ],
             ),
         });
@@ -663,7 +663,7 @@ mod tests {
             height: 1,
             data: WidgetSourceData::LineExtra(
                 Line::from("http://c.com"),
-                vec![LineExtra::Link("http://c.com".into(), 0, 11)],
+                vec![LineExtra::Link("http://c.com".into(), (0, 11), None)],
             ),
         });
 

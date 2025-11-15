@@ -81,8 +81,12 @@ pub fn capture_links(
 
             links.push(LineExtra::Link(
                 url_str.to_string(),
-                url.start() as u16,
-                url.end() as u16,
+                (url.start() as u16, url.end() as u16),
+                Some((
+                    link_text.as_str().to_string(),
+                    link_text.start() as u16,
+                    link_text.end() as u16,
+                )),
             ));
         }
     }
@@ -155,8 +159,8 @@ pub fn capture_urls(
 
         links.push(LineExtra::Link(
             url_str.to_string(),
-            cap.start() as u16,
-            cap.end() as u16,
+            (cap.start() as u16, cap.end() as u16),
+            None,
         ));
     }
     if found_link {

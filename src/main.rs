@@ -2,6 +2,7 @@ mod config;
 mod debug;
 mod error;
 mod fontpicker;
+mod link;
 mod markdown;
 mod model;
 mod setup;
@@ -50,6 +51,7 @@ use tokio::{runtime::Builder, sync::RwLock};
 use crate::{
     config::Config,
     error::Error,
+    link::Link,
     markdown::parse,
     model::{Model, Padding},
     widget_sources::{
@@ -470,18 +472,27 @@ fn view(model: &Model, frame: &mut Frame) {
                     render_widget(p, source.height, y as u16, inner_area, frame);
 
                     // Render links now on top, again, this shouldn't be a performance concern.
-                    if let Some(Cursor { index, .. }) = model.sources.is_cursor(source)
-                        && let WidgetSourceData::LineExtra(_, extra) = &source.data
-                    {
-                        if let Some(link) = extra.get(*index) {
-                            match link {
-                                LineExtra::Link(url, start, end) => {
-                                    let x = frame_area.x + *start + 1;
-                                    let width = end - start;
-                                    let area = Rect::new(x, y as u16, width, 1);
-                                    let link_overlay_widget =
-                                        Paragraph::new(url.clone()).black().on_yellow();
-                                    frame.render_widget(link_overlay_widget, area);
+                    if let WidgetSourceData::LineExtra(_, extra) = &source.data {
+                        for (i, extra) in extra.iter().enumerate() {
+                            if let LineExtra::Link(url, _, Some((text, start, end))) = extra {
+                                let x = frame_area.x + *start + 1;
+                                let width = end - start;
+                                let link = Link::new(text, url);
+                                let area = Rect::new(x, y as u16, width, 1);
+                                frame.render_widget(link, area);
+                            }
+                            if let Some(Cursor { index, .. }) = model.sources.is_cursor(source)
+                                && *index == i
+                            {
+                                match extra {
+                                    LineExtra::Link(url, (start, end), _) => {
+                                        let x = frame_area.x + *start + 1;
+                                        let width = end - start;
+                                        let area = Rect::new(x, y as u16, width, 1);
+                                        let link_overlay_widget =
+                                            Paragraph::new(url.clone()).black().on_yellow();
+                                        frame.render_widget(link_overlay_widget, area);
+                                    }
                                 }
                             }
                         }
