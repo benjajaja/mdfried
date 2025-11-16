@@ -5,7 +5,7 @@ on:
 jobs:
   fast-forward:
     # Only run if the comment contains the /fast-forward command.
-    if: ${{ contains(github.event.comment.body, '/fast-forward')
+    if: ${{ contains(github.event.comment.body, '/merge')
       && github.event.issue.pull_request }}
     runs-on: ubuntu-latest
 
@@ -23,4 +23,4 @@ jobs:
           # to only post a comment when an error occurs, or 'never' to
           # never post a comment.  (In all cases the information is
           # still available in the step's summary.)
-          comment: never
+          comment: on-error
