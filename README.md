@@ -39,7 +39,7 @@ In general, Kitty, WezTerm, iTerm2, Ghostty, Foot, `xterm -ti vt340`, *should* w
 * Rust cargo: `cargo install mdfried`
 * Nix flake: `github:benjajaja/mdfried`
 * Nixpkgs: [`mdfried`](https://search.nixos.org/packages?channel=unstable&query=mdfried)
-- Arch Linux: `pacman -S mdfried` ([extra repository](https://archlinux.org/packages/extra/x86_64/mdfried/))
+* Arch Linux: `pacman -S mdfried` ([extra repository](https://archlinux.org/packages/extra/x86_64/mdfried/))
 * Ubuntu: [Download release .deb](https://github.com/benjajaja/mdfried/releases/latest)
 * Windows: [Download release .exe](https://github.com/benjajaja/mdfried/releases/latest)
 * From source : `cargo install --path .`
