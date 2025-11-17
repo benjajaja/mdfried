@@ -6,7 +6,8 @@ use ratatui_image::{
 };
 
 use crate::{
-    CONFIG_APP_NAME, CONFIG_CONFIG_NAME, config::Config, error::Error,
+    config::{self, Config},
+    error::Error,
     fontpicker::interactive_font_picker,
 };
 
@@ -106,7 +107,7 @@ pub fn setup_graphics(
                         font_family: Some(setup_font_family.clone()),
                         ..Default::default()
                     };
-                    confy::store(CONFIG_APP_NAME, CONFIG_CONFIG_NAME, new_config)?;
+                    config::store(new_config)?;
                     font_family = setup_font_family;
                 }
                 Ok(None) => return Ok(SetupResult::Aborted),
@@ -122,7 +123,7 @@ pub fn setup_graphics(
                     font_family: Some(font_family.clone()),
                     ..Default::default()
                 };
-                confy::store(CONFIG_APP_NAME, CONFIG_CONFIG_NAME, new_config)?;
+                config::store(new_config)?;
                 font_family
             }
             Ok(None) => return Ok(SetupResult::Aborted),

@@ -48,7 +48,6 @@ use setup::{SetupResult, setup_graphics};
 use tokio::{runtime::Builder, sync::RwLock};
 
 use crate::{
-    config::Config,
     error::Error,
     markdown::parse,
     model::{Model, Padding},
@@ -59,9 +58,6 @@ use crate::{
 };
 
 const OK_END: &str = " ok.";
-
-const CONFIG_APP_NAME: &str = "mdfried";
-const CONFIG_CONFIG_NAME: &str = "config";
 
 fn main() -> io::Result<()> {
     let mut cmd = command!() // requires `cargo` feature
@@ -123,10 +119,12 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     };
 
     if text.is_empty() {
-        return Err(Error::Usage(Some("no input or emtpy")));
+        return Err(Error::Usage(Some("no input or empty")));
     }
 
-    let config: Config = confy::load(CONFIG_APP_NAME, CONFIG_CONFIG_NAME)?;
+    let Ok(config) = config::load_or_ask() else {
+        return Err(Error::Usage(Some("aborted config error resolution")));
+    };
 
     #[cfg(not(windows))]
     if !io::stdin().is_tty() {
@@ -279,7 +277,8 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     ratatui::crossterm::terminal::enable_raw_mode()?;
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
-    if config.enable_mouse_capture {
+    let enable_mouse_capture = config.enable_mouse_capture;
+    if enable_mouse_capture {
         ratatui::crossterm::execute!(std::io::stderr(), EnableMouseCapture)?;
     }
     terminal.clear()?;
@@ -289,7 +288,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     run(terminal, model, ui_logger)?;
 
-    if config.enable_mouse_capture {
+    if enable_mouse_capture {
         ratatui::crossterm::execute!(std::io::stderr(), DisableMouseCapture)?;
     }
     ratatui::crossterm::terminal::disable_raw_mode()?;
