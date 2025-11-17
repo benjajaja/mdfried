@@ -1,9 +1,12 @@
+use std::path::PathBuf;
+
 use clap::{Parser, command};
+use confy::ConfyError;
 use ratatui::crossterm::style::Color;
 use ratatui_image::picker::ProtocolType;
 use serde::{Deserialize, Serialize};
 
-use crate::Padding;
+use crate::{Padding, error::Error};
 
 #[derive(Parser)]
 #[command(name = "mdfried")]
@@ -52,5 +55,59 @@ impl Default for Config {
             max_image_height,
             debug_override_protocol_type,
         }
+    }
+}
+
+const CONFIG_APP_NAME: &str = "mdfried";
+const CONFIG_CONFIG_NAME: &str = "config";
+
+pub fn get_configuration_file_path() -> Option<PathBuf> {
+    confy::get_configuration_file_path(CONFIG_APP_NAME, CONFIG_CONFIG_NAME).ok()
+}
+
+// Save (overwrite) the config file.
+fn store(new_config: &Config) -> Result<(), ConfyError> {
+    log::warn!("store config file");
+    confy::store(CONFIG_APP_NAME, CONFIG_CONFIG_NAME, new_config)
+}
+
+// Save (overwrite) only the font_family into the config file.
+pub fn store_font_family(config: &mut Config, font_family: String) -> Result<(), ConfyError> {
+    log::warn!("store config file with new font_family");
+    config.font_family = Some(font_family);
+    store(config)
+}
+
+pub fn load_or_ask() -> Result<Config, Error> {
+    use crate::setup::configpicker::{ConfigResolution::*, interactive_resolve_config};
+    let file_existed = get_configuration_file_path()
+        .map(|p| p.exists())
+        .unwrap_or_default();
+    match confy::load::<Config>(CONFIG_APP_NAME, CONFIG_CONFIG_NAME) {
+        Ok(config) => {
+            if !file_existed {
+                crate::setup::notification::interactive_notification(
+                    "Default config file has been written...",
+                )?;
+            }
+            Ok(config)
+        }
+        Err(error) => match interactive_resolve_config(error.into())? {
+            Overwrite => {
+                let config = Config::default();
+                store(&config)?;
+                crate::setup::notification::interactive_notification(
+                    "Config file has been overwritten...",
+                )?;
+                Ok(config)
+            }
+            Ignore => Ok(Config::default()),
+            Abort => {
+                println!(
+                    "Aborted: edit and resolve configuration file errors or delete the file manually.",
+                );
+                Err(Error::UserAbort("aborted"))
+            }
+        },
     }
 }
