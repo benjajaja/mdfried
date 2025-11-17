@@ -1,18 +1,30 @@
 use ratatui::{
     style::{Color, Stylize},
-    text::Span,
+    text::{Line, Span},
 };
 use regex::Regex;
 
 use crate::widget_sources::LineExtra;
 
-pub fn capture_links(
-    span: &Span,
+pub fn capture_line<'a>(line: Line<'a>, text: &str, width: u16) -> (Line<'a>, Vec<LineExtra>) {
+    let mut links = Vec::new();
+
+    let mut new_spans = Vec::new();
+    let mut offset = 0;
+    for span in line.spans {
+        capture_links(span, &mut offset, text, width, &mut new_spans, &mut links);
+    }
+    (Line::from(new_spans), links)
+}
+
+pub fn capture_links<'a>(
+    span: Span<'a>,
+    offset: &mut u16,
     text: &str,
     width: u16,
-    new_spans: &mut Vec<Span>,
+    new_spans: &mut Vec<Span<'a>>,
     links: &mut Vec<LineExtra>,
-) -> bool {
+) {
     let md_link_regex = Regex::new(r"\[([^\]]+)\]\(([^)]+)\)?").unwrap();
     let url_regex = Regex::new(r"https?://[^\s)]+").unwrap();
 
@@ -81,8 +93,8 @@ pub fn capture_links(
 
             links.push(LineExtra::Link(
                 url_str.to_string(),
-                url.start() as u16,
-                url.end() as u16,
+                *offset + url.start() as u16,
+                *offset + url.end() as u16,
             ));
         }
     }
@@ -91,19 +103,23 @@ pub fn capture_links(
             // There is some leftover spans.
             spans.push(Span::from(span_content[last_end..].to_string()).style(parent_style));
         }
+        for span in &spans {
+            *offset += span.width() as u16;
+        }
         new_spans.append(&mut spans);
+    } else {
+        capture_urls(span, offset, text, width, new_spans, links);
     }
-    found_link
 }
 
-pub fn capture_urls(
-    span: &Span,
+pub fn capture_urls<'a>(
+    span: Span<'a>,
+    offset: &mut u16,
     text: &str,
     width: u16,
-    new_spans: &mut Vec<Span>,
+    new_spans: &mut Vec<Span<'a>>,
     links: &mut Vec<LineExtra>,
-) -> bool {
-    // let url_regex = Regex::new(r"https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%\-]+").unwrap();
+) {
     let url_regex =
         Regex::new(r"https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%\-]+[A-Za-z0-9/?#=\-]").unwrap();
 
@@ -155,8 +171,8 @@ pub fn capture_urls(
 
         links.push(LineExtra::Link(
             url_str.to_string(),
-            cap.start() as u16,
-            cap.end() as u16,
+            *offset + cap.start() as u16,
+            *offset + cap.end() as u16,
         ));
     }
     if found_link {
@@ -164,7 +180,93 @@ pub fn capture_urls(
             // There is some leftover spans.
             spans.push(Span::from(span_content[last_end..].to_string()).style(parent_style));
         }
+        for span in &spans {
+            *offset += span.width() as u16;
+        }
         new_spans.append(&mut spans);
+    } else {
+        // Nothing found, push original span.
+        *offset += span.width() as u16;
+        new_spans.push(span);
     }
-    found_link
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+    use ratatui::{
+        style::{Color, Stylize},
+        text::Span,
+    };
+
+    use crate::{markdown::links::capture_links, widget_sources::LineExtra};
+
+    #[test]
+    fn basic() {
+        let text = "*deep* [fried](http://url)";
+        let preceding_span = Span::from("deep").bold();
+        let span = Span::from(" [fried](http://url)");
+        let width = 80;
+        let mut new_spans = Vec::new();
+        let mut links = Vec::new();
+        let mut offset = preceding_span.width() as u16;
+        capture_links(span, &mut offset, text, width, &mut new_spans, &mut links);
+
+        let decor_style = Color::DarkGray;
+        assert_eq!(
+            vec![
+                Span::from(" "),
+                Span::from("[").style(decor_style),
+                Span::from("fried").fg(Color::LightBlue),
+                Span::from("]").style(decor_style),
+                Span::from("(").style(decor_style),
+                Span::from("http://url").fg(Color::Blue).underlined(),
+                Span::from(")").style(decor_style),
+            ],
+            new_spans
+        );
+
+        assert_eq!(
+            vec![LineExtra::Link("http://url".to_string(), 13, 23)],
+            links,
+        );
+    }
+
+    #[test]
+    fn offsets() {
+        let text = "[a](http://a) [b](http://b)";
+        let span = Span::from("[a](http://a) [b](http://b)");
+        let width = 80;
+        let mut new_spans = Vec::new();
+        let mut links = Vec::new();
+        capture_links(span, &mut 0, text, width, &mut new_spans, &mut links);
+
+        let decor_style = Color::DarkGray;
+        assert_eq!(
+            vec![
+                Span::from("[").style(decor_style),
+                Span::from("a").fg(Color::LightBlue),
+                Span::from("]").style(decor_style),
+                Span::from("(").style(decor_style),
+                Span::from("http://a").fg(Color::Blue).underlined(),
+                Span::from(")").style(decor_style),
+                Span::from(" "),
+                Span::from("[").style(decor_style),
+                Span::from("b").fg(Color::LightBlue),
+                Span::from("]").style(decor_style),
+                Span::from("(").style(decor_style),
+                Span::from("http://b").fg(Color::Blue).underlined(),
+                Span::from(")").style(decor_style),
+            ],
+            new_spans
+        );
+
+        assert_eq!(
+            vec![
+                LineExtra::Link("http://a".to_string(), 4, 12),
+                LineExtra::Link("http://b".to_string(), 18, 26),
+            ],
+            links,
+        );
+    }
 }

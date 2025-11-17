@@ -136,17 +136,7 @@ pub fn parse<'a>(
                 let madtext = RatSkin::parse_text(&text);
 
                 for line in skin.parse(madtext, width).into_iter() {
-                    let mut links = Vec::new();
-
-                    let mut new_spans = Vec::new();
-                    for span in line.spans {
-                        if !links::capture_links(&span, &text, width, &mut new_spans, &mut links)
-                            && !links::capture_urls(&span, &text, width, &mut new_spans, &mut links)
-                        {
-                            new_spans.push(span);
-                        }
-                    }
-                    let line = Line::from(new_spans);
+                    let (line, links) = links::capture_line(line, &text, width);
 
                     events.push(send_line(
                         &mut id,
