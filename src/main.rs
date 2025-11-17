@@ -1,7 +1,6 @@
 mod config;
 mod debug;
 mod error;
-mod fontpicker;
 mod markdown;
 mod model;
 mod setup;

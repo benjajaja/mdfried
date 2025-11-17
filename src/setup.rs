@@ -1,3 +1,6 @@
+pub mod configpicker;
+mod fontpicker;
+
 use cosmic_text::{FontSystem, SwashCache};
 use image::Rgba;
 use ratatui_image::{
@@ -8,8 +11,8 @@ use ratatui_image::{
 use crate::{
     config::{self, Config},
     error::Error,
-    fontpicker::interactive_font_picker,
 };
+use fontpicker::interactive_font_picker;
 
 #[derive(Default, Clone, Copy)]
 pub struct BgColor([u8; 4]);
