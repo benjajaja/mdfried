@@ -6,9 +6,9 @@ use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     layout::Rect,
     prelude::CrosstermBackend,
-    style::Stylize,
+    style::{Color, Stylize},
     text::Line,
-    widgets::Paragraph,
+    widgets::{Padding, Paragraph},
 };
 use ratatui_image::{Image, picker::Picker, protocol::Protocol};
 
@@ -56,7 +56,7 @@ pub fn interactive_font_picker(
     let mut terminal = Terminal::with_options(
         backend,
         TerminalOptions {
-            viewport: ratatui::Viewport::Inline(5),
+            viewport: ratatui::Viewport::Inline(7),
         },
     )?;
     terminal.clear()?;
@@ -68,7 +68,9 @@ pub fn interactive_font_picker(
             let area = f.area();
             let block = ratatui::widgets::Block::default()
                 .title("Enter font name")
-                .borders(ratatui::widgets::Borders::ALL);
+                .borders(ratatui::widgets::Borders::ALL)
+                .border_style(Color::Yellow)
+                .padding(Padding::proportional(1));
             let inner_area = block.inner(area);
             inner_width = inner_area.width;
             f.render_widget(block, area);
@@ -94,10 +96,10 @@ pub fn interactive_font_picker(
 
             f.render_widget(
                 Paragraph::new(Line::from("Tab: complete, Esc: abort, Enter: confirm").dark_gray()),
-                Rect::new(1, f.area().y + 4, inner_area.width, 1),
+                Rect::new(1, f.area().y + f.area().height - 1, inner_area.width, 1),
             );
 
-            f.set_cursor_position(((1 + input.len()) as u16, f.area().y + 1));
+            f.set_cursor_position(((input.len()) as u16 + 3, f.area().y + 2));
         })?;
 
         if inner_width > 0 && first_match.is_some() {
