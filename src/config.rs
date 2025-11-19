@@ -4,7 +4,7 @@ use ratatui::crossterm::style::Color;
 use ratatui_image::picker::ProtocolType;
 use serde::{Deserialize, Serialize};
 
-use crate::{Padding, error::Error, setup::configpicker::interactive_resolve_config};
+use crate::{Padding, error::Error};
 
 #[derive(Parser)]
 #[command(name = "mdfried")]
@@ -70,8 +70,16 @@ pub fn store(new_config: Config) -> Result<(), ConfyError> {
 }
 
 pub fn load_or_ask() -> Result<Config, Error> {
+    use crate::setup::configpicker::{ConfigResolution::*, interactive_resolve_config};
     match confy::load::<Config>(CONFIG_APP_NAME, CONFIG_CONFIG_NAME) {
         Ok(config) => Ok(config),
-        Err(error) => interactive_resolve_config(error.into()),
+        Err(error) => match interactive_resolve_config(error.into())? {
+            Overwrite => {
+                store(Config::default())?;
+                Ok(Config::default())
+            }
+            Ignore => Ok(Config::default()),
+            Abort => Err(Error::UserAbort("aborted")),
+        },
     }
 }

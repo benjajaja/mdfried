@@ -8,12 +8,47 @@ use ratatui::{
     widgets::{Block, Borders, Padding, Paragraph},
 };
 
-use crate::{
-    config::{Config, store},
-    error::Error,
-};
+use crate::error::Error;
 
-pub fn interactive_resolve_config(error: Error) -> Result<Config, Error> {
+#[derive(PartialEq)]
+pub enum ConfigResolution {
+    Overwrite,
+    Ignore,
+    Abort,
+}
+
+impl ConfigResolution {
+    fn next(&mut self) {
+        use ConfigResolution::*;
+        *self = match self {
+            Overwrite => Ignore,
+            Ignore => Abort,
+            Abort => Overwrite,
+        };
+    }
+
+    fn prev(&mut self) {
+        use ConfigResolution::*;
+        *self = match self {
+            Overwrite => Abort,
+            Ignore => Overwrite,
+            Abort => Ignore,
+        };
+    }
+}
+
+impl From<usize> for ConfigResolution {
+    fn from(value: usize) -> Self {
+        use ConfigResolution::*;
+        match value {
+            0 => Overwrite,
+            1 => Ignore,
+            _ => Abort,
+        }
+    }
+}
+
+pub fn interactive_resolve_config(error: Error) -> Result<ConfigResolution, Error> {
     println!("{error}");
     ratatui::crossterm::terminal::enable_raw_mode()?;
     let backend = CrosstermBackend::new(io::stdout());
@@ -25,7 +60,7 @@ pub fn interactive_resolve_config(error: Error) -> Result<Config, Error> {
     )?;
     terminal.clear()?;
 
-    let mut focus: i8 = 0;
+    let mut focus = ConfigResolution::Overwrite;
     loop {
         terminal.draw(|f| {
             let area = f.area();
@@ -69,7 +104,7 @@ pub fn interactive_resolve_config(error: Error) -> Result<Config, Error> {
                 .split(chunks[2]);
 
             for (i, &button_text) in buttons.iter().enumerate() {
-                let style = if i as i8 == focus {
+                let style = if ConfigResolution::from(i) == focus {
                     Style::default()
                         .bg(ratatui::style::Color::Blue)
                         .fg(ratatui::style::Color::Black)
@@ -102,50 +137,25 @@ pub fn interactive_resolve_config(error: Error) -> Result<Config, Error> {
             }) = event::read()?
             {
                 match code {
-                    KeyCode::Enter => match focus {
-                        0 => {
-                            terminal.clear()?;
-                            ratatui::restore();
-                            store(Config::default())?;
-                            return Ok(Config::default());
-                        }
-                        1 => {
-                            terminal.clear()?;
-                            ratatui::restore();
-                            return Ok(Config::default());
-                        }
-                        _ => {
-                            terminal.clear()?;
-                            ratatui::restore();
-                            return Err(Error::UserAbort("q"));
-                        }
-                    },
+                    KeyCode::Enter => {
+                        terminal.clear()?;
+                        ratatui::restore();
+                        return Ok(focus);
+                    }
                     KeyCode::Char('o') => {
-                        focus = 0;
+                        focus = ConfigResolution::Overwrite;
                     }
                     KeyCode::Char('i') => {
-                        focus = 1;
+                        focus = ConfigResolution::Ignore;
                     }
                     KeyCode::Char('a') => {
-                        focus = 2;
+                        focus = ConfigResolution::Abort;
                     }
-                    KeyCode::Tab => {
-                        focus += 1;
-                        if focus > 2 {
-                            focus = 0;
-                        }
-                    }
-                    KeyCode::Right | KeyCode::Char('l') => {
-                        focus += 1;
-                        if focus > 2 {
-                            focus = 0;
-                        }
+                    KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                        focus.next();
                     }
                     KeyCode::Left | KeyCode::Char('h') => {
-                        focus -= 1;
-                        if focus < 0 {
-                            focus = 2;
-                        }
+                        focus.prev();
                     }
                     KeyCode::Char('q') => {
                         // Exit on q
