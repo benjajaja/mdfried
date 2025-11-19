@@ -38,10 +38,10 @@ impl fmt::Display for Error {
             Error::UserAbort(msg) => write!(f, "Aborted by user ({msg})"),
             Error::Cli(err) => write!(f, "Command line argument error: {err}"),
             Error::Logger(err) => write!(f, "Logger error: {err}"),
-            Error::Config(path_str, err) => {
+            Error::Config(path, err) => {
                 write!(
                     f,
-                    "Configuration file {path_str} error: {err} ({})",
+                    "Configuration file {path} error: {err} ({})",
                     err.source()
                         .map(|s| s.to_string())
                         .unwrap_or("no additional info".into())
@@ -89,7 +89,12 @@ impl From<ratatui_image::errors::Errors> for Error {
 
 impl From<ConfyError> for Error {
     fn from(value: ConfyError) -> Self {
-        Self::Config(config::get_configuration_file_path(), value)
+        Self::Config(
+            config::get_configuration_file_path()
+                .map(|p| p.display().to_string())
+                .unwrap_or("(unknown config file path)".into()),
+            value,
+        )
     }
 }
 

@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{Parser, command};
 use confy::ConfyError;
 use ratatui::crossterm::style::Color;
@@ -59,37 +61,52 @@ impl Default for Config {
 const CONFIG_APP_NAME: &str = "mdfried";
 const CONFIG_CONFIG_NAME: &str = "config";
 
-pub fn get_configuration_file_path() -> String {
-    confy::get_configuration_file_path(CONFIG_APP_NAME, CONFIG_CONFIG_NAME)
-        .map(|p| p.display().to_string())
-        .unwrap_or("(unknown config file path)".into())
+pub fn get_configuration_file_path() -> Option<PathBuf> {
+    confy::get_configuration_file_path(CONFIG_APP_NAME, CONFIG_CONFIG_NAME).ok()
 }
 
 // Save (overwrite) the config file.
-pub fn store(new_config: Config) -> Result<(), ConfyError> {
+fn store(new_config: &Config) -> Result<(), ConfyError> {
+    log::warn!("store config file");
     confy::store(CONFIG_APP_NAME, CONFIG_CONFIG_NAME, new_config)
 }
 
 // Save (overwrite) only the font_family into the config file.
 pub fn store_font_family(config: &mut Config, font_family: String) -> Result<(), ConfyError> {
+    log::warn!("store config file with new font_family");
     config.font_family = Some(font_family);
-    confy::store(CONFIG_APP_NAME, CONFIG_CONFIG_NAME, config)
+    store(config)
 }
 
 pub fn load_or_ask() -> Result<Config, Error> {
     use crate::setup::configpicker::{ConfigResolution::*, interactive_resolve_config};
+    // let file = get_configuration_file_path();
+    // if file.map(|p| !p.exists()).unwrap_or_default() {
+    // return Ok(Config::default());
+    // }
     match confy::load::<Config>(CONFIG_APP_NAME, CONFIG_CONFIG_NAME) {
-        Ok(config) => Ok(config),
+        Ok(config) => {
+            crate::setup::notification::interactive_notification(
+                "Default config file has been written...",
+            )?;
+            Ok(config)
+        }
         Err(error) => match interactive_resolve_config(error.into())? {
             Overwrite => {
-                store(Config::default())?;
+                let config = Config::default();
+                store(&config)?;
                 crate::setup::notification::interactive_notification(
                     "Config file has been overwritten...",
                 )?;
-                Ok(Config::default())
+                Ok(config)
             }
             Ignore => Ok(Config::default()),
-            Abort => Err(Error::UserAbort("aborted")),
+            Abort => {
+                println!(
+                    "Aborted: edit and resolve configuration file errors or delete the file manually.",
+                );
+                Err(Error::UserAbort("aborted"))
+            }
         },
     }
 }
