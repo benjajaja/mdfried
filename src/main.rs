@@ -174,7 +174,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
     let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
 
-    let config_max_image_height = config.max_image_height;
+    let config_max_image_height = config.visual.max_image_height;
     let cmd_thread = thread::spawn(move || {
         let runtime = Builder::new_multi_thread()
             .worker_threads(2)
@@ -277,7 +277,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
     let enable_mouse_capture = config.enable_mouse_capture;
-    if enable_mouse_capture {
+    if enable_mouse_capture.unwrap_or_default() {
         ratatui::crossterm::execute!(std::io::stderr(), EnableMouseCapture)?;
     }
     terminal.clear()?;
@@ -287,7 +287,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     run(terminal, model, ui_logger)?;
 
-    if enable_mouse_capture {
+    if enable_mouse_capture.unwrap_or_default() {
         ratatui::crossterm::execute!(std::io::stderr(), DisableMouseCapture)?;
     }
     ratatui::crossterm::terminal::disable_raw_mode()?;

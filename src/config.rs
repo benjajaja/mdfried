@@ -19,11 +19,9 @@ pub struct Cli {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    pub font_family: Option<String>,
-    pub padding: Padding,
+    pub visual: VisualConfig,
     pub skin: ratskin::MadSkin,
-    pub enable_mouse_capture: bool,
-    pub max_image_height: u16,
+    pub enable_mouse_capture: Option<bool>,
     pub debug_override_protocol_type: Option<ProtocolType>,
 }
 
@@ -41,21 +39,24 @@ impl Default for Config {
         skin.quote_mark.set_fg(Color::AnsiValue(63));
         skin.bullet.set_fg(Color::AnsiValue(63));
 
-        let enable_mouse_capture = false;
-
-        let max_image_height = 30;
-
-        let debug_override_protocol_type = None;
-
         Self {
-            font_family: Default::default(),
-            padding: Default::default(),
+            visual: VisualConfig {
+                font_family: Default::default(),
+                padding: Default::default(),
+                max_image_height: 30,
+            },
             skin,
-            enable_mouse_capture,
-            max_image_height,
-            debug_override_protocol_type,
+            enable_mouse_capture: None,
+            debug_override_protocol_type: None,
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VisualConfig {
+    pub font_family: Option<String>,
+    pub padding: Padding,
+    pub max_image_height: u16,
 }
 
 const CONFIG_APP_NAME: &str = "mdfried";
@@ -74,7 +75,7 @@ fn store(new_config: &Config) -> Result<(), ConfyError> {
 // Save (overwrite) only the font_family into the config file.
 pub fn store_font_family(config: &mut Config, font_family: String) -> Result<(), ConfyError> {
     log::warn!("store config file with new font_family");
-    config.font_family = Some(font_family);
+    config.visual.font_family = Some(font_family);
     store(config)
 }
 
