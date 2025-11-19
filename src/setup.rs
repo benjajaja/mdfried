@@ -1,5 +1,6 @@
 pub mod configpicker;
 mod fontpicker;
+pub mod notification;
 
 use cosmic_text::{FontSystem, SwashCache};
 use image::Rgba;
@@ -108,6 +109,7 @@ pub fn setup_graphics(config: &mut Config, force_font_setup: bool) -> Result<Set
         None => match interactive_font_picker(&mut picker, bg) {
             Ok(Some(setup_font_family)) => {
                 config::store_font_family(config, setup_font_family.clone())?;
+                notification::interactive_notification("Font has been written to config file.")?;
                 setup_font_family
             }
             Ok(None) => return Ok(SetupResult::Aborted),

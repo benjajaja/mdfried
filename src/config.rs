@@ -83,6 +83,9 @@ pub fn load_or_ask() -> Result<Config, Error> {
         Err(error) => match interactive_resolve_config(error.into())? {
             Overwrite => {
                 store(Config::default())?;
+                crate::setup::notification::interactive_notification(
+                    "Config file has been overwritten...",
+                )?;
                 Ok(Config::default())
             }
             Ignore => Ok(Config::default()),
