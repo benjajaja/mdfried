@@ -58,10 +58,7 @@ pub enum SetupResult {
     Complete(Picker, Option<BgColor>, Box<FontRenderer>),
 }
 
-pub fn setup_graphics(
-    font_family: Option<String>,
-    force_font_setup: bool,
-) -> Result<SetupResult, Error> {
+pub fn setup_graphics(config: &mut Config, force_font_setup: bool) -> Result<SetupResult, Error> {
     print!("Detecting supported graphics protocols...");
     let mut picker = Picker::from_query_stdio_with_options(QueryStdioOptions {
         text_sizing_protocol: true,
@@ -92,46 +89,30 @@ pub fn setup_graphics(
         .map(|faceinfo| faceinfo.families[0].0.clone())
         .collect();
 
-    let config_font_family = font_family.and_then(|font_family| {
-        // Ensure this font exists
-        if all_font_families.contains(&font_family) {
-            return Some(font_family);
-        }
-        println!("Configured font not found: {font_family}");
+    let config_font_family = if force_font_setup {
+        println!("Forced font setup");
         None
-    });
-
-    let font_name = if let Some(mut font_family) = config_font_family {
-        if force_font_setup {
-            println!("Entering forced font setup");
-            match interactive_font_picker(&mut picker, bg) {
-                Ok(Some(setup_font_family)) => {
-                    let new_config = Config {
-                        font_family: Some(setup_font_family.clone()),
-                        ..Default::default()
-                    };
-                    config::store(new_config)?;
-                    font_family = setup_font_family;
-                }
-                Ok(None) => return Ok(SetupResult::Aborted),
-                Err(err) => return Err(err),
-            }
-        }
-        font_family
     } else {
-        println!("Entering one-time font setup");
-        match interactive_font_picker(&mut picker, bg) {
-            Ok(Some(font_family)) => {
-                let new_config = Config {
-                    font_family: Some(font_family.clone()),
-                    ..Default::default()
-                };
-                config::store(new_config)?;
-                font_family
+        config.font_family.as_ref().and_then(|font_family| {
+            // Ensure this font exists
+            if all_font_families.contains(font_family) {
+                return Some(font_family);
+            }
+            println!("Configured font not found: {font_family}");
+            None
+        })
+    };
+
+    let font_name = match config_font_family {
+        Some(font_family) => font_family.clone(),
+        None => match interactive_font_picker(&mut picker, bg) {
+            Ok(Some(setup_font_family)) => {
+                config::store_font_family(config, setup_font_family.clone())?;
+                setup_font_family
             }
             Ok(None) => return Ok(SetupResult::Aborted),
             Err(err) => return Err(err),
-        }
+        },
     };
 
     let font_size = picker.font_size();

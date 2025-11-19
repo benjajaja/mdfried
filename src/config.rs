@@ -65,8 +65,15 @@ pub fn get_configuration_file_path() -> String {
         .unwrap_or("(unknown config file path)".into())
 }
 
+// Save (overwrite) the config file.
 pub fn store(new_config: Config) -> Result<(), ConfyError> {
     confy::store(CONFIG_APP_NAME, CONFIG_CONFIG_NAME, new_config)
+}
+
+// Save (overwrite) only the font_family into the config file.
+pub fn store_font_family(config: &mut Config, font_family: String) -> Result<(), ConfyError> {
+    config.font_family = Some(font_family);
+    confy::store(CONFIG_APP_NAME, CONFIG_CONFIG_NAME, config)
 }
 
 pub fn load_or_ask() -> Result<Config, Error> {

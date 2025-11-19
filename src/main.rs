@@ -121,7 +121,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         return Err(Error::Usage(Some("no input or empty")));
     }
 
-    let Ok(config) = config::load_or_ask() else {
+    let Ok(mut config) = config::load_or_ask() else {
         return Err(Error::Usage(Some("aborted config error resolution")));
     };
 
@@ -146,7 +146,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     }
 
     let force_setup = *matches.get_one("setup").unwrap_or(&false);
-    let setup_result = setup_graphics(config.font_family, force_setup);
+    let setup_result = setup_graphics(&mut config, force_setup);
     let (mut picker, bg, renderer, has_text_size_protocol) = match setup_result {
         Ok(result) => match result {
             SetupResult::Aborted => return Err(Error::UserAbort("cancelled setup")),
