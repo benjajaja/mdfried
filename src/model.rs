@@ -11,7 +11,7 @@ use ratatui::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{Cmd, error::Error};
+use crate::{Cmd, config::Config, error::Error};
 use crate::{Event, widget_sources::WidgetSources};
 use crate::{WidthEvent, setup::BgColor};
 use crate::{
@@ -22,11 +22,11 @@ use crate::{
 pub struct Model<'a, 'b> {
     pub bg: Option<BgColor>,
     pub sources: WidgetSources<'a>,
-    pub padding: Padding,
     pub scroll: u16,
     pub log_snapshot: Option<flexi_logger::Snapshot>,
     original_file_path: Option<PathBuf>,
     terminal_height: u16,
+    config: Config,
     cmd_tx: Sender<Cmd>,
     event_rx: Receiver<WidthEvent<'b>>,
 }
@@ -46,14 +46,15 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         cmd_tx: Sender<Cmd>,
         event_rx: Receiver<WidthEvent<'b>>,
         terminal_height: u16,
+        config: Config,
     ) -> Result<Model<'a, 'b>, Error> {
         let model = Model {
             original_file_path,
             bg,
             terminal_height,
+            config,
             scroll: 0,
             sources: WidgetSources::default(),
-            padding: Padding::Empty,
             cmd_tx,
             event_rx,
             log_snapshot: None,
@@ -87,17 +88,21 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
     }
 
     pub fn inner_width(&self, screen_width: u16) -> u16 {
-        match self.padding {
+        match self.config.visual.padding {
             Padding::None => screen_width,
             Padding::Empty | Padding::Border => screen_width - 2,
         }
     }
 
     pub fn inner_height(&self, screen_height: u16) -> u16 {
-        match self.padding {
+        match self.config.visual.padding {
             Padding::None | Padding::Empty => screen_height,
             Padding::Border => screen_height - 2,
         }
+    }
+
+    pub fn padding(&self) -> &Padding {
+        &self.config.visual.padding
     }
 
     pub fn total_lines(&self) -> u16 {

@@ -175,6 +175,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
 
     let config_max_image_height = config.visual.max_image_height;
+    let skin = config.skin.clone();
     let cmd_thread = thread::spawn(move || {
         let runtime = Builder::new_multi_thread()
             .worker_threads(2)
@@ -188,7 +189,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             let thread_renderer =
                 renderer.map(|renderer| Arc::new(std::sync::Mutex::new(renderer)));
             let thread_picker = Arc::new(picker);
-            let skin = RatSkin { skin: config.skin };
+            let skin = RatSkin { skin };
             log::info!("cmd thread running");
             for cmd in cmd_rx {
                 log::debug!("Cmd: {cmd:?}");
@@ -282,7 +283,14 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     }
     terminal.clear()?;
 
-    let model = Model::new(bg, path.cloned(), cmd_tx, event_rx, terminal.size()?.height)?;
+    let model = Model::new(
+        bg,
+        path.cloned(),
+        cmd_tx,
+        event_rx,
+        terminal.size()?.height,
+        config,
+    )?;
     model.parse(terminal.size()?, text).map_err(Error::from)?;
 
     run(terminal, model, ui_logger)?;
@@ -435,7 +443,7 @@ fn run<'a>(
 fn view(model: &Model, frame: &mut Frame) {
     let frame_area = frame.area();
     let mut block = Block::new();
-    match model.padding {
+    match model.padding() {
         Padding::Border => {
             block = block.borders(ratatui::widgets::Borders::all());
         }
