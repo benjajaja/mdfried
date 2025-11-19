@@ -87,11 +87,7 @@ pub fn interactive_resolve_config(error: Error) -> Result<ConfigResolution, Erro
 
             f.render_widget(Paragraph::new("What would you like to do?"), chunks[0]);
 
-            let buttons = [
-                "Overwrite config file",
-                "Ignore and use defaults",
-                "Abort and quit",
-            ];
+            let buttons = ["Overwrite file with default config", "Ignore", "Abort"];
 
             let button_chunks = Layout::default()
                 .direction(Direction::Horizontal)
