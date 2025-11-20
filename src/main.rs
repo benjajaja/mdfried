@@ -49,7 +49,7 @@ use tokio::{runtime::Builder, sync::RwLock};
 use crate::{
     error::Error,
     markdown::parse,
-    model::{Model, Padding},
+    model::Model,
     widget_sources::{
         BigText, Cursor, LineExtra, SourceID, WidgetSource, WidgetSourceData, header_images,
         header_sources, image_source,
@@ -121,9 +121,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         return Err(Error::Usage(Some("no input or empty")));
     }
 
-    let Ok(mut config) = config::load_or_ask() else {
-        return Err(Error::Usage(Some("aborted config error resolution")));
-    };
+    let mut config = config::load_or_ask()?;
 
     #[cfg(not(windows))]
     if !io::stdin().is_tty() {
@@ -174,7 +172,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
     let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
 
-    let config_max_image_height = config.visual.max_image_height;
+    let config_max_image_height = config.max_image_height;
     let skin = config.skin.clone();
     let cmd_thread = thread::spawn(move || {
         let runtime = Builder::new_multi_thread()
@@ -190,7 +188,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
                 renderer.map(|renderer| Arc::new(std::sync::Mutex::new(renderer)));
             let thread_picker = Arc::new(picker);
             let skin = RatSkin { skin };
-            log::info!("cmd thread running");
+            log::debug!("cmd thread running");
             for cmd in cmd_rx {
                 log::debug!("Cmd: {cmd:?}");
                 match cmd {
@@ -443,15 +441,8 @@ fn run<'a>(
 fn view(model: &Model, frame: &mut Frame) {
     let frame_area = frame.area();
     let mut block = Block::new();
-    match model.padding() {
-        Padding::Border => {
-            block = block.borders(ratatui::widgets::Borders::all());
-        }
-        Padding::Empty => {
-            block = block.padding(ratatui::widgets::Padding::horizontal(1));
-        }
-        _ => {}
-    }
+    let padding = model.block_padding(frame_area);
+    block = block.padding(padding);
 
     if let Some(bg) = model.bg {
         block = block.style(Style::default().bg(bg.into()));
@@ -459,6 +450,9 @@ fn view(model: &Model, frame: &mut Frame) {
 
     let inner_area = if let Some(ref snapshot) = model.log_snapshot {
         let area = debug::render_snapshot(snapshot, frame);
+        let mut fixed_padding = padding;
+        fixed_padding.right = 0;
+        block = block.padding(fixed_padding);
         block.inner(area)
     } else {
         block.inner(frame_area)
@@ -482,7 +476,7 @@ fn view(model: &Model, frame: &mut Frame) {
                         if let Some(link) = extra.get(*index) {
                             match link {
                                 LineExtra::Link(url, start, end) => {
-                                    let x = frame_area.x + *start + 1;
+                                    let x = frame_area.x + padding.left + *start;
                                     let width = end - start;
                                     let area = Rect::new(x, y as u16, width, 1);
                                     let link_overlay_widget =

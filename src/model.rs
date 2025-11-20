@@ -5,13 +5,17 @@ use std::{
 };
 
 use ratatui::{
-    layout::Size,
+    layout::{Rect, Size},
     style::Stylize,
     text::{Line, Span},
+    widgets::Padding,
 };
-use serde::{Deserialize, Serialize};
 
-use crate::{Cmd, config::Config, error::Error};
+use crate::{
+    Cmd,
+    config::{Config, PaddingConfig},
+    error::Error,
+};
 use crate::{Event, widget_sources::WidgetSources};
 use crate::{WidthEvent, setup::BgColor};
 use crate::{
@@ -29,14 +33,6 @@ pub struct Model<'a, 'b> {
     config: Config,
     cmd_tx: Sender<Cmd>,
     event_rx: Receiver<WidthEvent<'b>>,
-}
-
-#[derive(Default, Debug, Serialize, Deserialize)]
-pub(crate) enum Padding {
-    None,
-    Border,
-    #[default]
-    Empty,
 }
 
 impl<'a, 'b: 'a> Model<'a, 'b> {
@@ -88,21 +84,23 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
     }
 
     pub fn inner_width(&self, screen_width: u16) -> u16 {
-        match self.config.visual.padding {
-            Padding::None => screen_width,
-            Padding::Empty | Padding::Border => screen_width - 2,
-        }
+        self.config.padding.calculate_width(screen_width)
     }
 
     pub fn inner_height(&self, screen_height: u16) -> u16 {
-        match self.config.visual.padding {
-            Padding::None | Padding::Empty => screen_height,
-            Padding::Border => screen_height - 2,
-        }
+        self.config.padding.calculate_height(screen_height)
     }
 
-    pub fn padding(&self) -> &Padding {
-        &self.config.visual.padding
+    pub fn block_padding(&self, area: Rect) -> Padding {
+        match self.config.padding {
+            PaddingConfig::None => Padding::default(),
+            PaddingConfig::Centered(width) => Padding::horizontal(
+                area.width
+                    .checked_sub(width)
+                    .map(|padding| padding / 2)
+                    .unwrap_or_default(),
+            ),
+        }
     }
 
     pub fn total_lines(&self) -> u16 {

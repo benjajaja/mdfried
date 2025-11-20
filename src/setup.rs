@@ -94,7 +94,7 @@ pub fn setup_graphics(config: &mut Config, force_font_setup: bool) -> Result<Set
         println!("Forced font setup");
         None
     } else {
-        config.visual.font_family.as_ref().and_then(|font_family| {
+        config.font_family.as_ref().and_then(|font_family| {
             // Ensure this font exists
             if all_font_families.contains(font_family) {
                 return Some(font_family);

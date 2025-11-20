@@ -6,7 +6,7 @@ use ratatui::crossterm::style::Color;
 use ratatui_image::picker::ProtocolType;
 use serde::{Deserialize, Serialize};
 
-use crate::{Padding, error::Error};
+use crate::error::Error;
 
 #[derive(Parser)]
 #[command(name = "mdfried")]
@@ -19,10 +19,12 @@ pub struct Cli {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
-    pub visual: VisualConfig,
-    pub skin: ratskin::MadSkin,
+    pub font_family: Option<String>,
+    pub padding: PaddingConfig,
+    pub max_image_height: u16,
     pub enable_mouse_capture: Option<bool>,
     pub debug_override_protocol_type: Option<ProtocolType>,
+    pub skin: ratskin::MadSkin,
 }
 
 impl Default for Config {
@@ -40,23 +42,43 @@ impl Default for Config {
         skin.bullet.set_fg(Color::AnsiValue(63));
 
         Self {
-            visual: VisualConfig {
-                font_family: Default::default(),
-                padding: Default::default(),
-                max_image_height: 30,
-            },
-            skin,
+            font_family: Default::default(),
+            padding: Default::default(),
+            max_image_height: 30,
             enable_mouse_capture: None,
             debug_override_protocol_type: None,
+            skin,
         }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct VisualConfig {
-    pub font_family: Option<String>,
-    pub padding: Padding,
-    pub max_image_height: u16,
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum PaddingConfig {
+    None,
+    Centered(u16),
+}
+
+impl PaddingConfig {
+    pub fn calculate_width(&self, screen_width: u16) -> u16 {
+        match self {
+            PaddingConfig::None => screen_width,
+            PaddingConfig::Centered(width) => screen_width.min(*width),
+        }
+    }
+
+    pub fn calculate_height(&self, screen_height: u16) -> u16 {
+        match self {
+            PaddingConfig::None => screen_height,
+            PaddingConfig::Centered(_) => screen_height,
+        }
+    }
+}
+
+impl Default for PaddingConfig {
+    fn default() -> Self {
+        PaddingConfig::Centered(100)
+    }
 }
 
 const CONFIG_APP_NAME: &str = "mdfried";
@@ -75,7 +97,7 @@ fn store(new_config: &Config) -> Result<(), ConfyError> {
 // Save (overwrite) only the font_family into the config file.
 pub fn store_font_family(config: &mut Config, font_family: String) -> Result<(), ConfyError> {
     log::warn!("store config file with new font_family");
-    config.visual.font_family = Some(font_family);
+    config.font_family = Some(font_family);
     store(config)
 }
 
