@@ -42,8 +42,8 @@ impl Default for Config {
         skin.bullet.set_fg(Color::AnsiValue(63));
 
         Self {
-            font_family: Default::default(),
-            padding: Default::default(),
+            font_family: None,
+            padding: PaddingConfig::default(),
             max_image_height: 30,
             enable_mouse_capture: None,
             debug_override_protocol_type: None,
@@ -69,8 +69,7 @@ impl PaddingConfig {
 
     pub fn calculate_height(&self, screen_height: u16) -> u16 {
         match self {
-            PaddingConfig::None => screen_height,
-            PaddingConfig::Centered(_) => screen_height,
+            PaddingConfig::None | PaddingConfig::Centered(_) => screen_height,
         }
     }
 }
@@ -102,10 +101,11 @@ pub fn store_font_family(config: &mut Config, font_family: String) -> Result<(),
 }
 
 pub fn load_or_ask() -> Result<Config, Error> {
-    use crate::setup::configpicker::{ConfigResolution::*, interactive_resolve_config};
-    let file_existed = get_configuration_file_path()
-        .map(|p| p.exists())
-        .unwrap_or_default();
+    use crate::setup::configpicker::{
+        ConfigResolution::{Abort, Ignore, Overwrite},
+        interactive_resolve_config,
+    };
+    let file_existed = get_configuration_file_path().is_some_and(|p| p.exists());
     match confy::load::<Config>(CONFIG_APP_NAME, CONFIG_CONFIG_NAME) {
         Ok(config) => {
             if !file_existed {
@@ -115,7 +115,7 @@ pub fn load_or_ask() -> Result<Config, Error> {
             }
             Ok(config)
         }
-        Err(error) => match interactive_resolve_config(error.into())? {
+        Err(error) => match interactive_resolve_config(&error.into())? {
             Overwrite => {
                 let config = Config::default();
                 store(&config)?;

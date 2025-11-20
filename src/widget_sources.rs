@@ -1,8 +1,8 @@
 #[cfg(test)]
 use std::fmt::Display;
 use std::{
-    any::Any,
-    fmt::{Debug, Write},
+    any::Any as _,
+    fmt::{Debug, Write as _},
     ops::Deref,
     path::PathBuf,
     sync::Arc,
@@ -10,7 +10,8 @@ use std::{
 
 use cosmic_text::{Attrs, Buffer, Color, Family, Metrics, Shaping};
 use image::{
-    DynamicImage, GenericImage, ImageFormat, ImageReader, Pixel, Rgba, RgbaImage, imageops,
+    DynamicImage, GenericImage as _, ImageFormat, ImageReader, Pixel as _, Rgba, RgbaImage,
+    imageops,
 };
 use ratatui::{layout::Rect, text::Line, widgets::Widget};
 
@@ -51,7 +52,10 @@ impl<'a> WidgetSources<'a> {
         let Some(first_id) = updates.first().map(|s| s.id) else {
             return;
         };
-        debug_assert!(updates[1..].iter().all(|s| s.id == first_id));
+        debug_assert!(
+            updates[1..].iter().all(|s| s.id == first_id),
+            "WidgetSources::update must be called with same id for in the one updates list"
+        );
 
         let mut range = None;
 
@@ -101,7 +105,7 @@ impl<'a> WidgetSources<'a> {
         if let Some((source, index, _)) = WidgetSources::cursor_find(
             self.visible(visible_lines),
             &self.cursor,
-            if self.cursor.is_some() { 1 } else { 0 },
+            i8::from(self.cursor.is_some()),
         ) {
             self.cursor = Some(Cursor {
                 id: source.id,
@@ -133,7 +137,7 @@ impl<'a> WidgetSources<'a> {
     ) -> Option<(&'b WidgetSource<'b>, usize, &'b LineExtra)> {
         let mut found = false;
         for source in iter {
-            if let WidgetSourceData::LineExtra(_, ref extras) = source.data {
+            if let WidgetSourceData::LineExtra(_, extras) = &source.data {
                 // We're reversing the sources outside, but then reversing the extras here.
                 // This should be unified, flat_map (and reverse) sounds good, but we will have to
                 // do text searches in just the source (not in extras).
@@ -147,7 +151,7 @@ impl<'a> WidgetSources<'a> {
                         None => {
                             return Some((source, i, extra));
                         }
-                        Some(Cursor { id, index, .. }) => {
+                        Some(Cursor { id, index }) => {
                             if next == 0 {
                                 if source.id == *id && i == *index {
                                     return Some((source, i, extra));
@@ -204,7 +208,7 @@ pub enum WidgetSourceData<'a> {
     SizedLine(String, u8),
 }
 
-impl<'a> PartialEq for WidgetSourceData<'a> {
+impl PartialEq for WidgetSourceData<'_> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Image(l0), Self::Image(r0)) => l0.type_id() == r0.type_id(),
@@ -249,8 +253,8 @@ impl Display for WidgetSource<'_> {
         match &self.data {
             WidgetSourceData::Image(_) => write!(f, "<image>"),
             WidgetSourceData::BrokenImage(_, _) => write!(f, "<broken-image>"),
-            WidgetSourceData::Line(line) => std::fmt::Display::fmt(&line, f),
-            WidgetSourceData::LineExtra(line, _) => std::fmt::Display::fmt(&line, f),
+            WidgetSourceData::Line(line) => Display::fmt(&line, f),
+            WidgetSourceData::LineExtra(line, _) => Display::fmt(&line, f),
             WidgetSourceData::SizedLine(text, tier) => {
                 write!(f, "{} {}", "#".repeat(*tier as usize), text)
             }
@@ -263,7 +267,7 @@ pub enum LineExtra {
     Link(String, u16, u16),
 }
 
-/// Layout/shape and render `text` into a list of [DynamicImage] with a given terminal width.
+/// Layout/shape and render `text` into a list of [`DynamicImage`] with a given terminal width.
 pub fn header_images(
     bg: Option<BgColor>,
     font_renderer: &mut FontRenderer,
@@ -277,9 +281,9 @@ pub fn header_images(
     const HEADER_ROW_COUNT: u16 = 2;
     let (font_width, font_height) = font_renderer.font_size;
 
-    let tier_scale = ((12 - tier) as f32) / 12.0f32;
+    let tier_scale = f32::from(12 - tier) / 12.0_f32;
 
-    let line_height = (font_height * HEADER_ROW_COUNT) as f32;
+    let line_height = f32::from(font_height * HEADER_ROW_COUNT);
     let font_size = line_height * tier_scale;
     let metrics = Metrics::new(font_size, line_height);
 
@@ -289,11 +293,15 @@ pub fn header_images(
     attrs = attrs.family(Family::Name(&font_renderer.font_name));
 
     let max_width = width * font_width;
-    buffer.set_size(&mut font_renderer.font_system, Some(max_width as f32), None);
+    buffer.set_size(
+        &mut font_renderer.font_system,
+        Some(f32::from(max_width)),
+        None,
+    );
     buffer.set_text(
         &mut font_renderer.font_system,
         &(if deep_fry_meme {
-            text.replace("a", "🤣")
+            text.replace('a', "🤣")
         } else {
             text
         }),
@@ -305,11 +313,11 @@ pub fn header_images(
     // Make one image per shaped line.
     let run_count = buffer.layout_runs().collect::<Vec<_>>().len();
     let mut dyn_imgs = Vec::with_capacity(run_count);
-    let img_height = (font_height * 2) as u32;
-    let img_width = (width * font_width) as u32;
+    let img_height = u32::from(font_height * 2);
+    let img_width = u32::from(width * font_width);
     for _ in buffer.layout_runs() {
         let img: RgbaImage = RgbaImage::from_pixel(img_width, img_height, bg.into());
-        let dyn_img = image::DynamicImage::ImageRgba8(img);
+        let dyn_img = DynamicImage::ImageRgba8(img);
         dyn_imgs.push(dyn_img);
     }
 
@@ -324,7 +332,7 @@ pub fn header_images(
             let a = color.a();
             if a == 0
                 || x < 0
-                || x >= max_width as i32
+                || x >= i32::from(max_width)
                 || y < 0
                 // || y >= ... // Just pick relevant dyn_img
                 || w != 1
@@ -358,7 +366,7 @@ pub fn header_images(
 
 const HEADER_ROW_COUNT: u16 = 2;
 
-/// Render a list of images to [WidgetSource]s.
+/// Render a list of images to [`WidgetSource`]s.
 pub fn header_sources<'a>(
     picker: &Picker,
     width: u16,
@@ -386,7 +394,7 @@ pub fn header_sources<'a>(
     Ok(sources)
 }
 
-#[allow(clippy::too_many_arguments)]
+#[expect(clippy::too_many_arguments)]
 pub async fn image_source<'a>(
     picker: &Arc<Picker>,
     max_height: u16,
@@ -408,7 +416,7 @@ pub async fn image_source<'a>(
         let response = client.get(url).headers(headers).send().await?;
         drop(client);
         if !response.status().is_success() {
-            return Err(Error::UnknownImage(id, url.to_string()));
+            return Err(Error::UnknownImage(id, url.to_owned()));
         }
         let ct = response
             .headers()
@@ -419,7 +427,7 @@ pub async fn image_source<'a>(
             Some("image/png") => Ok(ImageFormat::Png),
             Some("image/webp") => Ok(ImageFormat::WebP),
             Some("image/gif") => Ok(ImageFormat::Gif),
-            _ => Err(Error::UnknownImage(id, url.to_string())),
+            _ => Err(Error::UnknownImage(id, url.to_owned())),
         }?;
 
         ImageSource::Bytes(response.bytes().await?.to_vec(), format)
@@ -429,8 +437,8 @@ pub async fn image_source<'a>(
                 .join(url)
                 .to_str()
                 .map(String::from)
-                .unwrap_or(url.to_string()),
-            _ => url.to_string(),
+                .unwrap_or(url.to_owned()),
+            _ => url.to_owned(),
         };
         ImageSource::Path(path)
     };
@@ -482,11 +490,12 @@ fn deep_fry(mut dyn_img: DynamicImage) -> DynamicImage {
     let mut deep_fried = dyn_img.to_rgba8();
     let mut seed: i32 = 42;
 
+    #[expect(clippy::cast_possible_truncation)]
     for pixel in deep_fried.pixels_mut() {
         // Boost color intensities and add artifacts
-        let mut r = pixel[0] as f32;
-        let mut g = pixel[1] as f32;
-        let mut b = pixel[2] as f32;
+        let mut r = f32::from(pixel[0]);
+        let mut g = f32::from(pixel[1]);
+        let mut b = f32::from(pixel[2]);
 
         // Exaggerate color values
         r = (r * 1.5).min(255.0);
@@ -530,10 +539,10 @@ impl Widget for BigText<'_> {
         // We must erase anything inside area, which is 2 lines high and `area.width` wide.
         // This must be done before we write the text.
         // Also disable DECAWM, unsure if really necessary.
-        write!(symbol, "\x1b[{}X\x1B[?7l", area.width).unwrap();
-        write!(symbol, "\x1b[1B").unwrap();
-        write!(symbol, "\x1b[{}X\x1B[?7l", area.width).unwrap();
-        write!(symbol, "\x1b[1A").unwrap();
+        write!(symbol, "\x1b[{}X\x1B[?7l", area.width).expect("write to string");
+        write!(symbol, "\x1b[1B").expect("write to string");
+        write!(symbol, "\x1b[{}X\x1B[?7l", area.width).expect("write to string");
+        write!(symbol, "\x1b[1A").expect("write to string");
 
         let (n, d) = match self.tier {
             1 => (1, 1),
@@ -544,20 +553,20 @@ impl Widget for BigText<'_> {
             _ => (1, 3),
         };
         // Start the Text Size Protocol sequence.
-        write!(symbol, "\x1b]66;s=2:n={n}:d={d};").unwrap();
+        write!(symbol, "\x1b]66;s=2:n={n}:d={d};").expect("write to string");
         symbol.push_str(truncate_str(self.text, (area.width / 2) as usize));
-        write!(symbol, "\x1b\x5c").unwrap(); // Could also use BEL, but this seems safer.
+        write!(symbol, "\x1b\x5c").expect("write to string"); // Could also use BEL, but this seems safer.
 
         // Skip entire text area except first cell
         let mut skip_first = false;
 
         for y in area.top()..area.bottom() {
             for x in area.left()..area.right() {
-                if !skip_first {
+                if skip_first {
+                    buf.cell_mut((x, y)).map(|cell| cell.set_skip(true));
+                } else {
                     skip_first = true;
                     buf.cell_mut((x, y)).map(|cell| cell.set_symbol(&symbol));
-                } else {
-                    buf.cell_mut((x, y)).map(|cell| cell.set_skip(true));
                 }
             }
         }
@@ -574,15 +583,17 @@ fn truncate_str(s: &str, max_chars: usize) -> &str {
         end = i;
     }
 
+    #[expect(clippy::string_slice)] // using char_indices here.
     &s[..end]
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use crate::{widget_sources::WidgetSources, *};
 
     #[test]
-    fn test_widgestsources_update() {
+    fn widgestsources_update() {
         let mut ws = WidgetSources::default();
         ws.push(WidgetSource {
             id: 1,
@@ -609,7 +620,7 @@ mod tests {
     }
 
     #[test]
-    fn test_finds_multiple_links_per_line_next() {
+    fn finds_multiple_links_per_line_next() {
         let mut ws = WidgetSources::default();
         ws.push(WidgetSource {
             id: 1,
@@ -645,7 +656,7 @@ mod tests {
     }
 
     #[test]
-    fn test_finds_multiple_links_per_line_prev() {
+    fn finds_multiple_links_per_line_prev() {
         let mut ws = WidgetSources::default();
         ws.push(WidgetSource {
             id: 1,

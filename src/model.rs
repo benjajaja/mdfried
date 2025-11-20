@@ -1,16 +1,18 @@
 use std::{
     cmp::min,
+    fs,
     path::PathBuf,
     sync::mpsc::{Receiver, SendError, Sender},
 };
 
 use ratatui::{
     layout::{Rect, Size},
-    style::Stylize,
+    style::Stylize as _,
     text::{Line, Span},
     widgets::Padding,
 };
 
+use crate::widget_sources::{WidgetSource, WidgetSourceData};
 use crate::{
     Cmd,
     config::{Config, PaddingConfig},
@@ -18,10 +20,6 @@ use crate::{
 };
 use crate::{Event, widget_sources::WidgetSources};
 use crate::{WidthEvent, setup::BgColor};
-use crate::{
-    read_file_to_str,
-    widget_sources::{WidgetSource, WidgetSourceData},
-};
 
 pub struct Model<'a, 'b> {
     pub bg: Option<BgColor>,
@@ -43,8 +41,8 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         event_rx: Receiver<WidthEvent<'b>>,
         terminal_height: u16,
         config: Config,
-    ) -> Result<Model<'a, 'b>, Error> {
-        let model = Model {
+    ) -> Model<'a, 'b> {
+        Model {
             original_file_path,
             bg,
             terminal_height,
@@ -54,22 +52,13 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
             cmd_tx,
             event_rx,
             log_snapshot: None,
-        };
-
-        // model_reload(&mut model, screen_width)?;
-
-        Ok(model)
+        }
     }
 
     pub fn reload(&mut self, screen_size: Size) -> Result<(), Error> {
         log::debug!("reload");
         if let Some(original_file_path) = &self.original_file_path {
-            let text = read_file_to_str(
-                original_file_path
-                    .to_str()
-                    .ok_or(Error::Path(original_file_path.to_path_buf()))?,
-            )?;
-
+            let text = fs::read_to_string(original_file_path)?;
             self.sources = WidgetSources::default();
             self.scroll = 0;
             self.terminal_height = screen_size.height;
@@ -130,6 +119,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                     }
                     Event::ParseHeader(id, tier, text) => {
                         let line = Line::from(vec![
+                            #[expect(clippy::string_add)]
                             Span::from("#".repeat(tier as usize) + " ").light_blue(),
                             Span::from(text.clone()),
                         ]);

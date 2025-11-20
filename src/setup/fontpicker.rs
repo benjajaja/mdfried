@@ -6,7 +6,7 @@ use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     layout::Rect,
     prelude::CrosstermBackend,
-    style::{Color, Stylize},
+    style::{Color, Stylize as _},
     text::Line,
     widgets::{Padding, Paragraph},
 };
@@ -18,6 +18,7 @@ use crate::{
     widget_sources::{WidgetSourceData, header_images, header_sources},
 };
 
+#[expect(clippy::too_many_lines)]
 pub fn interactive_font_picker(
     picker: &mut Picker,
     bg: Option<BgColor>,
@@ -104,8 +105,12 @@ pub fn interactive_font_picker(
 
         if inner_width > 0 && first_match.is_some() {
             if let Some(first_match) = first_match {
-                if last_rendered.is_none() || last_rendered.clone().unwrap().0 != first_match {
-                    renderer.font_name = first_match.clone();
+                if last_rendered.is_none()
+                    || last_rendered
+                        .as_ref()
+                        .is_none_or(|(m, _)| *m != first_match)
+                {
+                    renderer.font_name.clone_from(&first_match);
                     let spans = vec!["The fox jumped over the goat or something".into()];
                     let dyn_imgs = header_images(
                         bg,
@@ -181,15 +186,15 @@ pub fn interactive_font_picker(
 
 fn find_first_match(all_fonts: &BTreeMap<String, String>, input: &str) -> Option<String> {
     let mut first_match = None;
-    if !input.is_empty() {
+    if input.is_empty() {
+        first_match = all_fonts.first_key_value().map(|t| t.1).cloned();
+    } else {
         for (lowercase_pattern, pattern) in all_fonts {
             if lowercase_pattern.starts_with(input) {
                 first_match = Some(pattern.clone());
                 break;
             }
         }
-    } else {
-        first_match = all_fonts.first_key_value().map(|t| t.1).cloned();
-    };
+    }
     first_match
 }

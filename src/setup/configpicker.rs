@@ -19,7 +19,7 @@ pub enum ConfigResolution {
 
 impl ConfigResolution {
     fn next(&mut self) {
-        use ConfigResolution::*;
+        use ConfigResolution::{Abort, Ignore, Overwrite};
         *self = match self {
             Overwrite => Ignore,
             Ignore => Abort,
@@ -28,7 +28,7 @@ impl ConfigResolution {
     }
 
     fn prev(&mut self) {
-        use ConfigResolution::*;
+        use ConfigResolution::{Abort, Ignore, Overwrite};
         *self = match self {
             Overwrite => Abort,
             Ignore => Overwrite,
@@ -39,7 +39,7 @@ impl ConfigResolution {
 
 impl From<usize> for ConfigResolution {
     fn from(value: usize) -> Self {
-        use ConfigResolution::*;
+        use ConfigResolution::{Abort, Ignore, Overwrite};
         match value {
             0 => Overwrite,
             1 => Ignore,
@@ -48,7 +48,8 @@ impl From<usize> for ConfigResolution {
     }
 }
 
-pub fn interactive_resolve_config(error: Error) -> Result<ConfigResolution, Error> {
+#[expect(clippy::too_many_lines)]
+pub fn interactive_resolve_config(error: &Error) -> Result<ConfigResolution, Error> {
     println!("{error}");
     ratatui::crossterm::terminal::enable_raw_mode()?;
     let backend = CrosstermBackend::new(io::stdout());

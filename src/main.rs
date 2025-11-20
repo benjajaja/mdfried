@@ -7,11 +7,11 @@ mod setup;
 mod widget_sources;
 
 #[cfg(not(windows))]
-use std::os::fd::IntoRawFd;
+use std::os::fd::IntoRawFd as _;
 
 use std::{
-    fs::File,
-    io::{self, Read, stdout},
+    fs::{self, File},
+    io::{self, Read as _},
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -31,11 +31,11 @@ use ratatui::{
             self, DisableMouseCapture, EnableMouseCapture, KeyCode, KeyEventKind, KeyModifiers,
             MouseEventKind,
         },
-        tty::IsTty,
+        tty::IsTty as _,
     },
     layout::{Rect, Size},
     prelude::CrosstermBackend,
-    style::{Style, Stylize},
+    style::{Style, Stylize as _},
     text::{Line, Span, Text},
     widgets::{Block, Paragraph, Widget},
 };
@@ -75,17 +75,18 @@ fn main() -> io::Result<()> {
                 println!("Usage error: {msg}");
                 println!();
             }
-            cmd.write_help(&mut std::io::stdout())?;
+            cmd.write_help(&mut io::stdout())?;
         }
         Err(Error::UserAbort(msg)) => {
             println!("Abort: {msg}");
         }
         Err(err) => eprintln!("{err}"),
         _ => {}
-    };
+    }
     Ok(())
 }
 
+#[expect(clippy::too_many_lines)]
 fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let ui_logger = debug::ui_logger()?;
 
@@ -112,7 +113,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             (text, None)
         }
         Some(path) => (
-            read_file_to_str(path.to_str().ok_or(Error::Path(path.to_owned()))?)?,
+            fs::read_to_string(path)?,
             path.parent().map(Path::to_path_buf),
         ),
     };
@@ -127,6 +128,8 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     if !io::stdin().is_tty() {
         print!("Setting stdin to /dev/tty...");
         // Close the current stdin so that ratatui-image can read stuff from tty stdin.
+        // SAFETY:
+        // Calls some libc, not sure if this could be done otherwise.
         unsafe {
             // Attempt to open /dev/tty which will give us a new stdin
             let tty = File::open("/dev/tty")?;
@@ -193,7 +196,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
                 log::debug!("Cmd: {cmd:?}");
                 match cmd {
                     Cmd::Parse(width, text) => {
-                        for event in parse(text, &skin, width, has_text_size_protocol) {
+                        for event in parse(&text, &skin, width, has_text_size_protocol) {
                             event_tx.send((width, event))?;
                         }
                     }
@@ -202,7 +205,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
                             thread_renderer.is_some(),
                             "should not have sent ImgCmd::Header without renderer"
                         );
-                        if let Some(ref thread_renderer) = thread_renderer {
+                        if let Some(thread_renderer) = &thread_renderer {
                             let task_tx = event_tx.clone();
                             if protocol_type != ProtocolType::Halfblocks {
                                 let renderer = thread_renderer.clone();
@@ -259,13 +262,10 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
                         });
                     }
                     Cmd::XdgOpen(url) => {
-                        std::process::Command::new("xdg-open")
-                            .arg(&url)
-                            .spawn()
-                            .ok();
+                        std::process::Command::new("xdg-open").arg(&url).spawn()?;
                     }
-                };
-                event_tx.send((0, Event::MarkHadEvents))?
+                }
+                event_tx.send((0, Event::MarkHadEvents))?;
             }
             Ok::<(), Error>(())
         })?;
@@ -273,11 +273,11 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     });
 
     ratatui::crossterm::terminal::enable_raw_mode()?;
-    let backend = CrosstermBackend::new(stdout());
+    let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
     let enable_mouse_capture = config.enable_mouse_capture;
     if enable_mouse_capture.unwrap_or_default() {
-        ratatui::crossterm::execute!(std::io::stderr(), EnableMouseCapture)?;
+        ratatui::crossterm::execute!(io::stderr(), EnableMouseCapture)?;
     }
     terminal.clear()?;
 
@@ -288,13 +288,13 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         event_rx,
         terminal.size()?.height,
         config,
-    )?;
+    );
     model.parse(terminal.size()?, text).map_err(Error::from)?;
 
-    run(terminal, model, ui_logger)?;
+    run(terminal, model, &ui_logger)?;
 
     if enable_mouse_capture.unwrap_or_default() {
-        ratatui::crossterm::execute!(std::io::stderr(), DisableMouseCapture)?;
+        ratatui::crossterm::execute!(io::stderr(), DisableMouseCapture)?;
     }
     ratatui::crossterm::terminal::disable_raw_mode()?;
 
@@ -322,12 +322,13 @@ enum Event<'a> {
 }
 
 // Just a width key, to discard events for stale screen widths.
-pub(crate) type WidthEvent<'a> = (u16, Event<'a>);
+type WidthEvent<'a> = (u16, Event<'a>);
 
+#[expect(clippy::too_many_lines)]
 fn run<'a>(
     mut terminal: DefaultTerminal,
     mut model: Model<'a, 'a>,
-    ui_logger: LoggerHandle,
+    ui_logger: &LoggerHandle,
 ) -> Result<(), Error> {
     terminal.draw(|frame| view(&model, frame))?;
     let mut screen_size = terminal.size()?;
@@ -369,7 +370,7 @@ fn run<'a>(
                             KeyCode::Char('u') => {
                                 model.scroll_by(-(page_scroll_count + 1) / 2);
                             }
-                            KeyCode::Char('f') | KeyCode::PageDown | KeyCode::Char(' ') => {
+                            KeyCode::Char('f' | ' ') | KeyCode::PageDown => {
                                 model.scroll_by(page_scroll_count);
                             }
                             KeyCode::Char('b') | KeyCode::PageUp => {
@@ -448,7 +449,7 @@ fn view(model: &Model, frame: &mut Frame) {
         block = block.style(Style::default().bg(bg.into()));
     }
 
-    let inner_area = if let Some(ref snapshot) = model.log_snapshot {
+    let inner_area = if let Some(snapshot) = &model.log_snapshot {
         let area = debug::render_snapshot(snapshot, frame);
         let mut fixed_padding = padding;
         fixed_padding.right = 0;
@@ -524,11 +525,4 @@ fn render_widget<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, f
         widget_area.height = widget_area.height.min(source_height);
         f.render_widget(widget, widget_area);
     }
-}
-
-pub fn read_file_to_str(path: &str) -> io::Result<String> {
-    let mut file = File::open(path)?;
-    let mut contents = String::new();
-    file.read_to_string(&mut contents)?;
-    Ok(contents)
 }

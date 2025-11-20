@@ -43,7 +43,7 @@ pub fn interactive_notification(message: &'static str) -> Result<(), Error> {
             } else {
                 let gauge = Gauge::default()
                     .gauge_style(Color::Blue)
-                    .ratio((progress as f64) / (inner_area.width as f64))
+                    .ratio(f64::from(progress) / f64::from(inner_area.width))
                     .label("Continue...");
                 f.render_widget(gauge, inner_area);
             }

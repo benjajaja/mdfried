@@ -1,5 +1,6 @@
+#![allow(clippy::string_slice)] // TODO fix ASAP
 use ratatui::{
-    style::{Color, Stylize},
+    style::{Color, Stylize as _},
     text::{Line, Span},
 };
 use regex::Regex;
@@ -25,8 +26,8 @@ pub fn capture_links<'a>(
     new_spans: &mut Vec<Span<'a>>,
     links: &mut Vec<LineExtra>,
 ) {
-    let md_link_regex = Regex::new(r"\[([^\]]+)\]\(([^)]+)\)?").unwrap();
-    let url_regex = Regex::new(r"https?://[^\s)]+").unwrap();
+    let md_link_regex = Regex::new(r"\[([^\]]+)\]\(([^)]+)\)?").expect("regex");
+    let url_regex = Regex::new(r"https?://[^\s)]+").expect("regex");
 
     let mut spans: Vec<Span> = Vec::new();
     let mut last_end = 0;
@@ -57,14 +58,14 @@ pub fn capture_links<'a>(
             // TODO: we should check if it got cut off before!
             spans.push(Span::from("[").style(decor_style));
             spans.push(
-                Span::from(link_text.as_str().to_string())
+                Span::from(link_text.as_str().to_owned())
                     .style(parent_style)
                     .fg(Color::LightBlue),
             );
             spans.push(Span::from("]").style(decor_style));
             spans.push(Span::from("(").style(decor_style));
             spans.push(
-                Span::from(url_str.to_string())
+                Span::from(url_str.to_owned())
                     .style(parent_style)
                     .fg(Color::Blue)
                     .underlined(),
@@ -81,10 +82,7 @@ pub fn capture_links<'a>(
             if match_end as u16 == width
                 && let Some(pos) = text.find(url_str)
             {
-                let line_end = text[pos..]
-                    .find('\n')
-                    .map(|n| pos + n)
-                    .unwrap_or(text.len());
+                let line_end = text[pos..].find('\n').map_or(text.len(), |n| pos + n);
                 let line_slice = &text[pos..line_end];
                 if let Some(full_match) = url_regex.find(line_slice) {
                     url_str = full_match.as_str();
@@ -92,7 +90,7 @@ pub fn capture_links<'a>(
             }
 
             links.push(LineExtra::Link(
-                url_str.to_string(),
+                url_str.to_owned(),
                 *offset + url.start() as u16,
                 *offset + url.end() as u16,
             ));
@@ -120,8 +118,8 @@ pub fn capture_urls<'a>(
     new_spans: &mut Vec<Span<'a>>,
     links: &mut Vec<LineExtra>,
 ) {
-    let url_regex =
-        Regex::new(r"https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%\-]+[A-Za-z0-9/?#=\-]").unwrap();
+    let url_regex = Regex::new(r"https?://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%\-]+[A-Za-z0-9/?#=\-]")
+        .expect("regex");
 
     let mut spans: Vec<Span> = Vec::new();
     let mut last_end = 0;
@@ -145,7 +143,7 @@ pub fn capture_urls<'a>(
 
         let mut url_str = cap.as_str();
         spans.push(
-            Span::from(url_str.to_string())
+            Span::from(url_str.to_owned())
                 .style(parent_style)
                 .fg(Color::Blue)
                 .underlined(),
@@ -159,10 +157,7 @@ pub fn capture_urls<'a>(
         if match_end as u16 == width
             && let Some(pos) = text.find(url_str)
         {
-            let line_end = text[pos..]
-                .find('\n')
-                .map(|n| pos + n)
-                .unwrap_or(text.len());
+            let line_end = text[pos..].find('\n').map_or(text.len(), |n| pos + n);
             let line_slice = &text[pos..line_end];
             if let Some(full_match) = url_regex.find(line_slice) {
                 url_str = full_match.as_str();
@@ -170,7 +165,7 @@ pub fn capture_urls<'a>(
         }
 
         links.push(LineExtra::Link(
-            url_str.to_string(),
+            url_str.to_owned(),
             *offset + cap.start() as u16,
             *offset + cap.end() as u16,
         ));
@@ -195,7 +190,7 @@ pub fn capture_urls<'a>(
 mod tests {
     use pretty_assertions::assert_eq;
     use ratatui::{
-        style::{Color, Stylize},
+        style::{Color, Stylize as _},
         text::Span,
     };
 
@@ -227,7 +222,7 @@ mod tests {
         );
 
         assert_eq!(
-            vec![LineExtra::Link("http://url".to_string(), 13, 23)],
+            vec![LineExtra::Link("http://url".to_owned(), 13, 23)],
             links,
         );
     }
@@ -263,8 +258,8 @@ mod tests {
 
         assert_eq!(
             vec![
-                LineExtra::Link("http://a".to_string(), 4, 12),
-                LineExtra::Link("http://b".to_string(), 18, 26),
+                LineExtra::Link("http://a".to_owned(), 4, 12),
+                LineExtra::Link("http://b".to_owned(), 18, 26),
             ],
             links,
         );

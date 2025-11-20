@@ -19,18 +19,18 @@ enum Block {
 
 fn split_headers_and_images(text: &str) -> Vec<Block> {
     // Regex to match lines starting with 1-6 `#` characters
-    let header_re = Regex::new(r"^(#+)\s*(.*)").unwrap();
+    let header_re = Regex::new(r"^(#+)\s*(.*)").expect("regex");
     // Regex to match standalone image lines: ![alt](url)
-    let image_re = Regex::new(r"^!\[(.*?)\]\((.*?)\)$").unwrap();
+    let image_re = Regex::new(r"^!\[(.*?)\]\((.*?)\)$").expect("regex");
     // Regex to match beginning or end of code fence
-    let codefence_re = Regex::new(r"^ {0,3}(`{3,}|~{3,})").unwrap();
+    let codefence_re = Regex::new(r"^ {0,3}(`{3,}|~{3,})").expect("regex");
 
     let mut blocks = Vec::new();
     let mut current_block = String::new();
     let mut current_codefence: Option<String> = None;
 
     for line in text.lines() {
-        if let Some(ref codefence_str) = current_codefence {
+        if let Some(codefence_str) = &current_codefence {
             if !current_block.is_empty() {
                 current_block.push('\n');
             }
@@ -85,14 +85,14 @@ fn split_headers_and_images(text: &str) -> Vec<Block> {
 }
 
 pub fn parse<'a>(
-    text: String,
+    text: &str,
     skin: &RatSkin,
     width: u16,
     has_text_size_protocol: bool,
 ) -> impl Iterator<Item = Event<'a>> {
     let mut id = 0;
 
-    let blocks = split_headers_and_images(&text);
+    let blocks = split_headers_and_images(text);
 
     let mut needs_space = false;
 
@@ -128,22 +128,22 @@ pub fn parse<'a>(
             }
             Block::Image(alt, url) => {
                 needs_space = true;
-                let event = Event::ParseImage(id, url, alt, "".to_string());
+                let event = Event::ParseImage(id, url, alt, String::new());
                 events.push(send_event(&mut id, event));
             }
             Block::Markdown(text) => {
                 needs_space = true;
                 let madtext = RatSkin::parse_text(&text);
 
-                for line in skin.parse(madtext, width).into_iter() {
+                for line in skin.parse(madtext, width) {
                     let (line, links) = links::capture_line(line, &text, width);
 
                     events.push(send_line(
                         &mut id,
-                        if !links.is_empty() {
-                            WidgetSourceData::LineExtra(line, links)
-                        } else {
+                        if links.is_empty() {
                             WidgetSourceData::Line(line)
+                        } else {
+                            WidgetSourceData::LineExtra(line, links)
                         },
                         1,
                     ));
@@ -177,7 +177,7 @@ mod tests {
     use ratatui::style::Color;
 
     #[test]
-    fn test_split_headers_and_images() {
+    fn split_headers_and_images() {
         let blocks = markdown::split_headers_and_images(
             r#"
 # header
@@ -201,19 +201,19 @@ paragraph
         assert_eq!(
             blocks,
             vec![
-                markdown::Block::Header(1, "header".to_string()),
-                markdown::Block::Markdown("paragraph\n\nparagraph\n".to_string()),
-                markdown::Block::Header(1, "header".to_string()),
-                markdown::Block::Markdown("paragraph\nparagraph\n".to_string()),
-                markdown::Block::Header(1, "header".to_string()),
-                markdown::Block::Markdown("paragraph\n".to_string()),
-                markdown::Block::Header(1, "header".to_string()),
+                markdown::Block::Header(1, "header".to_owned()),
+                markdown::Block::Markdown("paragraph\n\nparagraph\n".to_owned()),
+                markdown::Block::Header(1, "header".to_owned()),
+                markdown::Block::Markdown("paragraph\nparagraph\n".to_owned()),
+                markdown::Block::Header(1, "header".to_owned()),
+                markdown::Block::Markdown("paragraph\n".to_owned()),
+                markdown::Block::Header(1, "header".to_owned()),
             ]
         );
     }
 
     #[test]
-    fn test_split_headers_and_images_without_space() {
+    fn split_headers_and_images_without_space() {
         let blocks = markdown::split_headers_and_images(
             r#"
 # header
@@ -228,18 +228,18 @@ paragraph
         assert_eq!(
             blocks,
             vec![
-                markdown::Block::Header(1, "header".to_string()),
-                markdown::Block::Markdown("paragraph".to_string()),
-                markdown::Block::Header(1, "header".to_string()),
-                markdown::Block::Header(1, "header".to_string()),
-                markdown::Block::Markdown("paragraph".to_string()),
-                markdown::Block::Header(1, "header".to_string()),
+                markdown::Block::Header(1, "header".to_owned()),
+                markdown::Block::Markdown("paragraph".to_owned()),
+                markdown::Block::Header(1, "header".to_owned()),
+                markdown::Block::Header(1, "header".to_owned()),
+                markdown::Block::Markdown("paragraph".to_owned()),
+                markdown::Block::Header(1, "header".to_owned()),
             ]
         );
     }
 
     #[test]
-    fn test_codefence() {
+    fn codefence() {
         let blocks = markdown::split_headers_and_images(
             r#"
 # header
@@ -270,7 +270,7 @@ paragraph
         assert_eq!(
             blocks,
             vec![
-                markdown::Block::Header(1, "header".to_string()),
+                markdown::Block::Header(1, "header".to_owned()),
                 markdown::Block::Markdown(
                     r#"paragraph
 
@@ -290,18 +290,17 @@ paragraph
   z();
   ~~~~
 "#
-                    .to_string()
+                    .to_owned()
                 ),
-                markdown::Block::Header(1, "header".to_string()),
-                markdown::Block::Markdown("paragraph".to_string()),
+                markdown::Block::Header(1, "header".to_owned()),
+                markdown::Block::Markdown("paragraph".to_owned()),
             ]
         );
     }
 
     #[test]
-    fn test_parse_one_basic_line() {
-        let text = String::from("*ah* ha ha");
-        let events: Vec<Event> = parse(text, &RatSkin::default(), 80, true).collect();
+    fn parse_one_basic_line() {
+        let events: Vec<Event> = parse("*ah* ha ha", &RatSkin::default(), 80, true).collect();
         let expected = vec![Event::Parsed(WidgetSource {
             id: 0,
             height: 1,
@@ -314,9 +313,9 @@ paragraph
     }
 
     #[test]
-    fn test_parse_link() {
-        let text = String::from("[text](http://link.com)");
-        let events: Vec<Event> = parse(text, &RatSkin::default(), 80, true).collect();
+    fn parse_link() {
+        let events: Vec<Event> =
+            parse("[text](http://link.com)", &RatSkin::default(), 80, true).collect();
         let expected = vec![Event::Parsed(WidgetSource {
             id: 0,
             height: 1,
@@ -329,16 +328,21 @@ paragraph
                     Span::from("http://link.com").fg(Color::Blue).underlined(),
                     Span::from(")").fg(Color::DarkGray),
                 ]),
-                vec![LineExtra::Link("http://link.com".to_string(), 7, 22)],
+                vec![LineExtra::Link("http://link.com".to_owned(), 7, 22)],
             ),
         })];
         assert_eq!(events, expected);
     }
 
     #[test]
-    fn test_parse_long_link() {
-        let text = String::from("[text](http://link.com/veeeeeeeeeeeeeeeeery/long/tail)");
-        let events: Vec<Event> = parse(text, &RatSkin::default(), 30, true).collect();
+    fn parse_long_link() {
+        let events: Vec<Event> = parse(
+            "[text](http://link.com/veeeeeeeeeeeeeeeeery/long/tail)",
+            &RatSkin::default(),
+            30,
+            true,
+        )
+        .collect();
         let expected = vec![
             Event::Parsed(WidgetSource {
                 id: 0,
@@ -354,7 +358,7 @@ paragraph
                             .underlined(),
                     ]),
                     vec![LineExtra::Link(
-                        "http://link.com/veeeeeeeeeeeeeeeeery/long/tail".to_string(),
+                        "http://link.com/veeeeeeeeeeeeeeeeery/long/tail".to_owned(),
                         7,
                         30,
                     )],
@@ -372,9 +376,14 @@ paragraph
     }
 
     #[test]
-    fn test_parse_long_linebroken_link() {
-        let text = String::from("[a b](http://link.com/veeeeeeeeeeeeeeeeery/long/tail)");
-        let events: Vec<Event> = parse(text, &RatSkin::default(), 30, true).collect();
+    fn parse_long_linebroken_link() {
+        let events: Vec<Event> = parse(
+            "[a b](http://link.com/veeeeeeeeeeeeeeeeery/long/tail)",
+            &RatSkin::default(),
+            30,
+            true,
+        )
+        .collect();
 
         let str_lines: Vec<String> = events
             .iter()
@@ -435,7 +444,7 @@ paragraph
                             .underlined(),
                     ]),
                     vec![LineExtra::Link(
-                        "http://link.com/veeeeeeeeeeeeeeeeery/long/tail".to_string(),
+                        "http://link.com/veeeeeeeeeeeeeeeeery/long/tail".to_owned(),
                         3,
                         30,
                     )],
@@ -454,9 +463,9 @@ paragraph
     }
 
     #[test]
-    fn test_parse_multiple_links_same_line() {
-        let text = String::from("http://a.com http://b.com");
-        let events: Vec<Event> = parse(text, &RatSkin::default(), 80, true).collect();
+    fn parse_multiple_links_same_line() {
+        let events: Vec<Event> =
+            parse("http://a.com http://b.com", &RatSkin::default(), 80, true).collect();
 
         let urls: Vec<String> = events
             .iter()

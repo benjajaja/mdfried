@@ -25,7 +25,7 @@ fn markdown_format(
     )
 }
 
-pub(crate) fn render_snapshot(snapshot: &flexi_logger::Snapshot, frame: &mut Frame) -> Rect {
+pub fn render_snapshot(snapshot: &flexi_logger::Snapshot, frame: &mut Frame) -> Rect {
     let debug_block = Block::bordered().title("logs");
 
     let frame_area = frame.area();

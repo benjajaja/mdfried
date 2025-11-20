@@ -66,12 +66,11 @@ pub fn setup_graphics(config: &mut Config, force_font_setup: bool) -> Result<Set
     })?;
     println!(" {:?}.", picker.protocol_type());
 
-    let bg = match picker.protocol_type() {
-        ProtocolType::Sixel => Some(BgColor([20, 0, 40, 255])),
-        _ => {
-            picker.set_background_color([0, 0, 0, 0]);
-            None
-        }
+    let bg = if picker.protocol_type() == ProtocolType::Sixel {
+        Some(BgColor([20, 0, 40, 255]))
+    } else {
+        picker.set_background_color([0, 0, 0, 0]);
+        None
     };
 
     let has_text_size_protocol = picker
