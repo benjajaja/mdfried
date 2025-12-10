@@ -85,9 +85,11 @@ Key | Description
 `b` or `PageUp` | Scroll up a page
 `g` | Go to start of file
 `G` | Go to end of file
-`n` | Jump to next link
-`N` | Jump to previous link
+`/` | Search text
+`n` | Jump to next match or link
+`N` | Jump to previous match or link
 `Enter` | Open selected link with `xdg-open`
+`Esc` | Leave search or link modes
 
 Mouse scroll only works if enabled in settings as `enable_mouse_capture = true`, but then you can't
 select text.

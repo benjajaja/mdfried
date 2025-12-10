@@ -15,6 +15,7 @@ exclude = ["assets/*"]
 rust-version = "1.86.0"
 
 [dependencies]
+itertools = "0.14.0"
 clap = { version = "4.5.21", features = ["cargo", "derive"] }
 confy = "0.6.1"
 cosmic-text = "0.14.2"
@@ -23,6 +24,7 @@ ratatui = { version = "^0.30.0-beta.0", features = ["serde"] }
 ratskin = "0.3.0"
 ratatui-image = { version = "9.0.0-beta.0", features = ["serde"] }
 regex = "1.11.1"
+unicode-width = "0.2.2"
 serde = { version = "^1.0", features = ["derive"] }
 reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"] }
 libc = { version = "0.2", default-features = false }
@@ -80,6 +82,7 @@ format_push_string = "warn"
 get_unwrap = "warn"
 if_then_some_else_none = "warn"
 impl_trait_in_params = "warn"
+implicit_clone = "warn"
 infinite_loop = "warn"
 let_underscore_untyped = "warn"
 lossy_float_literal = "warn"
@@ -106,7 +109,6 @@ str_to_string = "warn"
 string_add = "warn"
 string_lit_chars_any = "warn"
 string_slice = "warn"
-string_to_string = "warn"
 suspicious_xor_used_as_pow = "warn"
 tests_outside_test_module = "warn"
 try_err = "warn"

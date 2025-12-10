@@ -1,12 +1,15 @@
 #[cfg(test)]
 use std::fmt::Display;
+
 use std::{
     any::Any as _,
     fmt::{Debug, Write as _},
-    ops::Deref,
+    ops::{Deref, DerefMut},
     path::PathBuf,
     sync::Arc,
 };
+
+use itertools::Either;
 
 use cosmic_text::{Attrs, Buffer, Color, Family, Metrics, Shaping};
 use image::{
@@ -16,34 +19,31 @@ use image::{
 use ratatui::{layout::Rect, text::Line, widgets::Widget};
 
 use ratatui_image::{Resize, picker::Picker, protocol::Protocol};
+use regex::{Match, Regex};
 use reqwest::{
     Client,
     header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue},
 };
 use tokio::sync::RwLock;
+use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     Error,
+    cursor::CursorPointer,
     setup::{BgColor, FontRenderer},
 };
 
 #[derive(Default)]
 pub struct WidgetSources<'a> {
     sources: Vec<WidgetSource<'a>>,
-    cursor: Option<Cursor>,
-}
-
-#[derive(Debug)]
-pub struct Cursor {
-    // The WidgetSource (line(s))
-    pub id: SourceID,
-    // The matched part index (e.g. LineExtra::Link)
-    // This should change when we add support for searching any text.
-    pub index: usize,
 }
 
 impl<'a> WidgetSources<'a> {
     pub fn push(&mut self, source: WidgetSource<'a>) {
+        debug_assert!(
+            !self.sources.iter().any(|s| s.id == source.id),
+            "WidgetSources::push expects unique ids"
+        );
         self.sources.push(source);
     }
 
@@ -77,91 +77,29 @@ impl<'a> WidgetSources<'a> {
         }
     }
 
-    pub fn is_cursor(&self, source: &WidgetSource) -> Option<&Cursor> {
-        if let Some(Cursor { id, .. }) = self.cursor
-            && id == source.id
-        {
-            self.cursor.as_ref()
-        } else {
-            None
+    pub fn get_y(&self, id: usize) -> i16 {
+        let mut y = 0;
+        for source in self.sources.iter() {
+            if source.id == id {
+                break;
+            }
+            y += source.height as i16;
         }
+        y
     }
 
-    pub fn get_extra_by_cursor(&self) -> Option<&LineExtra> {
-        if let Some((_, _, extra)) =
-            WidgetSources::cursor_find(self.sources.iter(), &self.cursor, 0)
-        {
-            Some(extra)
-        } else {
-            None
-        }
-    }
-
-    pub fn clear_cursor(&mut self) {
-        self.cursor = None;
-    }
-
-    pub fn cursor_next(&mut self, visible_lines: (i16, i16)) {
-        if let Some((source, index, _)) = WidgetSources::cursor_find(
-            self.visible(visible_lines),
-            &self.cursor,
-            i8::from(self.cursor.is_some()),
-        ) {
-            self.cursor = Some(Cursor {
-                id: source.id,
-                index,
-            });
-        }
-    }
-
-    pub fn cursor_prev(&mut self, visible_lines: (i16, i16)) {
-        if let Some((source, index, _)) = WidgetSources::cursor_find(
-            self.visible(visible_lines)
-                .collect::<Vec<&WidgetSource>>()
-                .into_iter()
-                .rev(),
-            &self.cursor,
-            if self.cursor.is_some() { -1 } else { 0 },
-        ) {
-            self.cursor = Some(Cursor {
-                id: source.id,
-                index,
-            });
-        }
-    }
-
-    fn cursor_find<'b>(
-        iter: impl Iterator<Item = &'b WidgetSource<'b>>,
-        cursor: &Option<Cursor>,
-        next: i8,
-    ) -> Option<(&'b WidgetSource<'b>, usize, &'b LineExtra)> {
-        let mut found = false;
+    pub fn find_first_cursor<'b, Iter: Iterator<Item = &'b WidgetSource<'b>>>(
+        iter: Iter,
+        target: FindTarget,
+    ) -> Option<CursorPointer> {
         for source in iter {
-            if let WidgetSourceData::LineExtra(_, extras) = &source.data {
-                // We're reversing the sources outside, but then reversing the extras here.
-                // This should be unified, flat_map (and reverse) sounds good, but we will have to
-                // do text searches in just the source (not in extras).
-                let mut extras: Vec<(usize, &LineExtra)> = extras.iter().enumerate().collect();
-                if next == -1 {
-                    extras.reverse();
-                }
-
-                for (i, extra) in extras {
-                    match cursor {
-                        None => {
-                            return Some((source, i, extra));
-                        }
-                        Some(Cursor { id, index }) => {
-                            if next == 0 {
-                                if source.id == *id && i == *index {
-                                    return Some((source, i, extra));
-                                }
-                            } else if !found && source.id == *id && i == *index {
-                                found = true;
-                            } else if found {
-                                return Some((source, i, extra));
-                            }
-                        }
+            if let WidgetSourceData::Line(_, extras) = &source.data {
+                for (i, extra) in extras.iter().enumerate() {
+                    if target.matches(extra) {
+                        return Some(CursorPointer {
+                            id: source.id,
+                            index: i,
+                        });
                     }
                 }
             }
@@ -169,18 +107,98 @@ impl<'a> WidgetSources<'a> {
         None
     }
 
-    fn visible(&self, (start_y, end_y): (i16, i16)) -> impl Iterator<Item = &'_ WidgetSource<'_>> {
-        // Quick & dirty without allocations, we only need to reverse when user presses "up" and
-        // there we can just allocate inline.
-        let mut y = start_y;
-        self.sources.iter().filter(move |source| {
-            let include = y >= 0;
-            y += source.height as i16;
-            if y >= end_y {
-                return false;
+    pub fn find_next_cursor<'b, Iter: DoubleEndedIterator<Item = &'b WidgetSource<'b>>>(
+        iter: Iter,
+        current: &CursorPointer,
+        mode: FindMode,
+        target: FindTarget,
+    ) -> Option<CursorPointer> {
+        let iter = WidgetSources::flatten_sources(iter, &mode, &target);
+
+        let mut found = false;
+        let mut first = None;
+        for pointer in iter {
+            if pointer == *current {
+                found = true;
+            } else if found {
+                return Some(pointer);
+            } else if first.is_none() {
+                first = Some(pointer.clone())
             }
-            include
-        })
+        }
+        first
+    }
+
+    fn flatten_sources<'b>(
+        iter: impl DoubleEndedIterator<Item = &'b WidgetSource<'b>>,
+        mode: &FindMode,
+        target: &FindTarget,
+    ) -> Either<impl Iterator<Item = CursorPointer>, impl Iterator<Item = CursorPointer>> {
+        match mode {
+            FindMode::Next => Either::Left(iter.flat_map(move |source| {
+                WidgetSources::line_extras_to_cursor_pointers(source, mode, target)
+            })),
+            FindMode::Prev => Either::Right(iter.rev().flat_map(move |source| {
+                WidgetSources::line_extras_to_cursor_pointers(source, mode, target)
+            })),
+        }
+    }
+
+    fn line_extras_to_cursor_pointers(
+        source: &WidgetSource<'a>,
+        mode: &FindMode,
+        target: &FindTarget,
+    ) -> Either<
+        Either<impl Iterator<Item = CursorPointer>, impl Iterator<Item = CursorPointer>>,
+        impl Iterator<Item = CursorPointer>,
+    > {
+        match mode {
+            FindMode::Next => {
+                if let WidgetSourceData::Line(_, extras) = &source.data {
+                    let id = source.id;
+                    Either::Left(Either::Left(
+                        extras
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, extra)| target.matches(extra))
+                            .map(move |(index, _)| CursorPointer { id, index }),
+                    ))
+                } else {
+                    Either::Right(std::iter::empty())
+                }
+            }
+            FindMode::Prev => {
+                if let WidgetSourceData::Line(_, extras) = &source.data {
+                    let id = source.id;
+                    Either::Left(Either::Right(
+                        extras
+                            .iter()
+                            .enumerate()
+                            .rev()
+                            .filter(|(_, extra)| target.matches(extra))
+                            .map(move |(index, _)| CursorPointer { id, index }),
+                    ))
+                } else {
+                    Either::Right(std::iter::empty())
+                }
+            }
+        }
+    }
+
+    #[cfg(test)]
+    pub fn find_extra_by_cursor(&self, pointer: &CursorPointer) -> Option<&LineExtra> {
+        for source in self.iter() {
+            if source.id != pointer.id {
+                continue;
+            }
+            let WidgetSourceData::Line(_, extras) = &source.data else {
+                continue;
+            };
+            if let Some(extra) = extras.get(pointer.index) {
+                return Some(extra);
+            }
+        }
+        None
     }
 }
 
@@ -188,6 +206,33 @@ impl<'a> Deref for WidgetSources<'a> {
     type Target = Vec<WidgetSource<'a>>;
     fn deref(&self) -> &Vec<WidgetSource<'a>> {
         &self.sources
+    }
+}
+
+impl<'a> DerefMut for WidgetSources<'a> {
+    // type Target = Vec<WidgetSource<'a>>;
+    fn deref_mut(&mut self) -> &mut Vec<WidgetSource<'a>> {
+        &mut self.sources
+    }
+}
+
+#[derive(Debug)]
+pub enum FindMode {
+    Prev,
+    Next,
+}
+
+#[derive(Debug)]
+pub enum FindTarget {
+    Link,
+    Search,
+}
+impl FindTarget {
+    fn matches(&self, extra: &LineExtra) -> bool {
+        match self {
+            FindTarget::Link => matches!(extra, LineExtra::Link(_, _, _)),
+            FindTarget::Search => matches!(extra, LineExtra::SearchMatch(_, _, _)),
+        }
     }
 }
 
@@ -203,9 +248,34 @@ pub struct WidgetSource<'a> {
 pub enum WidgetSourceData<'a> {
     Image(Protocol),
     BrokenImage(String, String),
-    Line(Line<'a>),
-    LineExtra(Line<'a>, Vec<LineExtra>),
-    SizedLine(String, u8),
+    Line(Line<'a>, Vec<LineExtra>),
+    Header(String, u8),
+}
+
+impl WidgetSourceData<'_> {
+    pub fn add_search(&mut self, re: &Option<Regex>) {
+        if let WidgetSourceData::Line(line, extras) = self {
+            let line_string = line.to_string();
+            extras.retain(|extra| !matches!(extra, LineExtra::SearchMatch(_, _, _)));
+            if let Some(re) = re {
+                extras.extend(
+                    re.find_iter(&line_string)
+                        .map(WidgetSourceData::regex_to_searchmatch(&line_string)),
+                );
+            }
+        }
+        // TODO: search in headers
+    }
+
+    #[expect(clippy::string_slice)] // Regex byte ranges are guaranteed to fall between characters.
+    fn regex_to_searchmatch(line_string: &str) -> impl Fn(Match<'_>) -> LineExtra {
+        |m: Match| {
+            // Convert from byte positions to character positions, with unicode_width.
+            let start = line_string[..m.start()].width();
+            let end = line_string[..m.end()].width();
+            LineExtra::SearchMatch(start, end, m.as_str().to_owned())
+        }
+    }
 }
 
 impl PartialEq for WidgetSourceData<'_> {
@@ -213,9 +283,8 @@ impl PartialEq for WidgetSourceData<'_> {
         match (self, other) {
             (Self::Image(l0), Self::Image(r0)) => l0.type_id() == r0.type_id(),
             (Self::BrokenImage(l0, l1), Self::BrokenImage(r0, r1)) => l0 == r0 && l1 == r1,
-            (Self::Line(l0), Self::Line(r0)) => l0 == r0,
-            (Self::LineExtra(l0, l1), Self::LineExtra(r0, r1)) => l0 == r0 && l1 == r1,
-            (Self::SizedLine(l0, l1), Self::SizedLine(r0, r1)) => l0 == r0 && l1 == r1,
+            (Self::Line(l0, l1), Self::Line(r0, r1)) => l0 == r0 && l1 == r1,
+            (Self::Header(l0, l1), Self::Header(r0, r1)) => l0 == r0 && l1 == r1,
             _ => false,
         }
     }
@@ -226,13 +295,8 @@ impl Debug for WidgetSourceData<'_> {
         match self {
             Self::Image(_) => f.debug_tuple("Image").finish(),
             Self::BrokenImage(_, _) => f.debug_tuple("BrokenImage").finish(),
-            Self::Line(arg0) => f.debug_tuple("Line").field(arg0).finish(),
-            Self::LineExtra(arg0, arg1) => {
-                f.debug_tuple("LineExtra").field(arg0).field(arg1).finish()
-            }
-            Self::SizedLine(text, tier) => {
-                f.debug_tuple("SizedLine").field(text).field(tier).finish()
-            }
+            Self::Line(arg0, arg1) => f.debug_tuple("Line").field(arg0).field(arg1).finish(),
+            Self::Header(text, tier) => f.debug_tuple("Header").field(text).field(tier).finish(),
         }
     }
 }
@@ -245,6 +309,10 @@ impl<'a> WidgetSource<'a> {
             data: WidgetSourceData::BrokenImage(url, text),
         }
     }
+
+    pub fn add_search(&mut self, re: &Option<Regex>) {
+        self.data.add_search(re);
+    }
 }
 
 #[cfg(test)]
@@ -253,9 +321,8 @@ impl Display for WidgetSource<'_> {
         match &self.data {
             WidgetSourceData::Image(_) => write!(f, "<image>"),
             WidgetSourceData::BrokenImage(_, _) => write!(f, "<broken-image>"),
-            WidgetSourceData::Line(line) => Display::fmt(&line, f),
-            WidgetSourceData::LineExtra(line, _) => Display::fmt(&line, f),
-            WidgetSourceData::SizedLine(text, tier) => {
+            WidgetSourceData::Line(line, _) => Display::fmt(&line, f),
+            WidgetSourceData::Header(text, tier) => {
                 write!(f, "{} {}", "#".repeat(*tier as usize), text)
             }
         }
@@ -265,6 +332,7 @@ impl Display for WidgetSource<'_> {
 #[derive(Clone, Debug, PartialEq)]
 pub enum LineExtra {
     Link(String, u16, u16),
+    SearchMatch(usize, usize, String),
 }
 
 /// Layout/shape and render `text` into a list of [`DynamicImage`] with a given terminal width.
@@ -588,8 +656,10 @@ fn truncate_str(s: &str, max_chars: usize) -> &str {
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used)]
 mod tests {
+
+    use regex::Regex;
+
     use crate::{widget_sources::WidgetSources, *};
 
     #[test]
@@ -598,96 +668,70 @@ mod tests {
         ws.push(WidgetSource {
             id: 1,
             height: 2,
-            data: WidgetSourceData::SizedLine(String::from("one"), 1),
+            data: WidgetSourceData::Header(String::from("one"), 1),
         });
         ws.push(WidgetSource {
             id: 2,
             height: 2,
-            data: WidgetSourceData::SizedLine(String::from("two"), 1),
+            data: WidgetSourceData::Header(String::from("two"), 1),
         });
         ws.push(WidgetSource {
             id: 3,
             height: 2,
-            data: WidgetSourceData::SizedLine(String::from("three"), 1),
+            data: WidgetSourceData::Header(String::from("three"), 1),
         });
 
         ws.update(vec![WidgetSource {
             id: 2,
             height: 2,
-            data: WidgetSourceData::SizedLine(String::from("two updated"), 1),
+            data: WidgetSourceData::Header(String::from("two updated"), 1),
         }]);
         assert_eq!(ws.sources.len(), 3);
     }
 
     #[test]
-    fn finds_multiple_links_per_line_next() {
+    fn get_y() {
         let mut ws = WidgetSources::default();
         ws.push(WidgetSource {
             id: 1,
-            height: 1,
-            data: WidgetSourceData::LineExtra(
-                Line::from("http://a.com http://b.com"),
-                vec![
-                    LineExtra::Link("http://a.com".into(), 0, 11),
-                    LineExtra::Link("http://b.com".into(), 12, 21),
-                ],
-            ),
+            height: 2,
+            data: WidgetSourceData::Header(String::from("one"), 1),
         });
         ws.push(WidgetSource {
             id: 2,
             height: 1,
-            data: WidgetSourceData::LineExtra(
-                Line::from("http://c.com"),
-                vec![LineExtra::Link("http://c.com".into(), 0, 11)],
-            ),
+            data: WidgetSourceData::Line(Line::from("line"), Vec::new()),
         });
-
-        ws.cursor_next((0, 30));
-        let LineExtra::Link(url, ..) = ws.get_extra_by_cursor().unwrap();
-        assert_eq!("http://a.com", url);
-
-        ws.cursor_next((0, 30));
-        let LineExtra::Link(url, ..) = ws.get_extra_by_cursor().unwrap();
-        assert_eq!("http://b.com", url);
-
-        ws.cursor_next((0, 30));
-        let LineExtra::Link(url, ..) = ws.get_extra_by_cursor().unwrap();
-        assert_eq!("http://c.com", url);
+        ws.push(WidgetSource {
+            id: 3,
+            height: 1,
+            data: WidgetSourceData::Line(Line::from("line"), Vec::new()),
+        });
+        ws.push(WidgetSource {
+            id: 4,
+            height: 2,
+            data: WidgetSourceData::Header(String::from("one"), 1),
+        });
+        ws.push(WidgetSource {
+            id: 5,
+            height: 1,
+            data: WidgetSourceData::Line(Line::from("line"), Vec::new()),
+        });
+        assert_eq!(ws.get_y(1), 0);
+        assert_eq!(ws.get_y(2), 2);
+        assert_eq!(ws.get_y(3), 3);
+        assert_eq!(ws.get_y(4), 4);
+        assert_eq!(ws.get_y(5), 6);
     }
 
     #[test]
-    fn finds_multiple_links_per_line_prev() {
-        let mut ws = WidgetSources::default();
-        ws.push(WidgetSource {
-            id: 1,
-            height: 1,
-            data: WidgetSourceData::LineExtra(
-                Line::from("http://a.com http://b.com"),
-                vec![
-                    LineExtra::Link("http://a.com".into(), 0, 11),
-                    LineExtra::Link("http://b.com".into(), 12, 21),
-                ],
-            ),
-        });
-        ws.push(WidgetSource {
-            id: 2,
-            height: 1,
-            data: WidgetSourceData::LineExtra(
-                Line::from("http://c.com"),
-                vec![LineExtra::Link("http://c.com".into(), 0, 11)],
-            ),
-        });
-
-        ws.cursor_prev((0, 30));
-        let LineExtra::Link(url, ..) = ws.get_extra_by_cursor().unwrap();
-        assert_eq!("http://c.com", url);
-
-        ws.cursor_prev((0, 30));
-        let LineExtra::Link(url, ..) = ws.get_extra_by_cursor().unwrap();
-        assert_eq!("http://b.com", url);
-
-        ws.cursor_prev((0, 30));
-        let LineExtra::Link(url, ..) = ws.get_extra_by_cursor().unwrap();
-        assert_eq!("http://a.com", url);
+    fn add_search_offset() {
+        let line = Line::from(vec![Span::from("▐").magenta(), Span::from(" hi")]);
+        let mut wsd = WidgetSourceData::Line(line, Vec::new());
+        wsd.add_search(&Regex::new("hi").ok());
+        let WidgetSourceData::Line(_, extra) = wsd else {
+            panic!("Line");
+        };
+        assert_eq!(extra[0], LineExtra::SearchMatch(2, 4, String::from("hi")));
     }
 }

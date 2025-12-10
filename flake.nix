@@ -1,23 +1,31 @@
 {
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     crane.url = "github:ipetkov/crane";
     flake-utils.url = "github:numtide/flake-utils";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, crane, fenix, flake-utils, ... }:
+  outputs = { self, nixpkgs, crane, flake-utils, rust-overlay, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = nixpkgs.legacyPackages.${system};
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ (import rust-overlay) ];
+        };
         inherit (pkgs) lib;
 
-        craneLib = crane.mkLib pkgs;
+        craneLib = (crane.mkLib pkgs).overrideToolchain (p:
+          p.rust-bin.stable.latest.default
+        );
 
         unfilteredRoot = ./.;
         src = lib.fileset.toSource {
           root = unfilteredRoot;
           fileset = lib.fileset.unions [
-            # Default files from crane (Rust and cargo files)
             (craneLib.fileset.commonCargoSources unfilteredRoot)
             (lib.fileset.maybeMissing ./assets)
             (lib.fileset.maybeMissing ./src/snapshots)
@@ -28,72 +36,49 @@
           inherit src;
           strictDeps = true;
 
-          buildInputs = with pkgs; [
-            # Add additional build inputs here
-          ] ++ lib.optionals pkgs.stdenv.isDarwin [
-            # Additional darwin specific inputs can be set here
+          buildInputs = lib.optionals pkgs.stdenv.isDarwin [
             pkgs.libiconv
           ];
-
-          # Additional environment variables can be set directly
-          # MY_CUSTOM_VAR = "some value";
         };
 
-        craneLibLLvmTools = craneLib.overrideToolchain
-          (fenix.packages.${system}.complete.withComponents [
-            "cargo"
-            "llvm-tools"
-            "rustc"
-          ]);
-
-        # Build *just* the cargo dependencies, so we can reuse
-        # all of that work (e.g. via cachix) when running in CI
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
         mdfried = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
         });
 
-        toolchain = with fenix.packages.${system};
-          combine [
-            minimal.rustc
-            minimal.cargo
-            targets.x86_64-pc-windows-gnu.latest.rust-std
-          ];
-        craneLibWindows = (crane.mkLib pkgs).overrideToolchain toolchain;
+        # Windows cross-compilation (only on Linux)
+        pkgsWindows = import nixpkgs {
+          overlays = [ (import rust-overlay) ];
+          localSystem = system;
+          crossSystem = {
+            config = "x86_64-w64-mingw32";
+          };
+        };
+
+        craneLibWindows = (crane.mkLib pkgsWindows).overrideToolchain (p:
+          p.rust-bin.stable.latest.default.override {
+            targets = [ "x86_64-pc-windows-gnu" ];
+          }
+        );
+
         mdfriedWindows = craneLibWindows.buildPackage {
           inherit src;
-
           strictDeps = true;
           doCheck = false;
-
-          CARGO_BUILD_TARGET = "x86_64-pc-windows-gnu";
-
-          # fixes issues related to libring
-          TARGET_CC = "${pkgs.pkgsCross.mingwW64.stdenv.cc}/bin/${pkgs.pkgsCross.mingwW64.stdenv.cc.targetPrefix}cc";
-
-          #fixes issues related to openssl
-          OPENSSL_DIR = "${pkgs.openssl.dev}";
-          OPENSSL_LIB_DIR = "${pkgs.openssl.out}/lib";
-          OPENSSL_INCLUDE_DIR = "${pkgs.openssl.dev}/include/";
-
-          depsBuildBuild = with pkgs; [
-            pkgsCross.mingwW64.stdenv.cc
-            pkgsCross.mingwW64.windows.pthreads
-          ];
         };
+
+        # LLVM coverage toolchain
+        craneLibLLvmTools = (crane.mkLib pkgs).overrideToolchain (p:
+          p.rust-bin.stable.latest.default.override {
+            extensions = [ "llvm-tools" ];
+          }
+        );
       in
       {
         checks = {
-          # Build the crate as part of `nix flake check` for convenience
           inherit mdfried;
 
-          # Run clippy (and deny all warnings) on the crate source,
-          # again, reusing the dependency artifacts from above.
-          #
-          # Note that this is done as a separate derivation so that
-          # we can block the CI if there are issues here, but not
-          # prevent downstream consumers from building our crate by itself.
           mdfried-clippy = craneLib.cargoClippy (commonArgs // {
             inherit cargoArtifacts;
             cargoClippyExtraArgs = "--all-targets -- --deny warnings";
@@ -103,14 +88,10 @@
             inherit cargoArtifacts;
           });
 
-          # Check formatting
           mdfried-fmt = craneLib.cargoFmt {
             inherit src;
           };
 
-          # Run tests with cargo-nextest
-          # Consider setting `doCheck = false` on `mdfried` if you do not want
-          # the tests to run twice
           mdfried-nextest = craneLib.cargoNextest (commonArgs // {
             inherit cargoArtifacts;
             partitions = 1;
@@ -118,11 +99,10 @@
           });
         };
 
-
         packages = {
           default = mdfried;
+        } // lib.optionalAttrs pkgs.stdenv.isLinux {
           windows = mdfriedWindows;
-        } // lib.optionalAttrs (!pkgs.stdenv.isDarwin) {
           mdfried-llvm-coverage = craneLibLLvmTools.cargoLlvmCov (commonArgs // {
             inherit cargoArtifacts;
           });
@@ -133,16 +113,12 @@
         };
 
         devShells.default = craneLib.devShell {
-          # Inherit inputs from checks.
           checks = self.checks.${system};
 
-          # Additional dev-shell environment variables can be set directly
-          # MY_CUSTOM_DEVELOPMENT_VAR = "something else";
-
-          # Extra inputs can be added here; cargo and rustc are provided by default.
           packages = with pkgs; [
             cargo-release
             cargo-flamegraph
+          ] ++ lib.optionals pkgs.stdenv.isLinux [
             perf
           ];
         };

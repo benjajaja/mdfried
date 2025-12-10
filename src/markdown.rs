@@ -102,7 +102,7 @@ pub fn parse<'a>(
             // Send a newline after things like Markdowns and Images, but not after the last block.
             events = vec![send_line(
                 &mut id,
-                WidgetSourceData::Line(Line::default()),
+                WidgetSourceData::Line(Line::default(), Vec::new()),
                 1,
             )];
         }
@@ -115,11 +115,7 @@ pub fn parse<'a>(
                     let madtext = RatSkin::parse_text(&text);
                     for line in skin.parse(madtext, width / 2) {
                         let text = line.to_string();
-                        events.push(send_line(
-                            &mut id,
-                            WidgetSourceData::SizedLine(text, tier),
-                            2,
-                        ));
+                        events.push(send_line(&mut id, WidgetSourceData::Header(text, tier), 2));
                     }
                 } else {
                     let event = Event::ParseHeader(id, tier, text);
@@ -138,15 +134,7 @@ pub fn parse<'a>(
                 for line in skin.parse(madtext, width) {
                     let (line, links) = links::capture_line(line, &text, width);
 
-                    events.push(send_line(
-                        &mut id,
-                        if links.is_empty() {
-                            WidgetSourceData::Line(line)
-                        } else {
-                            WidgetSourceData::LineExtra(line, links)
-                        },
-                        1,
-                    ));
+                    events.push(send_line(&mut id, WidgetSourceData::Line(line, links), 1));
                 }
             }
         }
@@ -172,9 +160,11 @@ fn send_event<'a>(id: &mut usize, ev: Event<'a>) -> Event<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::*;
+    use crate::{
+        markdown::links::{COLOR_DECOR, COLOR_LINK, COLOR_TEXT},
+        *,
+    };
     use pretty_assertions::assert_eq;
-    use ratatui::style::Color;
 
     #[test]
     fn split_headers_and_images() {
@@ -304,10 +294,10 @@ paragraph
         let expected = vec![Event::Parsed(WidgetSource {
             id: 0,
             height: 1,
-            data: WidgetSourceData::Line(Line::from(vec![
-                Span::from("ah").italic(),
-                Span::from(" ha ha"),
-            ])),
+            data: WidgetSourceData::Line(
+                Line::from(vec![Span::from("ah").italic(), Span::from(" ha ha")]),
+                Vec::new(),
+            ),
         })];
         assert_eq!(events, expected);
     }
@@ -319,14 +309,14 @@ paragraph
         let expected = vec![Event::Parsed(WidgetSource {
             id: 0,
             height: 1,
-            data: WidgetSourceData::LineExtra(
+            data: WidgetSourceData::Line(
                 Line::from(vec![
-                    Span::from("[").fg(Color::DarkGray),
-                    Span::from("text").fg(Color::LightBlue),
-                    Span::from("]").fg(Color::DarkGray),
-                    Span::from("(").fg(Color::DarkGray),
-                    Span::from("http://link.com").fg(Color::Blue).underlined(),
-                    Span::from(")").fg(Color::DarkGray),
+                    Span::from("[").fg(COLOR_DECOR),
+                    Span::from("text").fg(COLOR_TEXT),
+                    Span::from("]").fg(COLOR_DECOR),
+                    Span::from("(").fg(COLOR_DECOR),
+                    Span::from("http://link.com").fg(COLOR_LINK).underlined(),
+                    Span::from(")").fg(COLOR_DECOR),
                 ]),
                 vec![LineExtra::Link("http://link.com".to_owned(), 7, 22)],
             ),
@@ -347,14 +337,14 @@ paragraph
             Event::Parsed(WidgetSource {
                 id: 0,
                 height: 1,
-                data: WidgetSourceData::LineExtra(
+                data: WidgetSourceData::Line(
                     Line::from(vec![
-                        Span::from("[").fg(Color::DarkGray),
-                        Span::from("text").fg(Color::LightBlue),
-                        Span::from("]").fg(Color::DarkGray),
-                        Span::from("(").fg(Color::DarkGray),
+                        Span::from("[").fg(COLOR_DECOR),
+                        Span::from("text").fg(COLOR_TEXT),
+                        Span::from("]").fg(COLOR_DECOR),
+                        Span::from("(").fg(COLOR_DECOR),
                         Span::from("http://link.com/veeeeee")
-                            .fg(Color::Blue)
+                            .fg(COLOR_LINK)
                             .underlined(),
                     ]),
                     vec![LineExtra::Link(
@@ -367,9 +357,10 @@ paragraph
             Event::Parsed(WidgetSource {
                 id: 1,
                 height: 1,
-                data: WidgetSourceData::Line(Line::from(vec![Span::from(
-                    "eeeeeeeeeeery/long/tail)",
-                )])),
+                data: WidgetSourceData::Line(
+                    Line::from(vec![Span::from("eeeeeeeeeeery/long/tail)")]),
+                    Vec::new(),
+                ),
             }),
         ];
         assert_eq!(events, expected);
@@ -408,13 +399,19 @@ paragraph
             .iter()
             .flat_map(|ev| {
                 if let Event::Parsed(WidgetSource {
-                    data: WidgetSourceData::LineExtra(_, links),
+                    data: WidgetSourceData::Line(_, links),
                     ..
                 }) = ev
                 {
                     let urls: Vec<String> = links
                         .iter()
-                        .flat_map(|LineExtra::Link(url, _, _)| vec![url.to_owned()])
+                        .flat_map(|extra| {
+                            if let LineExtra::Link(url, _, _) = extra {
+                                vec![url.to_owned()]
+                            } else {
+                                Vec::new()
+                            }
+                        })
                         .collect();
                     return urls;
                 }
@@ -431,16 +428,19 @@ paragraph
             Event::Parsed(WidgetSource {
                 id: 0,
                 height: 1,
-                data: WidgetSourceData::Line(Line::from(vec![Span::from("[a"), Span::from(" ")])),
+                data: WidgetSourceData::Line(
+                    Line::from(vec![Span::from("[a"), Span::from(" ")]),
+                    Vec::new(),
+                ),
             }),
             Event::Parsed(WidgetSource {
                 id: 1,
                 height: 1,
-                data: WidgetSourceData::LineExtra(
+                data: WidgetSourceData::Line(
                     Line::from(vec![
                         Span::from("b]("),
                         Span::from("http://link.com/veeeeeeeeee")
-                            .fg(Color::Blue)
+                            .fg(COLOR_LINK)
                             .underlined(),
                     ]),
                     vec![LineExtra::Link(
@@ -453,7 +453,10 @@ paragraph
             Event::Parsed(WidgetSource {
                 id: 2,
                 height: 1,
-                data: WidgetSourceData::Line(Line::from(vec![Span::from("eeeeeeery/long/tail)")])),
+                data: WidgetSourceData::Line(
+                    Line::from(vec![Span::from("eeeeeeery/long/tail)")]),
+                    Vec::new(),
+                ),
             }),
         ];
         assert_eq!(
@@ -471,13 +474,19 @@ paragraph
             .iter()
             .flat_map(|ev| {
                 if let Event::Parsed(WidgetSource {
-                    data: WidgetSourceData::LineExtra(_, links),
+                    data: WidgetSourceData::Line(_, links),
                     ..
                 }) = ev
                 {
                     let urls: Vec<String> = links
                         .iter()
-                        .flat_map(|LineExtra::Link(url, _, _)| vec![url.to_owned()])
+                        .flat_map(|extra| {
+                            if let LineExtra::Link(url, _, _) = extra {
+                                vec![url.to_owned()]
+                            } else {
+                                Vec::new()
+                            }
+                        })
                         .collect();
                     return urls;
                 }

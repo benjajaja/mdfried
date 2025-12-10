@@ -11,20 +11,26 @@ use ratatui::{
     text::{Line, Span},
     widgets::Padding,
 };
+use regex::RegexBuilder;
 
-use crate::widget_sources::{WidgetSource, WidgetSourceData};
 use crate::{
     Cmd,
     config::{Config, PaddingConfig},
     error::Error,
+    widget_sources::{FindMode, FindTarget},
 };
 use crate::{Event, widget_sources::WidgetSources};
 use crate::{WidthEvent, setup::BgColor};
+use crate::{
+    cursor::Cursor,
+    widget_sources::{WidgetSource, WidgetSourceData},
+};
 
 pub struct Model<'a, 'b> {
     pub bg: Option<BgColor>,
     pub sources: WidgetSources<'a>,
     pub scroll: u16,
+    pub cursor: Cursor,
     pub log_snapshot: Option<flexi_logger::Snapshot>,
     original_file_path: Option<PathBuf>,
     terminal_height: u16,
@@ -48,6 +54,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
             terminal_height,
             config,
             scroll: 0,
+            cursor: Cursor::default(),
             sources: WidgetSources::default(),
             cmd_tx,
             event_rx,
@@ -110,9 +117,10 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                         self.sources.push(WidgetSource {
                             id,
                             height: 1,
-                            data: WidgetSourceData::Line(Line::from(format!(
-                                "![Loading...]({url})"
-                            ))),
+                            data: WidgetSourceData::Line(
+                                Line::from(format!("![Loading...]({url})")),
+                                Vec::new(),
+                            ),
                         });
                         self.cmd_tx
                             .send(Cmd::UrlImage(id, inner_width, url, text, title))?;
@@ -126,7 +134,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                         self.sources.push(WidgetSource {
                             id,
                             height: 2,
-                            data: WidgetSourceData::Line(line),
+                            data: WidgetSourceData::Line(line, Vec::new()),
                         });
                         self.cmd_tx.send(Cmd::Header(id, inner_width, tier, text))?;
                     }
@@ -146,15 +154,365 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                 .saturating_sub(self.inner_height(self.terminal_height))
                 + 1,
         );
-        // For now we just clear the link cursor, maybe we could keep it if still visible.
-        self.sources.clear_cursor();
     }
 
     pub fn visible_lines(&self) -> (i16, i16) {
-        (0 - (self.scroll as i16), self.terminal_height as i16) // TODO padding?
+        let start_y = self.scroll as i16;
+        // We don't render the last line, so sub one extra:
+        let end_y = start_y + self.inner_height(self.terminal_height) as i16 - 2;
+        (start_y, end_y)
     }
 
     pub fn open_link(&self, url: String) -> Result<(), SendError<Cmd>> {
         self.cmd_tx.send(Cmd::XdgOpen(url))
+    }
+
+    pub fn cursor_next(&mut self) {
+        match &mut self.cursor {
+            Cursor::None => {
+                if let Some(pointer) =
+                    WidgetSources::find_first_cursor(self.sources.iter(), FindTarget::Link)
+                {
+                    self.cursor = Cursor::Links(pointer);
+                }
+            }
+            Cursor::Links(current) => {
+                if let Some(pointer) = WidgetSources::find_next_cursor(
+                    self.sources.iter(),
+                    current,
+                    FindMode::Next,
+                    FindTarget::Link,
+                ) {
+                    self.cursor = Cursor::Links(pointer);
+                }
+            }
+            Cursor::Search(_, pointer) => match pointer {
+                None => {
+                    *pointer =
+                        WidgetSources::find_first_cursor(self.sources.iter(), FindTarget::Search);
+                }
+                Some(current) => {
+                    *pointer = WidgetSources::find_next_cursor(
+                        self.sources.iter(),
+                        current,
+                        FindMode::Next,
+                        FindTarget::Search,
+                    );
+                }
+            },
+        }
+        self.jump_to_pointer();
+    }
+
+    pub fn cursor_prev(&mut self) {
+        match &mut self.cursor {
+            Cursor::None => {
+                if let Some(pointer) =
+                    WidgetSources::find_first_cursor(self.sources.iter(), FindTarget::Link)
+                {
+                    self.cursor = Cursor::Links(pointer);
+                }
+            }
+            Cursor::Links(current) => {
+                if let Some(pointer) = WidgetSources::find_next_cursor(
+                    self.sources.iter(),
+                    current,
+                    FindMode::Prev,
+                    FindTarget::Link,
+                ) {
+                    self.cursor = Cursor::Links(pointer);
+                }
+            }
+            Cursor::Search(_, pointer) => match pointer {
+                None => {
+                    *pointer =
+                        WidgetSources::find_first_cursor(self.sources.iter(), FindTarget::Search)
+                }
+                Some(current) => {
+                    *pointer = WidgetSources::find_next_cursor(
+                        self.sources.iter(),
+                        current,
+                        FindMode::Prev,
+                        FindTarget::Search,
+                    )
+                }
+            },
+        }
+        self.jump_to_pointer();
+    }
+
+    pub fn add_searches(&mut self, needle: Option<String>) {
+        let re = needle.and_then(|needle| {
+            RegexBuilder::new(&regex::escape(&needle))
+                .case_insensitive(true)
+                .build()
+                .inspect_err(|err| log::error!("{err}"))
+                .ok()
+        });
+        for source in self.sources.iter_mut() {
+            source.add_search(&re);
+        }
+    }
+
+    fn jump_to_pointer(&mut self) {
+        if let Some(pointer) = self.cursor.pointer() {
+            let id = pointer.id;
+            let pointer_y = self.sources.get_y(id);
+            let (from, to) = self.visible_lines();
+            if pointer_y > to {
+                self.scroll_by(pointer_y - to);
+            } else if pointer_y < from {
+                self.scroll_by(pointer_y - from);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used)]
+mod tests {
+
+    use std::sync::mpsc;
+
+    use ratatui::text::Line;
+
+    use crate::{
+        Cmd, Event,
+        config::Config,
+        cursor::{Cursor, CursorPointer, SearchState},
+        model::Model,
+        widget_sources::{LineExtra, WidgetSource, WidgetSourceData, WidgetSources},
+    };
+
+    fn test_model<'a, 'b>() -> Model<'a, 'b> {
+        let (cmd_tx, _) = mpsc::channel::<Cmd>();
+        let (_, event_rx) = mpsc::channel::<(u16, Event)>();
+        Model {
+            original_file_path: None,
+            bg: None,
+            terminal_height: 20,
+            config: Config::default(),
+            scroll: 0,
+            cursor: Cursor::default(),
+            sources: WidgetSources::default(),
+            cmd_tx,
+            event_rx,
+            log_snapshot: None,
+        }
+    }
+
+    #[track_caller]
+    fn assert_cursor_link(model: &Model, expected_url: &str) {
+        let LineExtra::Link(url, ..) = model
+            .sources
+            .find_extra_by_cursor(
+                model
+                    .cursor
+                    .pointer()
+                    .expect("model.cursor.pointer() should be Some(CursorPointer{ .. })"),
+            )
+            .expect("find_extra_by_cursor(...).unwrap()")
+        else {
+            panic!(
+                "assert_link expected LineExtra::Link, is: {:?}",
+                model
+                    .cursor
+                    .pointer()
+                    .and_then(|p| model.sources.find_extra_by_cursor(p))
+            );
+        };
+        assert_eq!(url, expected_url);
+    }
+
+    #[test]
+    fn finds_link_per_line() {
+        let mut model = test_model();
+        model.sources.push(WidgetSource {
+            id: 1,
+            height: 1,
+            data: WidgetSourceData::Line(
+                Line::from("http://a.com http://b.com"),
+                vec![
+                    LineExtra::Link("http://a.com".into(), 0, 11),
+                    LineExtra::Link("http://b.com".into(), 12, 21),
+                ],
+            ),
+        });
+        model.sources.push(WidgetSource {
+            id: 2,
+            height: 1,
+            data: WidgetSourceData::Line(
+                Line::from("http://c.com"),
+                vec![LineExtra::Link("http://c.com".into(), 0, 11)],
+            ),
+        });
+
+        model.cursor_next();
+        assert_cursor_link(&model, "http://a.com");
+
+        model.cursor_next();
+        assert_cursor_link(&model, "http://b.com");
+
+        model.cursor_next();
+        assert_cursor_link(&model, "http://c.com");
+    }
+
+    #[test]
+    fn finds_multiple_links_per_line_next() {
+        let mut model = test_model();
+        model.sources.push(WidgetSource {
+            id: 1,
+            height: 1,
+            data: WidgetSourceData::Line(
+                Line::from("http://a.com http://b.com"),
+                vec![
+                    LineExtra::Link("http://a.com".into(), 0, 11),
+                    LineExtra::Link("http://b.com".into(), 12, 21),
+                ],
+            ),
+        });
+        model.sources.push(WidgetSource {
+            id: 2,
+            height: 1,
+            data: WidgetSourceData::Line(
+                Line::from("http://c.com"),
+                vec![LineExtra::Link("http://c.com".into(), 0, 11)],
+            ),
+        });
+
+        model.cursor_next();
+        assert_cursor_link(&model, "http://a.com");
+
+        model.cursor_next();
+        assert_cursor_link(&model, "http://b.com");
+
+        model.cursor_next();
+        assert_cursor_link(&model, "http://c.com");
+    }
+
+    #[test]
+    fn finds_multiple_links_per_line_prev() {
+        let mut model = test_model();
+        model.sources.push(WidgetSource {
+            id: 1,
+            height: 1,
+            data: WidgetSourceData::Line(
+                Line::from("http://a.com http://b.com"),
+                vec![
+                    LineExtra::Link("http://a.com".into(), 0, 11),
+                    LineExtra::Link("http://b.com".into(), 12, 21),
+                ],
+            ),
+        });
+        model.sources.push(WidgetSource {
+            id: 2,
+            height: 1,
+            data: WidgetSourceData::Line(
+                Line::from("http://c.com"),
+                vec![LineExtra::Link("http://c.com".into(), 0, 11)],
+            ),
+        });
+
+        model.cursor_prev();
+        assert_cursor_link(&model, "http://a.com");
+
+        model.cursor_prev();
+        assert_cursor_link(&model, "http://c.com");
+
+        model.cursor_prev();
+        assert_cursor_link(&model, "http://b.com");
+    }
+
+    #[test]
+    fn jump_to_pointer() {
+        let mut model = test_model();
+        for i in 0..31 {
+            model.sources.push(WidgetSource {
+                id: i,
+                height: 1,
+                data: WidgetSourceData::Line(Line::from(format!("line {}", i + 1)), Vec::new()),
+            });
+        }
+
+        // Just outside of view (terminal height is 20, we don't render on last line)
+        model.cursor = Cursor::Search(
+            SearchState::default(),
+            Some(CursorPointer { id: 19, index: 0 }),
+        );
+        model.jump_to_pointer();
+        assert_eq!(model.scroll, 1);
+
+        model.scroll = 0;
+        // Towards the end
+        model.cursor = Cursor::Search(
+            SearchState::default(),
+            Some(CursorPointer { id: 30, index: 0 }),
+        );
+        model.jump_to_pointer();
+        assert_eq!(model.scroll, 12);
+    }
+
+    #[test]
+    fn jump_back_to_pointer() {
+        let mut model = test_model();
+        for i in 0..31 {
+            model.sources.push(WidgetSource {
+                id: i,
+                height: 1,
+                data: WidgetSourceData::Line(Line::from(format!("line {}", i + 1)), Vec::new()),
+            });
+        }
+
+        model.scroll = 12;
+        model.cursor = Cursor::Search(
+            SearchState::default(),
+            Some(CursorPointer { id: 0, index: 0 }),
+        );
+        model.jump_to_pointer();
+        assert_eq!(model.scroll, 0);
+    }
+
+    #[test]
+    fn scrolls_into_view() {
+        let mut model = test_model();
+        for i in 0..30 {
+            model.sources.push(WidgetSource {
+                id: i,
+                height: 1,
+                data: WidgetSourceData::Line(Line::from(format!("line {}", i + 1)), Vec::new()),
+            });
+        }
+        model.sources.push(WidgetSource {
+            id: 30,
+            height: 1,
+            data: WidgetSourceData::Line(
+                Line::from("http://a.com"),
+                vec![LineExtra::Link("http://a.com".into(), 0, 11)],
+            ),
+        });
+
+        model.cursor_next();
+        assert_cursor_link(&model, "http://a.com");
+
+        assert_eq!(model.scroll, 12);
+        assert_eq!(model.visible_lines(), (12, 30));
+
+        let mut last_rendered = None;
+        let mut y: i16 = 0 - (model.scroll as i16);
+        for source in model.sources.iter() {
+            y += source.height as i16;
+            if y >= model.inner_height(model.terminal_height) as i16 - 1 {
+                last_rendered = Some(source);
+                break;
+            }
+        }
+        let last_rendered = last_rendered.unwrap();
+        let WidgetSourceData::Line(_, extra) = &last_rendered.data else {
+            panic!("expected Line");
+        };
+        let LineExtra::Link(url, _, _) = &extra[0] else {
+            panic!("expected Link");
+        };
+        assert_eq!("http://a.com", url);
     }
 }

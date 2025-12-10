@@ -1729,6 +1729,7 @@ dependencies = [
  "flexi_logger",
  "futures",
  "image",
+ "itertools 0.14.0",
  "libc",
  "log",
  "pretty_assertions",
@@ -1740,6 +1741,7 @@ dependencies = [
  "serde",
  "tokio",
  "tokio-util",
+ "unicode-width 0.2.2",
 ]
 
 [[package]]

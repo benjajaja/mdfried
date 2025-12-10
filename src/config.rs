@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, command};
+use clap::Parser;
 use confy::ConfyError;
 use ratatui::crossterm::style::Color;
 use ratatui_image::picker::ProtocolType;

@@ -1,4 +1,5 @@
 mod config;
+mod cursor;
 mod debug;
 mod error;
 mod markdown;
@@ -35,7 +36,7 @@ use ratatui::{
     },
     layout::{Rect, Size},
     prelude::CrosstermBackend,
-    style::{Style, Stylize as _},
+    style::{Color, Style, Stylize as _},
     text::{Line, Span, Text},
     widgets::{Block, Paragraph, Widget},
 };
@@ -47,11 +48,12 @@ use setup::{SetupResult, setup_graphics};
 use tokio::{runtime::Builder, sync::RwLock};
 
 use crate::{
+    cursor::{Cursor, CursorPointer, SearchState},
     error::Error,
     markdown::parse,
     model::Model,
     widget_sources::{
-        BigText, Cursor, LineExtra, SourceID, WidgetSource, WidgetSourceData, header_images,
+        BigText, LineExtra, SourceID, WidgetSource, WidgetSourceData, header_images,
         header_sources, image_source,
     },
 };
@@ -281,17 +283,21 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     }
     terminal.clear()?;
 
+    let terminal_size = terminal.size()?;
     let model = Model::new(
         bg,
         path.cloned(),
         cmd_tx,
         event_rx,
-        terminal.size()?.height,
+        terminal_size.height,
         config,
     );
-    model.parse(terminal.size()?, text).map_err(Error::from)?;
+    model.parse(terminal_size, text).map_err(Error::from)?;
 
-    run(terminal, model, &ui_logger)?;
+    run(&mut terminal, model, &ui_logger)?;
+
+    // Cursor might be in wird places, prompt or whatever should always show at the bottom now.
+    terminal.set_cursor_position((0, terminal_size.height - 1))?;
 
     if enable_mouse_capture.unwrap_or_default() {
         ratatui::crossterm::execute!(io::stderr(), DisableMouseCapture)?;
@@ -309,6 +315,7 @@ enum Cmd {
     Parse(u16, String),
     UrlImage(usize, u16, String, String, String),
     Header(usize, u16, u8, String),
+    // TODO: why not run this at call-site?
     XdgOpen(String),
 }
 
@@ -326,7 +333,7 @@ type WidthEvent<'a> = (u16, Event<'a>);
 
 #[expect(clippy::too_many_lines)]
 fn run<'a>(
-    mut terminal: DefaultTerminal,
+    terminal: &mut DefaultTerminal,
     mut model: Model<'a, 'a>,
     ui_logger: &LoggerHandle,
 ) -> Result<(), Error> {
@@ -348,65 +355,126 @@ fn run<'a>(
             match event::read()? {
                 event::Event::Key(key) => {
                     if key.kind == KeyEventKind::Press {
-                        match key.code {
-                            KeyCode::Char('q') => {
-                                return Ok(());
-                            }
-                            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                                return Ok(());
-                            }
-                            KeyCode::Char('r') => {
-                                model.reload(screen_size)?;
-                            }
-                            KeyCode::Char('j') | KeyCode::Down => {
-                                model.scroll_by(1);
-                            }
-                            KeyCode::Char('k') | KeyCode::Up => {
-                                model.scroll_by(-1);
-                            }
-                            KeyCode::Char('d') => {
-                                model.scroll_by((page_scroll_count + 1) / 2);
-                            }
-                            KeyCode::Char('u') => {
-                                model.scroll_by(-(page_scroll_count + 1) / 2);
-                            }
-                            KeyCode::Char('f' | ' ') | KeyCode::PageDown => {
-                                model.scroll_by(page_scroll_count);
-                            }
-                            KeyCode::Char('b') | KeyCode::PageUp => {
-                                model.scroll_by(-page_scroll_count);
-                            }
-                            KeyCode::Char('g') => {
-                                model.scroll = 0;
-                                model.sources.clear_cursor();
-                            }
-                            KeyCode::Char('G') => {
-                                model.scroll = model.total_lines().saturating_sub(
-                                    page_scroll_count as u16 + 1, // Why +1?
-                                );
-                                model.sources.clear_cursor();
-                            }
-                            KeyCode::Char('n') => {
-                                model.sources.cursor_next(model.visible_lines());
-                            }
-                            KeyCode::Char('N') => {
-                                model.sources.cursor_prev(model.visible_lines());
-                            }
-                            KeyCode::Enter => {
-                                if let Some(LineExtra::Link(url, ..)) =
-                                    model.sources.get_extra_by_cursor()
-                                {
-                                    log::debug!("open link_cursor {url}");
-                                    model.open_link(url.clone())?;
+                        match model.cursor {
+                            Cursor::Search(ref mut mode, _) if !mode.accepted => match key.code {
+                                KeyCode::Char('/') if mode.accepted => {
+                                    *mode = SearchState::default();
+                                    model.add_searches(None);
+                                }
+                                KeyCode::Char(c) => {
+                                    mode.needle.push(c);
+                                    let needle = mode.needle.clone();
+                                    model.add_searches(Some(needle));
+                                }
+                                KeyCode::Backspace => {
+                                    mode.needle.pop();
+                                    let needle = mode.needle.clone();
+                                    model.add_searches(Some(needle));
+                                }
+                                KeyCode::Esc => {
+                                    model.cursor = Cursor::None;
+                                }
+                                KeyCode::Enter => {
+                                    mode.accepted = true;
+                                    model.cursor_next();
+                                }
+                                _ => {}
+                            },
+                            _ => {
+                                match key.code {
+                                    KeyCode::Char('q') => {
+                                        return Ok(());
+                                    }
+                                    KeyCode::Char('c')
+                                        if key.modifiers.contains(KeyModifiers::CONTROL) =>
+                                    {
+                                        return Ok(());
+                                    }
+                                    KeyCode::Char('r') => {
+                                        model.reload(screen_size)?;
+                                    }
+                                    KeyCode::Char('j') | KeyCode::Down => {
+                                        model.scroll_by(1);
+                                    }
+                                    KeyCode::Char('k') | KeyCode::Up => {
+                                        model.scroll_by(-1);
+                                    }
+                                    KeyCode::Char('d') => {
+                                        model.scroll_by((page_scroll_count + 1) / 2);
+                                    }
+                                    KeyCode::Char('u') => {
+                                        model.scroll_by(-(page_scroll_count + 1) / 2);
+                                    }
+                                    KeyCode::Char('f' | ' ') | KeyCode::PageDown => {
+                                        model.scroll_by(page_scroll_count);
+                                    }
+                                    KeyCode::Char('b') | KeyCode::PageUp => {
+                                        model.scroll_by(-page_scroll_count);
+                                    }
+                                    KeyCode::Char('g') => {
+                                        model.scroll = 0;
+                                    }
+                                    KeyCode::Char('G') => {
+                                        model.scroll = model.total_lines().saturating_sub(
+                                            page_scroll_count as u16 + 1, // Why +1?
+                                        );
+                                    }
+                                    KeyCode::Char('/') => {
+                                        model.cursor = Cursor::Search(SearchState::default(), None);
+                                    }
+                                    KeyCode::Char('n') => {
+                                        model.cursor_next();
+                                    }
+                                    KeyCode::Char('N') => {
+                                        model.cursor_prev();
+                                    }
+                                    KeyCode::F(11) => {
+                                        model.log_snapshot = match model.log_snapshot {
+                                            None => Some(flexi_logger::Snapshot::new()),
+                                            Some(_) => None,
+                                        };
+                                    }
+                                    KeyCode::Enter => {
+                                        if let Cursor::Links(CursorPointer { id, index }) =
+                                            model.cursor
+                                        {
+                                            let url = model.sources.iter().find_map(|source| {
+                                                if source.id == id {
+                                                    let WidgetSourceData::Line(_, extras) =
+                                                        &source.data
+                                                    else {
+                                                        return None;
+                                                    };
+
+                                                    match extras.get(index) {
+                                                        Some(LineExtra::Link(url, _, _)) => {
+                                                            Some(url.clone())
+                                                        }
+                                                        _ => None,
+                                                    }
+                                                } else {
+                                                    None
+                                                }
+                                            });
+                                            if let Some(url) = url {
+                                                log::debug!("open link_cursor {url}");
+                                                model.open_link(url)?;
+                                            }
+                                        }
+                                    }
+                                    KeyCode::Esc => {
+                                        if let Cursor::Search(SearchState { accepted, .. }, _) =
+                                            model.cursor
+                                            && accepted
+                                        {
+                                            model.cursor = Cursor::None;
+                                        } else if let Cursor::Links(_) = model.cursor {
+                                            model.cursor = Cursor::None;
+                                        }
+                                    }
+                                    _ => {}
                                 }
                             }
-                            KeyCode::F(11) => {
-                                model.log_snapshot = match model.log_snapshot {
-                                    None => Some(flexi_logger::Snapshot::new()),
-                                    Some(_) => None,
-                                };
-                            }
-                            _ => {}
                         }
                     }
                 }
@@ -461,36 +529,62 @@ fn view(model: &Model, frame: &mut Frame) {
 
     frame.render_widget(block, frame_area);
 
+    let mut cursor_positioned = None;
+
     let mut y: i16 = 0 - (model.scroll as i16);
     for source in model.sources.iter() {
         if y >= 0 {
+            let y: u16 = y as u16;
             match &source.data {
-                WidgetSourceData::Line(line) | WidgetSourceData::LineExtra(line, _) => {
+                WidgetSourceData::Line(line, extras) => {
                     let p = Paragraph::new(line.clone());
 
-                    render_widget(p, source.height, y as u16, inner_area, frame);
+                    render_widget(p, source.height, y, inner_area, frame);
 
-                    // Render links now on top, again, this shouldn't be a performance concern.
-                    if let Some(Cursor { index, .. }) = model.sources.is_cursor(source)
-                        && let WidgetSourceData::LineExtra(_, extra) = &source.data
-                    {
-                        if let Some(link) = extra.get(*index) {
-                            match link {
-                                LineExtra::Link(url, start, end) => {
-                                    let x = frame_area.x + padding.left + *start;
-                                    let width = end - start;
-                                    let area = Rect::new(x, y as u16, width, 1);
-                                    let link_overlay_widget =
-                                        Paragraph::new(url.clone()).black().on_yellow();
+                    match &model.cursor {
+                        Cursor::Links(CursorPointer { id, index })
+                            if *id == source.id && !extras.is_empty() =>
+                        {
+                            // Render links now on top, again, this shouldn't be a performance concern.
+
+                            if let Some(LineExtra::Link(url, start, end)) = extras.get(*index) {
+                                let x = frame_area.x + padding.left + *start;
+                                let width = end - start;
+                                let area = Rect::new(x, y, width, 1);
+                                let link_overlay_widget = Paragraph::new(url.clone())
+                                    .fg(Color::Indexed(15))
+                                    .bg(Color::Indexed(32));
+                                frame.render_widget(link_overlay_widget, area);
+                                cursor_positioned = Some((x, y));
+                            }
+                        }
+                        Cursor::Search(SearchState { .. }, pointer) => {
+                            for (i, extra) in extras.iter().enumerate() {
+                                if let LineExtra::SearchMatch(start, end, text) = extra {
+                                    let x = frame_area.x + padding.left + (*start as u16);
+                                    let width = *end as u16 - *start as u16;
+                                    let area = Rect::new(x, y, width, 1);
+                                    let mut link_overlay_widget = Paragraph::new(text.clone());
+                                    link_overlay_widget = if let Some(CursorPointer { id, index }) =
+                                        pointer
+                                        && source.id == *id
+                                        && i == *index
+                                    {
+                                        link_overlay_widget.fg(Color::Black).bg(Color::Indexed(197))
+                                    } else {
+                                        link_overlay_widget.fg(Color::Black).bg(Color::Indexed(148))
+                                    };
                                     frame.render_widget(link_overlay_widget, area);
+                                    cursor_positioned = Some((x, y));
                                 }
                             }
                         }
+                        _ => {}
                     }
                 }
                 WidgetSourceData::Image(proto) => {
                     let img = Image::new(proto);
-                    render_widget(img, source.height, y as u16, inner_area, frame);
+                    render_widget(img, source.height, y, inner_area, frame);
                 }
                 WidgetSourceData::BrokenImage(url, text) => {
                     let spans = vec![
@@ -501,11 +595,11 @@ fn view(model: &Model, frame: &mut Frame) {
                     let text = Text::from(Line::from(spans));
                     let height = text.height();
                     let p = Paragraph::new(text);
-                    render_widget(p, height as u16, y as u16, inner_area, frame);
+                    render_widget(p, height as u16, y, inner_area, frame);
                 }
-                WidgetSourceData::SizedLine(text, tier) => {
+                WidgetSourceData::Header(text, tier) => {
                     let big_text = BigText::new(text, *tier);
-                    render_widget(big_text, 2, y as u16, inner_area, frame);
+                    render_widget(big_text, 2, y, inner_area, frame);
                 }
             }
         }
@@ -515,7 +609,38 @@ fn view(model: &Model, frame: &mut Frame) {
         }
     }
 
-    frame.set_cursor_position((0, frame_area.height - 1));
+    match &model.cursor {
+        Cursor::None => {
+            frame.set_cursor_position((0, frame_area.height - 1));
+        }
+        Cursor::Links(_) => {
+            let mut line = Line::default();
+            line.spans.push(Span::from("Links").fg(Color::Indexed(32)));
+            let width = line.width() as u16;
+            let searchbar = Paragraph::new(line);
+            frame.render_widget(searchbar, Rect::new(0, frame_area.height - 1, width, 1));
+            if cursor_positioned.is_none() {
+                frame.set_cursor_position((0, frame_area.height - 1));
+            }
+        }
+        Cursor::Search(mode, _) => {
+            let mut line = Line::default();
+            line.spans.push(Span::from("/").fg(Color::Indexed(148)));
+            let mut needle = Span::from(mode.needle.clone());
+            if mode.accepted {
+                needle = needle.fg(Color::Indexed(148));
+            }
+            line.spans.push(needle);
+            let width = line.width() as u16;
+            let searchbar = Paragraph::new(line);
+            frame.render_widget(searchbar, Rect::new(0, frame_area.height - 1, width, 1));
+            if !mode.accepted {
+                frame.set_cursor_position((width, frame_area.height - 1));
+            } else if cursor_positioned.is_none() {
+                frame.set_cursor_position((0, frame_area.height - 1));
+            }
+        }
+    }
 }
 
 fn render_widget<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, f: &mut Frame) {

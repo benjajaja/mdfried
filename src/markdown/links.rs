@@ -7,6 +7,10 @@ use regex::Regex;
 
 use crate::widget_sources::LineExtra;
 
+pub const COLOR_DECOR: Color = Color::Indexed(237);
+pub const COLOR_TEXT: Color = Color::Indexed(4);
+pub const COLOR_LINK: Color = Color::Indexed(32);
+
 pub fn capture_line<'a>(line: Line<'a>, text: &str, width: u16) -> (Line<'a>, Vec<LineExtra>) {
     let mut links = Vec::new();
 
@@ -54,20 +58,20 @@ pub fn capture_links<'a>(
 
         if let (Some(link_text), Some(url)) = (cap.get(1), cap.get(2)) {
             let mut url_str = url.as_str();
-            let decor_style = parent_style.fg(Color::DarkGray);
+            let decor_style = parent_style.fg(COLOR_DECOR);
             // TODO: we should check if it got cut off before!
             spans.push(Span::from("[").style(decor_style));
             spans.push(
                 Span::from(link_text.as_str().to_owned())
                     .style(parent_style)
-                    .fg(Color::LightBlue),
+                    .fg(COLOR_TEXT),
             );
             spans.push(Span::from("]").style(decor_style));
             spans.push(Span::from("(").style(decor_style));
             spans.push(
                 Span::from(url_str.to_owned())
                     .style(parent_style)
-                    .fg(Color::Blue)
+                    .fg(COLOR_LINK)
                     .underlined(),
             );
             if full_match.as_str().ends_with(')') {
@@ -145,7 +149,7 @@ pub fn capture_urls<'a>(
         spans.push(
             Span::from(url_str.to_owned())
                 .style(parent_style)
-                .fg(Color::Blue)
+                .fg(COLOR_LINK)
                 .underlined(),
         );
 
@@ -189,12 +193,12 @@ pub fn capture_urls<'a>(
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
-    use ratatui::{
-        style::{Color, Stylize as _},
-        text::Span,
-    };
+    use ratatui::{style::Stylize as _, text::Span};
 
-    use crate::{markdown::links::capture_links, widget_sources::LineExtra};
+    use crate::{
+        markdown::links::{COLOR_DECOR, COLOR_LINK, COLOR_TEXT, capture_links},
+        widget_sources::LineExtra,
+    };
 
     #[test]
     fn basic() {
@@ -207,16 +211,15 @@ mod tests {
         let mut offset = preceding_span.width() as u16;
         capture_links(span, &mut offset, text, width, &mut new_spans, &mut links);
 
-        let decor_style = Color::DarkGray;
         assert_eq!(
             vec![
                 Span::from(" "),
-                Span::from("[").style(decor_style),
-                Span::from("fried").fg(Color::LightBlue),
-                Span::from("]").style(decor_style),
-                Span::from("(").style(decor_style),
-                Span::from("http://url").fg(Color::Blue).underlined(),
-                Span::from(")").style(decor_style),
+                Span::from("[").style(COLOR_DECOR),
+                Span::from("fried").fg(COLOR_TEXT),
+                Span::from("]").style(COLOR_DECOR),
+                Span::from("(").style(COLOR_DECOR),
+                Span::from("http://url").fg(COLOR_LINK).underlined(),
+                Span::from(")").style(COLOR_DECOR),
             ],
             new_spans
         );
@@ -236,22 +239,21 @@ mod tests {
         let mut links = Vec::new();
         capture_links(span, &mut 0, text, width, &mut new_spans, &mut links);
 
-        let decor_style = Color::DarkGray;
         assert_eq!(
             vec![
-                Span::from("[").style(decor_style),
-                Span::from("a").fg(Color::LightBlue),
-                Span::from("]").style(decor_style),
-                Span::from("(").style(decor_style),
-                Span::from("http://a").fg(Color::Blue).underlined(),
-                Span::from(")").style(decor_style),
+                Span::from("[").style(COLOR_DECOR),
+                Span::from("a").fg(COLOR_TEXT),
+                Span::from("]").style(COLOR_DECOR),
+                Span::from("(").style(COLOR_DECOR),
+                Span::from("http://a").fg(COLOR_LINK).underlined(),
+                Span::from(")").style(COLOR_DECOR),
                 Span::from(" "),
-                Span::from("[").style(decor_style),
-                Span::from("b").fg(Color::LightBlue),
-                Span::from("]").style(decor_style),
-                Span::from("(").style(decor_style),
-                Span::from("http://b").fg(Color::Blue).underlined(),
-                Span::from(")").style(decor_style),
+                Span::from("[").style(COLOR_DECOR),
+                Span::from("b").fg(COLOR_TEXT),
+                Span::from("]").style(COLOR_DECOR),
+                Span::from("(").style(COLOR_DECOR),
+                Span::from("http://b").fg(COLOR_LINK).underlined(),
+                Span::from(")").style(COLOR_DECOR),
             ],
             new_spans
         );
