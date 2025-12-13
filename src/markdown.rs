@@ -4,7 +4,7 @@ use ratatui::text::Line;
 use ratskin::RatSkin;
 use regex::Regex;
 
-use crate::{Event, WidgetSource, widget_sources::WidgetSourceData};
+use crate::{DocumentId, Event, WidgetSource, widget_sources::WidgetSourceData};
 
 // Crude "pre-parsing" of markdown by lines.
 // Headers are always on a line of their own.
@@ -87,6 +87,7 @@ fn split_headers_and_images(text: &str) -> Vec<Block> {
 pub fn parse<'a>(
     text: &str,
     skin: &RatSkin,
+    document_id: DocumentId,
     width: u16,
     has_text_size_protocol: bool,
 ) -> impl Iterator<Item = Event<'a>> {
@@ -101,6 +102,7 @@ pub fn parse<'a>(
         if needs_space {
             // Send a newline after things like Markdowns and Images, but not after the last block.
             events = vec![send_line(
+                document_id,
                 &mut id,
                 WidgetSourceData::Line(Line::default(), Vec::new()),
                 1,
@@ -115,16 +117,21 @@ pub fn parse<'a>(
                     let madtext = RatSkin::parse_text(&text);
                     for line in skin.parse(madtext, width / 2) {
                         let text = line.to_string();
-                        events.push(send_line(&mut id, WidgetSourceData::Header(text, tier), 2));
+                        events.push(send_line(
+                            document_id,
+                            &mut id,
+                            WidgetSourceData::Header(text, tier),
+                            2,
+                        ));
                     }
                 } else {
-                    let event = Event::ParseHeader(id, tier, text);
+                    let event = Event::ParseHeader(document_id, id, tier, text);
                     events.push(send_event(&mut id, event));
                 }
             }
             Block::Image(alt, url) => {
                 needs_space = true;
-                let event = Event::ParseImage(id, url, alt, String::new());
+                let event = Event::ParseImage(document_id, id, url, alt, String::new());
                 events.push(send_event(&mut id, event));
             }
             Block::Markdown(text) => {
@@ -134,7 +141,12 @@ pub fn parse<'a>(
                 for line in skin.parse(madtext, width) {
                     let (line, links) = links::capture_line(line, &text, width);
 
-                    events.push(send_line(&mut id, WidgetSourceData::Line(line, links), 1));
+                    events.push(send_line(
+                        document_id,
+                        &mut id,
+                        WidgetSourceData::Line(line, links),
+                        1,
+                    ));
                 }
             }
         }
@@ -142,14 +154,22 @@ pub fn parse<'a>(
     })
 }
 
-fn send_line<'a>(id: &mut usize, data: WidgetSourceData<'a>, height: u16) -> Event<'a> {
+fn send_line<'a>(
+    document_id: DocumentId,
+    id: &mut usize,
+    data: WidgetSourceData<'a>,
+    height: u16,
+) -> Event<'a> {
     send_event(
         id,
-        Event::Parsed(WidgetSource {
-            id: *id,
-            height,
-            data,
-        }),
+        Event::Parsed(
+            document_id,
+            WidgetSource {
+                id: *id,
+                height,
+                data,
+            },
+        ),
     )
 }
 

@@ -13,14 +13,14 @@ use ratatui::{
 };
 use regex::RegexBuilder;
 
+use crate::setup::BgColor;
 use crate::{
-    Cmd,
+    Cmd, DocumentId,
     config::{Config, PaddingConfig},
     error::Error,
     widget_sources::{FindMode, FindTarget},
 };
 use crate::{Event, widget_sources::WidgetSources};
-use crate::{WidthEvent, setup::BgColor};
 use crate::{
     cursor::Cursor,
     widget_sources::{WidgetSource, WidgetSourceData},
@@ -33,10 +33,11 @@ pub struct Model<'a, 'b> {
     pub cursor: Cursor,
     pub log_snapshot: Option<flexi_logger::Snapshot>,
     original_file_path: Option<PathBuf>,
-    terminal_height: u16,
+    screen_size: Size,
     config: Config,
     cmd_tx: Sender<Cmd>,
-    event_rx: Receiver<WidthEvent<'b>>,
+    event_rx: Receiver<Event<'b>>,
+    document_id: DocumentId,
 }
 
 impl<'a, 'b: 'a> Model<'a, 'b> {
@@ -44,14 +45,15 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         bg: Option<BgColor>,
         original_file_path: Option<PathBuf>,
         cmd_tx: Sender<Cmd>,
-        event_rx: Receiver<WidthEvent<'b>>,
-        terminal_height: u16,
+        event_rx: Receiver<Event<'b>>,
+        screen_size: Size,
         config: Config,
+        document_id: DocumentId,
     ) -> Model<'a, 'b> {
         Model {
             original_file_path,
             bg,
-            terminal_height,
+            screen_size,
             config,
             scroll: 0,
             cursor: Cursor::default(),
@@ -59,16 +61,17 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
             cmd_tx,
             event_rx,
             log_snapshot: None,
+            document_id,
         }
     }
 
     pub fn reload(&mut self, screen_size: Size) -> Result<(), Error> {
-        log::debug!("reload");
+        log::info!("reload");
         if let Some(original_file_path) = &self.original_file_path {
             let text = fs::read_to_string(original_file_path)?;
             self.sources = WidgetSources::default();
             self.scroll = 0;
-            self.terminal_height = screen_size.height;
+            self.screen_size = screen_size;
             self.parse(screen_size, text)?;
         }
         Ok(())
@@ -106,14 +109,27 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
     pub fn process_events(&mut self, screen_width: u16) -> Result<bool, Error> {
         let inner_width = self.inner_width(screen_width);
         let mut had_events = false;
-        while let Ok((id, ev)) = self.event_rx.try_recv() {
-            if id == inner_width {
-                had_events = true;
-                log::debug!("Event: {ev:?}");
-                match ev {
-                    Event::Parsed(source) => self.sources.push(source),
-                    Event::Update(updates) => self.sources.update(updates),
-                    Event::ParseImage(id, url, text, title) => {
+        while let Ok(event) = self.event_rx.try_recv() {
+            had_events = true;
+            if !matches!(event, Event::Parsed(_, _)) {
+                log::debug!("Event: {event}");
+            }
+            match event {
+                Event::NewDocument(document_id) => {
+                    self.document_id = document_id;
+                }
+                Event::Parsed(document_id, source) => {
+                    if self.document_id == document_id {
+                        self.sources.push(source);
+                    }
+                }
+                Event::Update(document_id, updates) => {
+                    if self.document_id == document_id {
+                        self.sources.update(updates);
+                    }
+                }
+                Event::ParseImage(document_id, id, url, text, title) => {
+                    if self.document_id == document_id {
                         self.sources.push(WidgetSource {
                             id,
                             height: 1,
@@ -122,10 +138,18 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                                 Vec::new(),
                             ),
                         });
-                        self.cmd_tx
-                            .send(Cmd::UrlImage(id, inner_width, url, text, title))?;
+                        self.cmd_tx.send(Cmd::UrlImage(
+                            document_id,
+                            id,
+                            inner_width,
+                            url,
+                            text,
+                            title,
+                        ))?;
                     }
-                    Event::ParseHeader(id, tier, text) => {
+                }
+                Event::ParseHeader(document_id, id, tier, text) => {
+                    if self.document_id == document_id {
                         let line = Line::from(vec![
                             #[expect(clippy::string_add)]
                             Span::from("#".repeat(tier as usize) + " ").light_blue(),
@@ -136,12 +160,14 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                             height: 2,
                             data: WidgetSourceData::Line(line, Vec::new()),
                         });
-                        self.cmd_tx.send(Cmd::Header(id, inner_width, tier, text))?;
+                        self.cmd_tx
+                            .send(Cmd::Header(document_id, id, inner_width, tier, text))?;
                     }
-                    Event::MarkHadEvents => {}
                 }
-            } else if id == 0 && matches!(ev, Event::MarkHadEvents) {
-                had_events = true;
+                Event::FileChanged => {
+                    log::info!("reload: FileChanged");
+                    self.reload(self.screen_size)?;
+                }
             }
         }
         Ok(had_events)
@@ -151,7 +177,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         self.scroll = min(
             self.scroll.saturating_add_signed(lines),
             self.total_lines()
-                .saturating_sub(self.inner_height(self.terminal_height))
+                .saturating_sub(self.inner_height(self.screen_size.height))
                 + 1,
         );
     }
@@ -159,7 +185,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
     pub fn visible_lines(&self) -> (i16, i16) {
         let start_y = self.scroll as i16;
         // We don't render the last line, so sub one extra:
-        let end_y = start_y + self.inner_height(self.terminal_height) as i16 - 2;
+        let end_y = start_y + self.inner_height(self.screen_size.height) as i16 - 2;
         (start_y, end_y)
     }
 
@@ -277,7 +303,7 @@ mod tests {
     use ratatui::text::Line;
 
     use crate::{
-        Cmd, Event,
+        Cmd, DocumentId, WidthEvent,
         config::Config,
         cursor::{Cursor, CursorPointer, SearchState},
         model::Model,
@@ -286,11 +312,11 @@ mod tests {
 
     fn test_model<'a, 'b>() -> Model<'a, 'b> {
         let (cmd_tx, _) = mpsc::channel::<Cmd>();
-        let (_, event_rx) = mpsc::channel::<(u16, Event)>();
+        let (_, event_rx) = mpsc::channel::<WidthEvent>();
         Model {
             original_file_path: None,
             bg: None,
-            terminal_height: 20,
+            screen_size: (80, 20).into(),
             config: Config::default(),
             scroll: 0,
             cursor: Cursor::default(),
@@ -298,6 +324,7 @@ mod tests {
             cmd_tx,
             event_rx,
             log_snapshot: None,
+            document_id: DocumentId { read_number: 1 },
         }
     }
 
@@ -501,7 +528,7 @@ mod tests {
         let mut y: i16 = 0 - (model.scroll as i16);
         for source in model.sources.iter() {
             y += source.height as i16;
-            if y >= model.inner_height(model.terminal_height) as i16 - 1 {
+            if y >= model.inner_height(model.screen_size.height) as i16 - 1 {
                 last_rendered = Some(source);
                 break;
             }

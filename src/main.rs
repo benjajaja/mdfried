@@ -4,6 +4,7 @@ mod debug;
 mod error;
 mod markdown;
 mod model;
+mod notify;
 mod setup;
 mod widget_sources;
 
@@ -11,6 +12,7 @@ mod widget_sources;
 use std::os::fd::IntoRawFd as _;
 
 use std::{
+    fmt::Display,
     fs::{self, File},
     io::{self, Read as _},
     path::{Path, PathBuf},
@@ -52,6 +54,7 @@ use crate::{
     error::Error,
     markdown::parse,
     model::Model,
+    notify::watch,
     widget_sources::{
         BigText, LineExtra, SourceID, WidgetSource, WidgetSourceData, header_images,
         header_sources, image_source,
@@ -66,13 +69,14 @@ fn main() -> io::Result<()> {
             arg!([path] "The markdown file path, or '-', or omit, for stdin")
                 .value_parser(value_parser!(PathBuf)),
         )
-        .arg(arg!(-s --setup "Force font setup").value_parser(value_parser!(bool)))
-        .arg(arg!(-d --deep "Extra deep fried images").value_parser(value_parser!(bool)))
+        .arg(arg!(-s --"setup" "Force font setup").value_parser(value_parser!(bool)))
         .arg(
             arg!(--"no-cap-checks" "No terminal capability checks")
                 .value_parser(value_parser!(bool)),
         )
-        .arg(arg!(--debug_override_protocol_type <PROTOCOL> "Force graphics protocol type"));
+        .arg(arg!(--"debug-override-protocol-type" <PROTOCOL> "Force graphics protocol type"))
+        .arg(arg!(-w --"watch" "Watch markdown file").value_parser(value_parser!(bool)))
+        .arg(arg!(-d --"deep-fry" "Extra deep fried images").value_parser(value_parser!(bool)));
     let matches = cmd.get_matches_mut();
 
     match main_with_args(&matches) {
@@ -202,11 +206,20 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     let deep_fry = *matches.get_one("deep").unwrap_or(&false);
 
+    let watchmode_path = if *matches.get_one("watch").unwrap_or(&false) {
+        path.cloned()
+    } else {
+        None
+    };
+
     let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
-    let (event_tx, event_rx) = mpsc::channel::<(u16, Event)>();
+    let watch_cmd_tx = cmd_tx.clone();
+    let (event_tx, event_rx) = mpsc::channel::<Event>();
 
     let config_max_image_height = config.max_image_height;
     let skin = config.skin.clone();
+    let document_id = DocumentId { read_number: 0 };
+    let mut cmd_document_id = document_id;
     let cmd_thread = thread::spawn(move || {
         let runtime = Builder::new_multi_thread()
             .worker_threads(2)
@@ -221,16 +234,21 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
                 renderer.map(|renderer| Arc::new(std::sync::Mutex::new(renderer)));
             let thread_picker = Arc::new(picker);
             let skin = RatSkin { skin };
+
             log::debug!("cmd thread running");
             for cmd in cmd_rx {
-                log::debug!("Cmd: {cmd:?}");
+                log::debug!("Cmd: {cmd}");
                 match cmd {
                     Cmd::Parse(width, text) => {
-                        for event in parse(&text, &skin, width, has_text_size_protocol) {
-                            event_tx.send((width, event))?;
+                        cmd_document_id.read_number += 1;
+                        event_tx.send(Event::NewDocument(document_id))?;
+                        for event in parse(&text, &skin, document_id, width, has_text_size_protocol)
+                        {
+                            event_tx.send(event)?;
                         }
+                        log::debug!("Cmd::Parse finished");
                     }
-                    Cmd::Header(id, width, tier, text) => {
+                    Cmd::Header(document_id, source_id, width, tier, text) => {
                         debug_assert!(
                             thread_renderer.is_some(),
                             "should not have sent ImgCmd::Header without renderer"
@@ -248,16 +266,16 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
                                     .await??;
 
                                     let headers = tokio::task::spawn_blocking(move || {
-                                        header_sources(&picker, width, id, images, deep_fry)
+                                        header_sources(&picker, width, source_id, images, deep_fry)
                                     })
                                     .await??;
-                                    task_tx.send((width, Event::Update(headers)))?;
+                                    task_tx.send(Event::Update(document_id, headers))?;
                                     Ok::<(), Error>(())
                                 });
                             }
                         }
                     }
-                    Cmd::UrlImage(id, width, url, text, _title) => {
+                    Cmd::UrlImage(document_id, source_id, width, url, text, _title) => {
                         let task_tx = event_tx.clone();
                         let basepath = basepath.clone();
                         let client = client.clone();
@@ -270,22 +288,24 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
                                 width,
                                 &basepath,
                                 client,
-                                id,
+                                source_id,
                                 &url,
                                 deep_fry,
                             )
                             .await
                             {
-                                Ok(source) => task_tx.send((width, Event::Update(vec![source])))?,
-                                Err(Error::UnknownImage(id, link)) => task_tx.send((
-                                    width,
-                                    Event::Update(vec![WidgetSource::image_unknown(
-                                        id, link, text,
-                                    )]),
-                                ))?,
-                                Err(_) => task_tx.send((
-                                    width,
-                                    Event::Update(vec![WidgetSource::image_unknown(id, url, text)]),
+                                Ok(source) => {
+                                    task_tx.send(Event::Update(document_id, vec![source]))?
+                                }
+                                Err(Error::UnknownImage(id, link)) => {
+                                    task_tx.send(Event::Update(
+                                        document_id,
+                                        vec![WidgetSource::image_unknown(id, link, text)],
+                                    ))?
+                                }
+                                Err(_) => task_tx.send(Event::Update(
+                                    document_id,
+                                    vec![WidgetSource::image_unknown(source_id, url, text)],
                                 ))?,
                             }
                             Ok::<(), Error>(())
@@ -294,8 +314,11 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
                     Cmd::XdgOpen(url) => {
                         std::process::Command::new("xdg-open").arg(&url).spawn()?;
                     }
+                    Cmd::FileChanged => {
+                        log::info!("cmd FileChanged");
+                        event_tx.send(Event::FileChanged)?;
+                    }
                 }
-                event_tx.send((0, Event::MarkHadEvents))?;
             }
             Ok::<(), Error>(())
         })?;
@@ -317,12 +340,22 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         path.cloned(),
         cmd_tx,
         event_rx,
-        terminal_size.height,
+        terminal.size()?,
         config,
+        document_id,
     );
     model.parse(terminal_size, text).map_err(Error::from)?;
 
+    let debouncer = if let Some(path) = watchmode_path {
+        log::info!("watching file");
+        Some(watch(&path, watch_cmd_tx)?)
+    } else {
+        drop(watch_cmd_tx);
+        None
+    };
+
     run(&mut terminal, model, &ui_logger)?;
+    drop(debouncer);
 
     // Cursor might be in wird places, prompt or whatever should always show at the bottom now.
     terminal.set_cursor_position((0, terminal_size.height - 1))?;
@@ -338,26 +371,85 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     Ok(())
 }
 
+#[derive(Debug, PartialEq, Clone, Copy)]
+struct DocumentId {
+    read_number: usize,
+}
+
+impl Display for DocumentId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "D{}", self.read_number)
+    }
+}
+
 #[derive(Debug)]
 enum Cmd {
     Parse(u16, String),
-    UrlImage(usize, u16, String, String, String),
-    Header(usize, u16, u8, String),
+    UrlImage(DocumentId, usize, u16, String, String, String),
+    Header(DocumentId, usize, u16, u8, String),
     // TODO: why not run this at call-site?
     XdgOpen(String),
+    FileChanged,
+}
+
+impl Display for Cmd {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Cmd::Parse(width, _) => write!(f, "Cmd::Parse({width}, <text>)"),
+            Cmd::UrlImage(document_id, source_id, width, url, _, _) => write!(
+                f,
+                "Cmd::UrlImage({document_id}, {source_id}, {width}, {url}, _, _)"
+            ),
+            Cmd::Header(document_id, source_id, width, tier, text) => write!(
+                f,
+                "Cmd::Header({document_id}, {source_id}, {width}, {tier}, {text})"
+            ),
+            Cmd::XdgOpen(url) => write!(f, "Cmd::XdgOpen({url})"),
+            Cmd::FileChanged => write!(f, "Cmd::FileChanged"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
 enum Event<'a> {
-    Parsed(WidgetSource<'a>),
-    ParseImage(SourceID, String, String, String),
-    ParseHeader(SourceID, u8, String),
-    Update(Vec<WidgetSource<'a>>),
-    MarkHadEvents,
+    NewDocument(DocumentId),
+    Parsed(DocumentId, WidgetSource<'a>),
+    ParseImage(DocumentId, SourceID, String, String, String),
+    ParseHeader(DocumentId, SourceID, u8, String),
+    Update(DocumentId, Vec<WidgetSource<'a>>),
+    FileChanged,
+}
+
+impl Display for Event<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Event::NewDocument(document_id) => write!(f, "Event::NewDocument({document_id})"),
+
+            Event::Parsed(document_id, source) => {
+                write!(f, "Event::Parsed({document_id}, source.id:{})", source.id)
+            }
+
+            Event::Update(document_id, updates) => write!(
+                f,
+                "Event::Update({document_id}, <{} updates>)",
+                updates.len()
+            ),
+
+            Event::ParseImage(document_id, id, url, _, _) => {
+                write!(f, "Event::ParseImage({document_id}, {id}, {url}, _, _)")
+            }
+
+            Event::ParseHeader(document_id, id, tier, text) => {
+                write!(f, "Event::ParseHeader({document_id}, {id}, {tier}, {text})")
+            }
+
+            Event::FileChanged => write!(f, "Event::FileChanged"),
+        }
+    }
 }
 
 // Just a width key, to discard events for stale screen widths.
-type WidthEvent<'a> = (u16, Event<'a>);
+// type WidthEvent<'a> = (u16, Event<'a>);
 
 #[expect(clippy::too_many_lines)]
 fn run<'a>(

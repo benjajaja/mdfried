@@ -11,7 +11,7 @@ use flexi_logger::FlexiLoggerError;
 use image::ImageError;
 use tokio::task::JoinError;
 
-use crate::{Cmd, WidthEvent, config, setup::FontRenderer};
+use crate::{Cmd, Event, config, setup::FontRenderer};
 
 #[derive(Debug)]
 pub enum Error {
@@ -28,6 +28,7 @@ pub enum Error {
     NoFont,
     Thread,
     UnknownImage(usize, String),
+    Notify(notify::Error),
     // Do not overuse this one!
     Generic(String),
 }
@@ -55,6 +56,7 @@ impl fmt::Display for Error {
             Error::NoFont => write!(f, "No font available"),
             Error::Thread => write!(f, "Thread error"),
             Error::UnknownImage(_, url) => write!(f, "Unknown image format: {url}"),
+            Error::Notify(err) => write!(f, "Watch error: {err}"),
             Error::Generic(msg) => write!(f, "Generic error: {msg}"),
         }
     }
@@ -111,8 +113,8 @@ impl From<reqwest::Error> for Error {
     }
 }
 
-impl From<SendError<WidthEvent<'_>>> for Error {
-    fn from(_: SendError<WidthEvent<'_>>) -> Self {
+impl From<SendError<Event<'_>>> for Error {
+    fn from(_: SendError<Event<'_>>) -> Self {
         Self::Thread
     }
 }
@@ -138,6 +140,12 @@ impl From<PoisonError<std::sync::MutexGuard<'_, Box<FontRenderer>>>> for Error {
 impl From<FlexiLoggerError> for Error {
     fn from(value: FlexiLoggerError) -> Self {
         Self::Logger(value)
+    }
+}
+
+impl From<notify::Error> for Error {
+    fn from(value: notify::Error) -> Self {
+        Self::Notify(value)
     }
 }
 
