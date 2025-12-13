@@ -1,6 +1,11 @@
 [workspace]
 members = [ ".", "ratskin" ]
 
+[workspace.metadata.release]
+pre-release-replacements = [
+  {file="CHANGELOG.md", search="## \\[Unreleased\\]", replace="## [Unreleased]\n\n## [{{version}}] - {{date}}", exactly=1},
+]
+
 [package]
 name = "mdfried"
 version = "0.14.6"
