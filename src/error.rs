@@ -5,6 +5,7 @@ use std::{
     sync::{PoisonError, mpsc::SendError},
 };
 
+use color_eyre::eyre::InstallError;
 use confy::ConfyError;
 use flexi_logger::FlexiLoggerError;
 use image::ImageError;
@@ -27,6 +28,8 @@ pub enum Error {
     NoFont,
     Thread,
     UnknownImage(usize, String),
+    // Do not overuse this one!
+    Generic(String),
 }
 
 impl fmt::Display for Error {
@@ -52,6 +55,7 @@ impl fmt::Display for Error {
             Error::NoFont => write!(f, "No font available"),
             Error::Thread => write!(f, "Thread error"),
             Error::UnknownImage(_, url) => write!(f, "Unknown image format: {url}"),
+            Error::Generic(msg) => write!(f, "Generic error: {msg}"),
         }
     }
 }
@@ -134,5 +138,11 @@ impl From<PoisonError<std::sync::MutexGuard<'_, Box<FontRenderer>>>> for Error {
 impl From<FlexiLoggerError> for Error {
     fn from(value: FlexiLoggerError) -> Self {
         Self::Logger(value)
+    }
+}
+
+impl From<InstallError> for Error {
+    fn from(value: InstallError) -> Self {
+        Self::Generic(format!("{value}"))
     }
 }

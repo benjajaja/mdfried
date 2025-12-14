@@ -90,6 +90,26 @@ fn main() -> io::Result<()> {
 
 #[expect(clippy::too_many_lines)]
 fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
+    let (panic_hook, eyre_hook) = color_eyre::config::HookBuilder::default()
+        .panic_section(format!(
+            "This is a bug. Consider reporting it at {}",
+            env!("CARGO_PKG_REPOSITORY")
+        ))
+        .display_location_section(true)
+        .display_env_section(true)
+        .into_hooks();
+    eyre_hook.install()?;
+    std::panic::set_hook(Box::new(move |panic_info| {
+        if let Err(err) = ratatui::crossterm::terminal::disable_raw_mode() {
+            eprintln!("Unable to disable raw mode: {:?}", err);
+        }
+        let msg = format!("{}", panic_hook.panic_report(panic_info));
+        log::error!("Panic: {}", msg);
+        eprint!("{msg}");
+        #[expect(clippy::exit)]
+        std::process::exit(libc::EXIT_FAILURE);
+    }));
+
     let ui_logger = debug::ui_logger()?;
 
     let path = matches.get_one::<PathBuf>("path");
