@@ -371,7 +371,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     Ok(())
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Default, Debug, PartialEq, Clone, Copy)]
 struct DocumentId {
     read_number: usize,
 }

@@ -303,7 +303,7 @@ mod tests {
     use ratatui::text::Line;
 
     use crate::{
-        Cmd, DocumentId, WidthEvent,
+        Cmd, DocumentId, Event,
         config::Config,
         cursor::{Cursor, CursorPointer, SearchState},
         model::Model,
@@ -312,7 +312,7 @@ mod tests {
 
     fn test_model<'a, 'b>() -> Model<'a, 'b> {
         let (cmd_tx, _) = mpsc::channel::<Cmd>();
-        let (_, event_rx) = mpsc::channel::<WidthEvent>();
+        let (_, event_rx) = mpsc::channel::<Event>();
         Model {
             original_file_path: None,
             bg: None,

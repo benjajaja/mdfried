@@ -310,51 +310,41 @@ paragraph
 
     #[test]
     fn parse_one_basic_line() {
-        let events: Vec<Event> = parse("*ah* ha ha", &RatSkin::default(), 80, true).collect();
-        let expected = vec![Event::Parsed(WidgetSource {
-            id: 0,
-            height: 1,
-            data: WidgetSourceData::Line(
-                Line::from(vec![Span::from("ah").italic(), Span::from(" ha ha")]),
-                Vec::new(),
-            ),
-        })];
+        let events: Vec<Event> = parse(
+            "*ah* ha ha",
+            &RatSkin::default(),
+            DocumentId::default(),
+            80,
+            true,
+        )
+        .collect();
+        let expected = vec![Event::Parsed(
+            DocumentId::default(),
+            WidgetSource {
+                id: 0,
+                height: 1,
+                data: WidgetSourceData::Line(
+                    Line::from(vec![Span::from("ah").italic(), Span::from(" ha ha")]),
+                    Vec::new(),
+                ),
+            },
+        )];
         assert_eq!(events, expected);
     }
 
     #[test]
     fn parse_link() {
-        let events: Vec<Event> =
-            parse("[text](http://link.com)", &RatSkin::default(), 80, true).collect();
-        let expected = vec![Event::Parsed(WidgetSource {
-            id: 0,
-            height: 1,
-            data: WidgetSourceData::Line(
-                Line::from(vec![
-                    Span::from("[").fg(COLOR_DECOR),
-                    Span::from("text").fg(COLOR_TEXT),
-                    Span::from("]").fg(COLOR_DECOR),
-                    Span::from("(").fg(COLOR_DECOR),
-                    Span::from("http://link.com").fg(COLOR_LINK).underlined(),
-                    Span::from(")").fg(COLOR_DECOR),
-                ]),
-                vec![LineExtra::Link("http://link.com".to_owned(), 7, 22)],
-            ),
-        })];
-        assert_eq!(events, expected);
-    }
-
-    #[test]
-    fn parse_long_link() {
         let events: Vec<Event> = parse(
-            "[text](http://link.com/veeeeeeeeeeeeeeeeery/long/tail)",
+            "[text](http://link.com)",
             &RatSkin::default(),
-            30,
+            DocumentId::default(),
+            80,
             true,
         )
         .collect();
-        let expected = vec![
-            Event::Parsed(WidgetSource {
+        let expected = vec![Event::Parsed(
+            DocumentId::default(),
+            WidgetSource {
                 id: 0,
                 height: 1,
                 data: WidgetSourceData::Line(
@@ -363,25 +353,61 @@ paragraph
                         Span::from("text").fg(COLOR_TEXT),
                         Span::from("]").fg(COLOR_DECOR),
                         Span::from("(").fg(COLOR_DECOR),
-                        Span::from("http://link.com/veeeeee")
-                            .fg(COLOR_LINK)
-                            .underlined(),
+                        Span::from("http://link.com").fg(COLOR_LINK).underlined(),
+                        Span::from(")").fg(COLOR_DECOR),
                     ]),
-                    vec![LineExtra::Link(
-                        "http://link.com/veeeeeeeeeeeeeeeeery/long/tail".to_owned(),
-                        7,
-                        30,
-                    )],
+                    vec![LineExtra::Link("http://link.com".to_owned(), 7, 22)],
                 ),
-            }),
-            Event::Parsed(WidgetSource {
-                id: 1,
-                height: 1,
-                data: WidgetSourceData::Line(
-                    Line::from(vec![Span::from("eeeeeeeeeeery/long/tail)")]),
-                    Vec::new(),
-                ),
-            }),
+            },
+        )];
+        assert_eq!(events, expected);
+    }
+
+    #[test]
+    fn parse_long_link() {
+        let events: Vec<Event> = parse(
+            "[text](http://link.com/veeeeeeeeeeeeeeeeery/long/tail)",
+            &RatSkin::default(),
+            DocumentId::default(),
+            30,
+            true,
+        )
+        .collect();
+        let expected = vec![
+            Event::Parsed(
+                DocumentId::default(),
+                WidgetSource {
+                    id: 0,
+                    height: 1,
+                    data: WidgetSourceData::Line(
+                        Line::from(vec![
+                            Span::from("[").fg(COLOR_DECOR),
+                            Span::from("text").fg(COLOR_TEXT),
+                            Span::from("]").fg(COLOR_DECOR),
+                            Span::from("(").fg(COLOR_DECOR),
+                            Span::from("http://link.com/veeeeee")
+                                .fg(COLOR_LINK)
+                                .underlined(),
+                        ]),
+                        vec![LineExtra::Link(
+                            "http://link.com/veeeeeeeeeeeeeeeeery/long/tail".to_owned(),
+                            7,
+                            30,
+                        )],
+                    ),
+                },
+            ),
+            Event::Parsed(
+                DocumentId::default(),
+                WidgetSource {
+                    id: 1,
+                    height: 1,
+                    data: WidgetSourceData::Line(
+                        Line::from(vec![Span::from("eeeeeeeeeeery/long/tail)")]),
+                        Vec::new(),
+                    ),
+                },
+            ),
         ];
         assert_eq!(events, expected);
     }
@@ -391,6 +417,7 @@ paragraph
         let events: Vec<Event> = parse(
             "[a b](http://link.com/veeeeeeeeeeeeeeeeery/long/tail)",
             &RatSkin::default(),
+            DocumentId::default(),
             30,
             true,
         )
@@ -399,7 +426,7 @@ paragraph
         let str_lines: Vec<String> = events
             .iter()
             .map(|ev| {
-                if let Event::Parsed(source) = ev {
+                if let Event::Parsed(_, source) = ev {
                     return source.to_string();
                 }
                 "<unrelated event>".into()
@@ -418,10 +445,13 @@ paragraph
         let urls: Vec<String> = events
             .iter()
             .flat_map(|ev| {
-                if let Event::Parsed(WidgetSource {
-                    data: WidgetSourceData::Line(_, links),
-                    ..
-                }) = ev
+                if let Event::Parsed(
+                    _,
+                    WidgetSource {
+                        data: WidgetSourceData::Line(_, links),
+                        ..
+                    },
+                ) = ev
                 {
                     let urls: Vec<String> = links
                         .iter()
@@ -445,39 +475,48 @@ paragraph
         );
 
         let expected = vec![
-            Event::Parsed(WidgetSource {
-                id: 0,
-                height: 1,
-                data: WidgetSourceData::Line(
-                    Line::from(vec![Span::from("[a"), Span::from(" ")]),
-                    Vec::new(),
-                ),
-            }),
-            Event::Parsed(WidgetSource {
-                id: 1,
-                height: 1,
-                data: WidgetSourceData::Line(
-                    Line::from(vec![
-                        Span::from("b]("),
-                        Span::from("http://link.com/veeeeeeeeee")
-                            .fg(COLOR_LINK)
-                            .underlined(),
-                    ]),
-                    vec![LineExtra::Link(
-                        "http://link.com/veeeeeeeeeeeeeeeeery/long/tail".to_owned(),
-                        3,
-                        30,
-                    )],
-                ),
-            }),
-            Event::Parsed(WidgetSource {
-                id: 2,
-                height: 1,
-                data: WidgetSourceData::Line(
-                    Line::from(vec![Span::from("eeeeeeery/long/tail)")]),
-                    Vec::new(),
-                ),
-            }),
+            Event::Parsed(
+                DocumentId::default(),
+                WidgetSource {
+                    id: 0,
+                    height: 1,
+                    data: WidgetSourceData::Line(
+                        Line::from(vec![Span::from("[a"), Span::from(" ")]),
+                        Vec::new(),
+                    ),
+                },
+            ),
+            Event::Parsed(
+                DocumentId::default(),
+                WidgetSource {
+                    id: 1,
+                    height: 1,
+                    data: WidgetSourceData::Line(
+                        Line::from(vec![
+                            Span::from("b]("),
+                            Span::from("http://link.com/veeeeeeeeee")
+                                .fg(COLOR_LINK)
+                                .underlined(),
+                        ]),
+                        vec![LineExtra::Link(
+                            "http://link.com/veeeeeeeeeeeeeeeeery/long/tail".to_owned(),
+                            3,
+                            30,
+                        )],
+                    ),
+                },
+            ),
+            Event::Parsed(
+                DocumentId::default(),
+                WidgetSource {
+                    id: 2,
+                    height: 1,
+                    data: WidgetSourceData::Line(
+                        Line::from(vec![Span::from("eeeeeeery/long/tail)")]),
+                        Vec::new(),
+                    ),
+                },
+            ),
         ];
         assert_eq!(
             events, expected,
@@ -487,16 +526,25 @@ paragraph
 
     #[test]
     fn parse_multiple_links_same_line() {
-        let events: Vec<Event> =
-            parse("http://a.com http://b.com", &RatSkin::default(), 80, true).collect();
+        let events: Vec<Event> = parse(
+            "http://a.com http://b.com",
+            &RatSkin::default(),
+            DocumentId::default(),
+            80,
+            true,
+        )
+        .collect();
 
         let urls: Vec<String> = events
             .iter()
             .flat_map(|ev| {
-                if let Event::Parsed(WidgetSource {
-                    data: WidgetSourceData::Line(_, links),
-                    ..
-                }) = ev
+                if let Event::Parsed(
+                    _,
+                    WidgetSource {
+                        data: WidgetSourceData::Line(_, links),
+                        ..
+                    },
+                ) = ev
                 {
                     let urls: Vec<String> = links
                         .iter()
