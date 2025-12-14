@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.15.0] - 2025-12-14
+
 ### Added
 - Search mode
 
