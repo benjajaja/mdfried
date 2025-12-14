@@ -17,39 +17,39 @@
 
   Aligned with "search mode".
 
-## [0.14.6] - [2025-11-17]
+## [0.14.6] - 2025-11-17
 ### Fixed
 - Missing link offsets
 
-## [0.14.5] - [2025-11-15]
+## [0.14.5] - 2025-11-15
 ### Added
 - `debug_override_protocol_type` config/CLI option
 
-## [0.14.4] - [2025-11-10]
+## [0.14.4] - 2025-11-10
 ### Fixed
 - Find links after parsing markdown
 
-## [0.14.3] - [2025-11-09]
+## [0.14.3] - 2025-11-09
 ### Added
 - macOS binaries
 
-## [0.14.2] - [2025-11-08]
+## [0.14.2] - 2025-11-08
 ### Added
 - `max_image_height` config option
 ### Fixed
 - Find original URL of links that have been line-broken
 
-## [0.14.1] - [2025-11-07]
+## [0.14.1] - 2025-11-07
 ### Added
 - Logger window (`l` key)
 ### Fixed
 - Greedy regex matching additional `)`
 
-## [0.14.0] - [2025-11-05]
+## [0.14.0] - 2025-11-05
 ### Fixed
 - Updates leaving double-lines
 
-## [0.13.0] - [2025-11-03]
+## [0.13.0] - 2025-11-03
 ### Added
 - Link navigation mode (`f` key, `n`/`N` to navigate, Enter to open)
 - `enable_mouse_capture` config option
@@ -59,23 +59,23 @@
 
 - Detailed configuration error messages
 
-## [0.12.2] - [2025-06-10]
+## [0.12.2] - 2025-06-10
 ### Fixed
 - Scrolling fixes
 - Headers no longer rendered inside code blocks
 
-## [0.12.1] - [2025-05-23]
+## [0.12.1] - 2025-05-23
 ### Changed
 - Code blocks fill whole lines
 
-## [0.12.0] - [2025-05-20]
+## [0.12.0] - 2025-05-20
 ### Added
 - Kitty Text Sizing Protocol support
 
   Leverage the new Text Sizing Protocol for Big Headers™. Super fast in Kitty, falls back to
   rendering-as-images as before on other terminals.
 
-## [0.11.0] - [2025-05-17]
+## [0.11.0] - 2025-05-17
 ### Changed
 - Use cosmic-text for font rendering
 
@@ -83,42 +83,42 @@
 
 - Improved font picker UX
 
-## [0.8.1] - [2025-01-26]
+## [0.8.1] - 2025-01-26
 ### Added
 - Deep fry mode
 
-## [0.8.0] - [2025-01-26]
+## [0.8.0] - 2025-01-26
 ### Changed
 - UI on main thread, commands on tokio thread
 
-## [0.7.0] - [2025-01-25]
+## [0.7.0] - 2025-01-25
 ### Added
 - Skin config from TOML config file
 
-## [0.6.0] - [2025-01-19]
+## [0.6.0] - 2025-01-19
 ### Changed
 - Replace comrak with termimad parser
 ### Added
 - Blockquotes
 - Horizontal rules
 
-## [0.5.0] - [2024-12-30]
+## [0.5.0] - 2024-12-30
 ### Added
 - Nested list support
 
-## [0.4.0] - [2024-12-28]
+## [0.4.0] - 2024-12-28
 ### Added
 - List support
 ### Fixed
 - Word breaking in styled spans
 
-## [0.3.0] - [2024-12-25]
+## [0.3.0] - 2024-12-25
 ### Added
 - Windows cross-compilation
 - Arch Linux installation
 ### Changed
 - Use textwrap crate
 
-## [0.2.0] - [2024-12-21]
+## [0.2.0] - 2024-12-21
 ### Added
 - Initial release
