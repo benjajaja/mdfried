@@ -70,6 +70,7 @@ pub fn setup_graphics(
         print!("Detecting supported graphics protocols...");
         let picker = Picker::from_query_stdio_with_options(QueryStdioOptions {
             text_sizing_protocol: true,
+            ..Default::default()
         })?;
         println!(" {:?}.", picker.protocol_type());
         picker

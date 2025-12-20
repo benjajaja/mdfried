@@ -45,6 +45,12 @@
 
         mdfried = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
+          nativeBuildInputs = [ pkgs.makeWrapper ];
+          LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.chafa ]; # for tests
+          postFixup = ''
+            wrapProgram $out/bin/mdfried \
+              --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ pkgs.chafa ]}
+          ''; # for the binary itself
         });
 
         # Windows cross-compilation (only on Linux)
@@ -118,9 +124,11 @@
           packages = with pkgs; [
             cargo-release
             cargo-flamegraph
+            chafa
           ] ++ lib.optionals pkgs.stdenv.isLinux [
             perf
           ];
+          LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.chafa ];
         };
       });
 }
