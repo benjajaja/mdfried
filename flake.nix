@@ -18,16 +18,26 @@
         };
         inherit (pkgs) lib;
 
+        # Build chafa with static library support (uses autotools)
+        chafaStatic = pkgs.chafa.overrideAttrs (old: {
+          configureFlags = (old.configureFlags or []) ++ [
+            "--enable-static"
+            "--enable-shared"
+          ];
+        });
+
+        # We also need static glib for full static linking (uses meson)
+        glibStatic = pkgs.glib.overrideAttrs (old: {
+          mesonFlags = (old.mesonFlags or []) ++ [
+            "-Ddefault_library=both"
+          ];
+        });
+
+
         craneLib = (crane.mkLib pkgs).overrideToolchain (p:
           p.rust-bin.stable.latest.default
         );
 
-        # Static musl build for portable Linux binaries
-        craneLibMusl = (crane.mkLib pkgs).overrideToolchain (p:
-          p.rust-bin.stable.latest.default.override {
-            targets = [ "x86_64-unknown-linux-musl" ];
-          }
-        );
 
         unfilteredRoot = ./.;
         src = lib.fileset.toSource {
@@ -52,15 +62,83 @@
 
         mdfried = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
-          nativeBuildInputs = [ pkgs.makeWrapper ];
+          nativeBuildInputs = with pkgs; [
+            makeWrapper
+            pkg-config
+            llvmPackages.libclang
+          ];
+          buildInputs = with pkgs; [
+            chafaStatic
+            chafaStatic.dev
+            glibStatic.dev
+            libsysprof-capture
+            pcre2.dev
+            libffi.dev
+            zlib.dev
+          ];
+          cargoExtraArgs = "--no-default-features --features chafa-static";
+          # Environment for pkg-config and bindgen
+          PKG_CONFIG_PATH = "${chafaStatic.dev}/lib/pkgconfig:${glibStatic.dev}/lib/pkgconfig:${pkgs.libsysprof-capture}/lib/pkgconfig:${pkgs.pcre2.dev}/lib/pkgconfig:${pkgs.libffi.dev}/lib/pkgconfig:${pkgs.zlib.dev}/lib/pkgconfig";
+          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+          BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.glibc.dev}/include";
         });
+
+        # Fully static musl build for portable Linux binaries
+        craneLibMusl = (crane.mkLib pkgs).overrideToolchain (p:
+          p.rust-bin.stable.latest.default.override {
+            targets = [ "x86_64-unknown-linux-musl" ];
+          }
+        );
+
+        muslPkgs = pkgs.pkgsCross.musl64.pkgsStatic;
+
+        # Build chafa for musl without problematic deps
+        chafaMuslStatic = (muslPkgs.chafa.override {
+          libavif = null;
+          libjxl = null;
+          librsvg = null;
+        }).overrideAttrs (old: {
+          configureFlags = (old.configureFlags or []) ++ [
+            "--enable-static"
+            "--disable-shared"
+            "--without-avif"
+            "--without-jxl"
+            "--without-svg"
+            "--without-tools"
+          ];
+        });
+
+        glibMuslStatic = muslPkgs.glib;
 
         mdfriedStatic = craneLibMusl.buildPackage {
           inherit src;
           strictDeps = true;
+          doCheck = false;
           CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
+          CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static -C link-arg=-lgcc";
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "${pkgs.pkgsCross.musl64.stdenv.cc}/bin/x86_64-unknown-linux-musl-cc";
-          nativeBuildInputs = [ pkgs.pkgsCross.musl64.stdenv.cc ];
+          nativeBuildInputs = with pkgs; [
+            pkgsCross.musl64.stdenv.cc
+            pkg-config
+            llvmPackages.libclang
+          ];
+          buildInputs = [
+            chafaMuslStatic
+            glibMuslStatic
+            muslPkgs.pcre2
+            muslPkgs.libffi
+            muslPkgs.zlib
+          ];
+          cargoExtraArgs = "--no-default-features --features chafa-static";
+          PKG_CONFIG_PATH = lib.makeSearchPath "lib/pkgconfig" [
+            chafaMuslStatic
+            glibMuslStatic
+            muslPkgs.pcre2
+            muslPkgs.libffi
+            muslPkgs.zlib
+          ];
+          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+          BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.pkgsCross.musl64.musl.dev}/include";
         };
 
         # Windows cross-compilation (only on Linux)
