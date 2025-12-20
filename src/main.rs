@@ -173,7 +173,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     }
 
     let force_setup = *matches.get_one("setup").unwrap_or(&false);
-    let no_cap_checks = *matches.get_one("no-cap").unwrap_or(&false);
+    let no_cap_checks = *matches.get_one("no-cap-checks").unwrap_or(&false);
 
     let (mut picker, bg, renderer, has_text_size_protocol) = {
         let setup_result = setup_graphics(&mut config, force_setup, no_cap_checks);
