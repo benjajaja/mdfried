@@ -22,6 +22,13 @@
           p.rust-bin.stable.latest.default
         );
 
+        # Static musl build for portable Linux binaries
+        craneLibMusl = (crane.mkLib pkgs).overrideToolchain (p:
+          p.rust-bin.stable.latest.default.override {
+            targets = [ "x86_64-unknown-linux-musl" ];
+          }
+        );
+
         unfilteredRoot = ./.;
         src = lib.fileset.toSource {
           root = unfilteredRoot;
@@ -46,12 +53,15 @@
         mdfried = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
           nativeBuildInputs = [ pkgs.makeWrapper ];
-          LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.chafa ]; # for tests
-          postFixup = ''
-            wrapProgram $out/bin/mdfried \
-              --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ pkgs.chafa ]}
-          ''; # for the binary itself
         });
+
+        mdfriedStatic = craneLibMusl.buildPackage {
+          inherit src;
+          strictDeps = true;
+          CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "${pkgs.pkgsCross.musl64.stdenv.cc}/bin/x86_64-unknown-linux-musl-cc";
+          nativeBuildInputs = [ pkgs.pkgsCross.musl64.stdenv.cc ];
+        };
 
         # Windows cross-compilation (only on Linux)
         pkgsWindows = import nixpkgs {
@@ -108,6 +118,7 @@
         packages = {
           default = mdfried;
         } // lib.optionalAttrs pkgs.stdenv.isLinux {
+          static = mdfriedStatic;
           windows = mdfriedWindows;
           mdfried-llvm-coverage = craneLibLLvmTools.cargoLlvmCov (commonArgs // {
             inherit cargoArtifacts;

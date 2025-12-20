@@ -49,13 +49,8 @@ jobs:
 
       - name: Build package
         run: |
-          nix build . --print-build-logs
-
-      - name: Patchelf
-        run: |
+          nix build .#static --print-build-logs
           cp ./result/bin/mdfried .
-          chmod u+w ./mdfried
-          patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 mdfried
 
       - name: Test binary portability for Ubuntu 24.04
         run: |
@@ -68,14 +63,11 @@ jobs:
             exit 1
           fi
 
-      - name: Suffix binary artifact
-        run: mv ./mdfried ./mdfried_nix_glibc_2_38
-
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mdfried-nix
-          path: ./mdfried_nix_glibc_2_38
+          name: mdfried-static
+          path: ./mdfried
 
   cargo-build:
     name: Cargo build
@@ -83,10 +75,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            container: ubuntu:20.04
-            artifact_name: mdfried-linux
-            build_deb: true
           - os: macos-15-intel
             container: null
             artifact_name: mdfried_macos_x86_64
@@ -101,18 +89,6 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-
-      - name: Install dependencies (Ubuntu)
-        if: runner.os == 'Linux'
-        run: |
-          apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            build-essential \
-            curl \
-            git \
-            clang \
-            lld \
-            ca-certificates
 
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
