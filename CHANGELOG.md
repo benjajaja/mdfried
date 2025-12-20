@@ -3,10 +3,15 @@
 ## [Unreleased]
 
 ### Added
-- [Chafa](https://hpjansson.org/chafa/) preliminary support, loaded at runtime, falls back to
-  the existing primitive halfblocks implementation.
-- Add `--no-cap-checks` to entirely skip querying the terminal's stdio for capabilities.
-- Build a static binary, included in release assets.
+- Build a static binary
+- [Chafa](https://hpjansson.org/chafa/)
+  Loaded at runtime, falls back to the existing primitive halfblocks implementation if not found.
+- `chafa-dyn` (default) and `chafa-static` features
+  Statically building and linking is tricky, so the safe choice it to just stick to `chafa-dyn` and
+  then optionally provide `libchafa` on the user's system via distribution means.
+  The flake.nix of the projects is an example of how to use `chafa-static`.
+- `--no-cap-checks` to entirely skip querying the terminal's stdio for capabilities
+  Useful only for running and testing in pseudoterminals.
 
 ### Fixed
 - Handle panics gracefully (restore terminal mode)

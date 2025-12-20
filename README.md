@@ -34,6 +34,8 @@ to see if your terminal does even have graphics support, and for further details
 
 In general, Kitty, WezTerm, iTerm2, Ghostty, Foot, `xterm -ti vt340`, *should* work.
 
+On terminals without graphics whatsoever, like Alactritty, images are rendered with Chafa.
+
 # Installation
 
 * Rust cargo: `cargo install mdfried`
