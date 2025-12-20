@@ -75,6 +75,10 @@ jobs:
     strategy:
       matrix:
         include:
+          - os: ubuntu-latest
+            container: ubuntu:20.04
+            artifact_name: mdfried-ubuntu
+            build_deb: true
           - os: macos-15-intel
             container: null
             artifact_name: mdfried_macos_x86_64
@@ -89,6 +93,18 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      - name: Install dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            build-essential \
+            curl \
+            git \
+            clang \
+            lld \
+            ca-certificates
 
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
