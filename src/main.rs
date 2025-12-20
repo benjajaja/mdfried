@@ -67,8 +67,12 @@ fn main() -> io::Result<()> {
                 .value_parser(value_parser!(PathBuf)),
         )
         .arg(arg!(-s --setup "Force font setup").value_parser(value_parser!(bool)))
-        .arg(arg!(--debug_override_protocol_type <PROTOCOL> "Force graphics protocol type"))
-        .arg(arg!(-d --deep "Extra deep fried images").value_parser(value_parser!(bool)));
+        .arg(arg!(-d --deep "Extra deep fried images").value_parser(value_parser!(bool)))
+        .arg(
+            arg!(--"no-cap-checks" "No terminal capability checks")
+                .value_parser(value_parser!(bool)),
+        )
+        .arg(arg!(--debug_override_protocol_type <PROTOCOL> "Force graphics protocol type"));
     let matches = cmd.get_matches_mut();
 
     match main_with_args(&matches) {
@@ -169,14 +173,18 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     }
 
     let force_setup = *matches.get_one("setup").unwrap_or(&false);
-    let setup_result = setup_graphics(&mut config, force_setup);
-    let (mut picker, bg, renderer, has_text_size_protocol) = match setup_result {
-        Ok(result) => match result {
-            SetupResult::Aborted => return Err(Error::UserAbort("cancelled setup")),
-            SetupResult::TextSizing(picker, bg) => (picker, bg, None, true),
-            SetupResult::Complete(picker, bg, renderer) => (picker, bg, Some(renderer), false),
-        },
-        Err(err) => return Err(err),
+    let no_cap_checks = *matches.get_one("no-cap").unwrap_or(&false);
+
+    let (mut picker, bg, renderer, has_text_size_protocol) = {
+        let setup_result = setup_graphics(&mut config, force_setup, no_cap_checks);
+        match setup_result {
+            Ok(result) => match result {
+                SetupResult::Aborted => return Err(Error::UserAbort("cancelled setup")),
+                SetupResult::TextSizing(picker, bg) => (picker, bg, None, true),
+                SetupResult::Complete(picker, bg, renderer) => (picker, bg, Some(renderer), false),
+            },
+            Err(err) => return Err(err),
+        }
     };
 
     if let Some(debug_override_protocol_type) = config.debug_override_protocol_type.or(matches

@@ -59,12 +59,21 @@ pub enum SetupResult {
     Complete(Picker, Option<BgColor>, Box<FontRenderer>),
 }
 
-pub fn setup_graphics(config: &mut Config, force_font_setup: bool) -> Result<SetupResult, Error> {
-    print!("Detecting supported graphics protocols...");
-    let mut picker = Picker::from_query_stdio_with_options(QueryStdioOptions {
-        text_sizing_protocol: true,
-    })?;
-    println!(" {:?}.", picker.protocol_type());
+pub fn setup_graphics(
+    config: &mut Config,
+    force_font_setup: bool,
+    no_cap_checks: bool,
+) -> Result<SetupResult, Error> {
+    let mut picker = if no_cap_checks {
+        Picker::from_fontsize((8, 16))
+    } else {
+        print!("Detecting supported graphics protocols...");
+        let picker = Picker::from_query_stdio_with_options(QueryStdioOptions {
+            text_sizing_protocol: true,
+        })?;
+        println!(" {:?}.", picker.protocol_type());
+        picker
+    };
 
     let bg = if picker.protocol_type() == ProtocolType::Sixel {
         Some(BgColor([20, 0, 40, 255]))
