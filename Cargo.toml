@@ -8,7 +8,7 @@ pre-release-replacements = [
 
 [package]
 name = "mdfried"
-version = "0.15.0"
+version = "0.16.0"
 edition = "2024"
 authors = ["Benjamin Große <ste3ls@gmail.com>"]
 description = "A markdown viewer for the terminal that renders images and big headers"

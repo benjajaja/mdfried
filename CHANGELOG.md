@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.16.0] - 2025-12-20
+
 ### Added
 - Build a static binary
 - [Chafa](https://hpjansson.org/chafa/)
