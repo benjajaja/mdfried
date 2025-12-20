@@ -190,6 +190,8 @@
             inherit cargoArtifacts;
             partitions = 1;
             partitionType = "count";
+            buildInputs = commonArgs.buildInputs ++ [ pkgs.chafa ];
+            LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.chafa ]; # for snapshots
           });
         };
 
@@ -214,6 +216,7 @@
             cargo-release
             cargo-flamegraph
             chafa
+            cargo-insta
           ] ++ lib.optionals pkgs.stdenv.isLinux [
             perf
           ];

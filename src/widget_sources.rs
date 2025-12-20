@@ -1,9 +1,6 @@
-#[cfg(test)]
-use std::fmt::Display;
-
 use std::{
     any::Any as _,
-    fmt::{Debug, Write as _},
+    fmt::{Debug, Display, Write as _},
     ops::{Deref, DerefMut},
     path::PathBuf,
     sync::Arc,
@@ -36,6 +33,7 @@ use crate::{
 #[derive(Default)]
 pub struct WidgetSources<'a> {
     sources: Vec<WidgetSource<'a>>,
+    updated_images: Vec<(u16, String, Protocol)>,
 }
 
 impl<'a> WidgetSources<'a> {
@@ -50,6 +48,7 @@ impl<'a> WidgetSources<'a> {
     // Update widgets with a list by id
     pub fn update(&mut self, updates: Vec<WidgetSource<'a>>) {
         let Some(first_id) = updates.first().map(|s| s.id) else {
+            log::error!("ineffective WidgetSources::update with empty list");
             return;
         };
         debug_assert!(
@@ -70,10 +69,80 @@ impl<'a> WidgetSources<'a> {
             }
         }
 
-        debug_assert!(range.is_some(), "Update #{first_id} not found anymore");
-
         if let Some((start, end)) = range {
-            self.sources.splice(start..end, updates);
+            let splice = self.sources.splice(start..end, updates);
+            for splice in splice {
+                if let WidgetSourceData::Image(url, proto) = splice.data {
+                    self.updated_images.push((splice.height, url, proto));
+                }
+            }
+        } else if let Some(last) = self.sources.last()
+            && last.id < first_id
+        {
+            log::debug!("Update source #{first_id} not found but id is higher than last source");
+            for source in updates {
+                self.sources.push(source);
+            }
+        } else {
+            log::error!("Update source #{first_id} not found anymore: {updates:?}");
+        }
+    }
+
+    pub fn replace(&mut self, id: SourceID, url: &str) -> Option<WidgetSource<'a>> {
+        for source in &mut self.sources {
+            if source.id < id {
+                continue;
+            }
+            if let WidgetSourceData::Image(existing_url, _) = &source.data
+                && *existing_url == url
+            {
+                let removed_image = std::mem::replace(
+                    source,
+                    WidgetSource {
+                        id: source.id,
+                        height: 1,
+                        data: WidgetSourceData::Line(
+                            Line::from(format!("![Replacing...]({url})")),
+                            Vec::new(),
+                        ),
+                    },
+                );
+                log::debug!("search & replaced #{}: {}", source.id, source.data);
+                return Some(removed_image);
+            }
+        }
+        self.updated_images
+            .iter()
+            .position(|(_, stored_url, _)| stored_url == url)
+            .map(|i| {
+                let (height, url, proto) = self.updated_images.remove(i);
+                WidgetSource {
+                    id: 0, // will be overwritten by caller
+                    height,
+                    data: WidgetSourceData::Image(url, proto),
+                }
+            })
+    }
+
+    pub fn trim_last_source(&mut self, last_source_id: Option<usize>) {
+        self.updated_images.clear();
+        let Some(last_source_id) = last_source_id else {
+            log::warn!("WidgetSources::trim without last_source_id, nothing parsed");
+            return;
+        };
+        if let Some(last) = self.sources.last()
+            && last.id == last_source_id
+        {
+            log::debug!("no trim needed");
+            return;
+        }
+        if let Some(idx) = self
+            .sources
+            .iter()
+            .position(|source| source.id == last_source_id)
+        {
+            log::debug!("trim: {idx} + 1");
+            self.sources.truncate(idx + 1);
         }
     }
 
@@ -246,7 +315,7 @@ pub struct WidgetSource<'a> {
 }
 
 pub enum WidgetSourceData<'a> {
-    Image(Protocol),
+    Image(String, Protocol),
     BrokenImage(String, String),
     Line(Line<'a>, Vec<LineExtra>),
     Header(String, u8),
@@ -281,7 +350,7 @@ impl WidgetSourceData<'_> {
 impl PartialEq for WidgetSourceData<'_> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Image(l0), Self::Image(r0)) => l0.type_id() == r0.type_id(),
+            (Self::Image(l0, l1), Self::Image(r0, r1)) => l0 == r0 && l1.type_id() == r1.type_id(),
             (Self::BrokenImage(l0, l1), Self::BrokenImage(r0, r1)) => l0 == r0 && l1 == r1,
             (Self::Line(l0, l1), Self::Line(r0, r1)) => l0 == r0 && l1 == r1,
             (Self::Header(l0, l1), Self::Header(r0, r1)) => l0 == r0 && l1 == r1,
@@ -293,10 +362,30 @@ impl PartialEq for WidgetSourceData<'_> {
 impl Debug for WidgetSourceData<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Image(_) => f.debug_tuple("Image").finish(),
-            Self::BrokenImage(_, _) => f.debug_tuple("BrokenImage").finish(),
-            Self::Line(arg0, arg1) => f.debug_tuple("Line").field(arg0).field(arg1).finish(),
+            Self::Image(url, _) => f.debug_tuple(format!("Image({url})").as_str()).finish(),
+            Self::BrokenImage(url, _) => f
+                .debug_tuple(format!("BrokenImage({url})").as_str())
+                .finish(),
+            Self::Line(line, extra) => {
+                let mut tuple = f.debug_tuple("Line");
+                let mut tuple = tuple.field(line);
+                if !extra.is_empty() {
+                    tuple = tuple.field(extra);
+                }
+                tuple.finish()
+            }
             Self::Header(text, tier) => f.debug_tuple("Header").field(text).field(tier).finish(),
+        }
+    }
+}
+
+impl Display for WidgetSourceData<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Image(url, protocol) => write!(f, "Image({url}, {:?})", protocol.type_id()),
+            Self::BrokenImage(url, _) => write!(f, "BrokenImage({url})"),
+            Self::Line(line, extra) => write!(f, "Line({}, {})", line, extra.len()),
+            Self::Header(text, tier) => write!(f, "Header({text}, {tier})"),
         }
     }
 }
@@ -319,7 +408,7 @@ impl<'a> WidgetSource<'a> {
 impl Display for WidgetSource<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.data {
-            WidgetSourceData::Image(_) => write!(f, "<image>"),
+            WidgetSourceData::Image(_, _) => write!(f, "<image>"),
             WidgetSourceData::BrokenImage(_, _) => write!(f, "<broken-image>"),
             WidgetSourceData::Line(line, _) => Display::fmt(&line, f),
             WidgetSourceData::Header(text, tier) => {
@@ -343,7 +432,7 @@ pub fn header_images(
     text: String,
     tier: u8,
     deep_fry_meme: bool,
-) -> Result<Vec<DynamicImage>, Error> {
+) -> Result<Vec<(String, DynamicImage)>, Error> {
     let bg = bg.unwrap_or_default(); // Default is transparent (black, but that's irrelevant).
 
     const HEADER_ROW_COUNT: u16 = 2;
@@ -383,10 +472,10 @@ pub fn header_images(
     let mut dyn_imgs = Vec::with_capacity(run_count);
     let img_height = u32::from(font_height * 2);
     let img_width = u32::from(width * font_width);
-    for _ in buffer.layout_runs() {
+    for layout_run in buffer.layout_runs() {
         let img: RgbaImage = RgbaImage::from_pixel(img_width, img_height, bg.into());
         let dyn_img = DynamicImage::ImageRgba8(img);
-        dyn_imgs.push(dyn_img);
+        dyn_imgs.push((layout_run.text.into(), dyn_img));
     }
 
     let fg = Color::rgba(255, 255, 255, 255);
@@ -421,7 +510,7 @@ pub fn header_images(
             let mut pixel: Rgba<u8> = bg.into();
             pixel.blend(&Rgba(color.as_rgba()));
 
-            let dyn_img = &mut dyn_imgs[index];
+            let dyn_img = &mut dyn_imgs[index].1;
 
             // Adjust picked image's Y coord offset.
             let y_offset: u32 = index as u32 * img_height;
@@ -439,11 +528,11 @@ pub fn header_sources<'a>(
     picker: &Picker,
     width: u16,
     id: SourceID,
-    dyn_imgs: Vec<DynamicImage>,
+    dyn_imgs: Vec<(String, DynamicImage)>,
     deep_fry_meme: bool,
 ) -> Result<Vec<WidgetSource<'a>>, Error> {
     let mut sources = vec![];
-    for mut dyn_img in dyn_imgs {
+    for (text, mut dyn_img) in dyn_imgs {
         if deep_fry_meme {
             dyn_img = deep_fry(dyn_img);
         }
@@ -455,7 +544,7 @@ pub fn header_sources<'a>(
         sources.push(WidgetSource {
             id,
             height: HEADER_ROW_COUNT,
-            data: WidgetSourceData::Image(proto),
+            data: WidgetSourceData::Image(text, proto),
         });
     }
 
@@ -513,6 +602,7 @@ pub async fn image_source<'a>(
 
     // Now do all the blocking stuff
     let picker = picker.clone();
+    let url = String::from(url);
     let source = tokio::task::spawn_blocking(move || {
         let mut dyn_img = match image_source {
             ImageSource::Bytes(bytes, format) => {
@@ -537,7 +627,7 @@ pub async fn image_source<'a>(
         Ok::<WidgetSource<'_>, Error>(WidgetSource {
             id,
             height,
-            data: WidgetSourceData::Image(proto),
+            data: WidgetSourceData::Image(url, proto),
         })
     })
     .await??;
@@ -666,27 +756,72 @@ mod tests {
     fn widgestsources_update() {
         let mut ws = WidgetSources::default();
         ws.push(WidgetSource {
+            id: 0,
+            height: 2,
+            data: WidgetSourceData::Line(Line::from("line #0"), Vec::new()),
+        });
+        ws.push(WidgetSource {
             id: 1,
             height: 2,
-            data: WidgetSourceData::Header(String::from("one"), 1),
+            data: WidgetSourceData::Line(Line::from("headerline1 headerline2"), Vec::new()),
         });
         ws.push(WidgetSource {
             id: 2,
             height: 2,
-            data: WidgetSourceData::Header(String::from("two"), 1),
-        });
-        ws.push(WidgetSource {
-            id: 3,
-            height: 2,
-            data: WidgetSourceData::Header(String::from("three"), 1),
+            data: WidgetSourceData::Line(Line::from("line #2"), Vec::new()),
         });
 
-        ws.update(vec![WidgetSource {
-            id: 2,
-            height: 2,
-            data: WidgetSourceData::Header(String::from("two updated"), 1),
-        }]);
-        assert_eq!(ws.sources.len(), 3);
+        ws.update(vec![
+            WidgetSource {
+                id: 1,
+                height: 2,
+                data: WidgetSourceData::Header(String::from("headerline1"), 1),
+            },
+            WidgetSource {
+                id: 1,
+                height: 2,
+                data: WidgetSourceData::Header(String::from("headerline2"), 1),
+            },
+        ]);
+        assert_eq!(ws.sources.len(), 4);
+        assert_eq!(0, ws.sources[0].id,);
+        assert_eq!(1, ws.sources[1].id,);
+        assert_eq!(
+            WidgetSourceData::Header(String::from("headerline1"), 1),
+            ws.sources[1].data
+        );
+        assert_eq!(1, ws.sources[2].id,);
+        assert_eq!(
+            WidgetSourceData::Header(String::from("headerline2"), 1),
+            ws.sources[2].data
+        );
+        assert_eq!(2, ws.sources[3].id,);
+
+        ws.update(vec![
+            WidgetSource {
+                id: 1,
+                height: 2,
+                data: WidgetSourceData::Header(String::from("headerline3"), 1),
+            },
+            WidgetSource {
+                id: 1,
+                height: 2,
+                data: WidgetSourceData::Header(String::from("headerline4"), 1),
+            },
+        ]);
+        assert_eq!(ws.sources.len(), 4);
+        assert_eq!(0, ws.sources[0].id,);
+        assert_eq!(1, ws.sources[1].id,);
+        assert_eq!(
+            WidgetSourceData::Header(String::from("headerline3"), 1),
+            ws.sources[1].data
+        );
+        assert_eq!(1, ws.sources[2].id,);
+        assert_eq!(
+            WidgetSourceData::Header(String::from("headerline4"), 1),
+            ws.sources[2].data
+        );
+        assert_eq!(2, ws.sources[3].id,);
     }
 
     #[test]

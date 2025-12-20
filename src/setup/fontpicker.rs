@@ -111,7 +111,8 @@ pub fn interactive_font_picker(
                         .is_none_or(|(m, _)| *m != first_match)
                 {
                     renderer.font_name.clone_from(&first_match);
-                    let spans = vec!["The fox jumped over the goat or something".into()];
+                    const SAMPLE: &str = "The fox jumped over the goat or something";
+                    let spans = vec![SAMPLE.into()];
                     let dyn_imgs = header_images(
                         bg,
                         &mut renderer,
@@ -124,7 +125,7 @@ pub fn interactive_font_picker(
 
                     // Just render the first line if it got split.
                     if let Some(source) = sources.into_iter().next() {
-                        if let WidgetSourceData::Image(proto) = source.data {
+                        if let WidgetSourceData::Image(_, proto) = source.data {
                             last_rendered = Some((first_match.clone(), proto));
                         }
                     }

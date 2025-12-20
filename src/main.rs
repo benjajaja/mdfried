@@ -7,6 +7,7 @@ mod model;
 mod notify;
 mod setup;
 mod widget_sources;
+mod worker;
 
 #[cfg(not(windows))]
 use std::os::fd::IntoRawFd as _;
@@ -16,17 +17,12 @@ use std::{
     fs::{self, File},
     io::{self, Read as _},
     path::{Path, PathBuf},
-    sync::{
-        Arc,
-        mpsc::{self},
-    },
-    thread,
+    sync::mpsc::{self},
     time::Duration,
 };
 
 use clap::{ArgMatches, arg, command, value_parser};
 use flexi_logger::LoggerHandle;
-use log::warn;
 use ratatui::{
     DefaultTerminal, Frame, Terminal,
     crossterm::{
@@ -44,21 +40,15 @@ use ratatui::{
 };
 
 use ratatui_image::{Image, picker::ProtocolType};
-use ratskin::RatSkin;
-use reqwest::Client;
 use setup::{SetupResult, setup_graphics};
-use tokio::{runtime::Builder, sync::RwLock};
 
 use crate::{
     cursor::{Cursor, CursorPointer, SearchState},
     error::Error,
-    markdown::parse,
     model::Model,
     notify::watch,
-    widget_sources::{
-        BigText, LineExtra, SourceID, WidgetSource, WidgetSourceData, header_images,
-        header_sources, image_source,
-    },
+    widget_sources::{BigText, LineExtra, SourceID, WidgetSource, WidgetSourceData},
+    worker::worker_thread,
 };
 
 const OK_END: &str = " ok.";
@@ -178,9 +168,22 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     let force_setup = *matches.get_one("setup").unwrap_or(&false);
     let no_cap_checks = *matches.get_one("no-cap-checks").unwrap_or(&false);
+    let debug_override_protocol_type = config.debug_override_protocol_type.or(matches
+        .get_one::<String>("debug-override-protocol-type")
+        .map(|s| match s.as_str() {
+            "Sixel" => ProtocolType::Sixel,
+            "Iterm2" => ProtocolType::Iterm2,
+            "Kitty" => ProtocolType::Kitty,
+            _ => ProtocolType::Halfblocks,
+        }));
 
-    let (mut picker, bg, renderer, has_text_size_protocol) = {
-        let setup_result = setup_graphics(&mut config, force_setup, no_cap_checks);
+    let (picker, bg, renderer, has_text_size_protocol) = {
+        let setup_result = setup_graphics(
+            &mut config,
+            force_setup,
+            no_cap_checks,
+            debug_override_protocol_type,
+        );
         match setup_result {
             Ok(result) => match result {
                 SetupResult::Aborted => return Err(Error::UserAbort("cancelled setup")),
@@ -191,20 +194,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         }
     };
 
-    if let Some(debug_override_protocol_type) = config.debug_override_protocol_type.or(matches
-        .get_one::<String>("debug_override_protocol_type")
-        .map(|s| match s.as_str() {
-            "Sixel" => ProtocolType::Sixel,
-            "Iterm2" => ProtocolType::Iterm2,
-            "Kitty" => ProtocolType::Kitty,
-            _ => ProtocolType::Halfblocks,
-        }))
-    {
-        warn!("debug_override_protocol_type set to {debug_override_protocol_type:?}");
-        picker.set_protocol_type(debug_override_protocol_type);
-    }
-
-    let deep_fry = *matches.get_one("deep").unwrap_or(&false);
+    let deep_fry = *matches.get_one("deep-fry").unwrap_or(&false);
 
     let watchmode_path = if *matches.get_one("watch").unwrap_or(&false) {
         path.cloned()
@@ -218,112 +208,24 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     let config_max_image_height = config.max_image_height;
     let skin = config.skin.clone();
-    let document_id = DocumentId { read_number: 0 };
-    let mut cmd_document_id = document_id;
-    let cmd_thread = thread::spawn(move || {
-        let runtime = Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()?;
-        runtime.block_on(async {
-            let basepath = basepath.clone();
-            let client = Arc::new(RwLock::new(Client::new()));
-            let protocol_type = picker.protocol_type(); // Won't change
-            // Specifically not a tokio Mutex, because we use it in spawn_blocking.
-            let thread_renderer =
-                renderer.map(|renderer| Arc::new(std::sync::Mutex::new(renderer)));
-            let thread_picker = Arc::new(picker);
-            let skin = RatSkin { skin };
-
-            log::debug!("cmd thread running");
-            for cmd in cmd_rx {
-                log::debug!("Cmd: {cmd}");
-                match cmd {
-                    Cmd::Parse(width, text) => {
-                        cmd_document_id.read_number += 1;
-                        event_tx.send(Event::NewDocument(document_id))?;
-                        for event in parse(&text, &skin, document_id, width, has_text_size_protocol)
-                        {
-                            event_tx.send(event)?;
-                        }
-                        log::debug!("Cmd::Parse finished");
-                    }
-                    Cmd::Header(document_id, source_id, width, tier, text) => {
-                        debug_assert!(
-                            thread_renderer.is_some(),
-                            "should not have sent ImgCmd::Header without renderer"
-                        );
-                        if let Some(thread_renderer) = &thread_renderer {
-                            let task_tx = event_tx.clone();
-                            if protocol_type != ProtocolType::Halfblocks {
-                                let renderer = thread_renderer.clone();
-                                let picker = thread_picker.clone();
-                                tokio::spawn(async move {
-                                    let images = tokio::task::spawn_blocking(move || {
-                                        let mut r = renderer.lock()?;
-                                        header_images(bg, &mut r, width, text, tier, deep_fry)
-                                    })
-                                    .await??;
-
-                                    let headers = tokio::task::spawn_blocking(move || {
-                                        header_sources(&picker, width, source_id, images, deep_fry)
-                                    })
-                                    .await??;
-                                    task_tx.send(Event::Update(document_id, headers))?;
-                                    Ok::<(), Error>(())
-                                });
-                            }
-                        }
-                    }
-                    Cmd::UrlImage(document_id, source_id, width, url, text, _title) => {
-                        let task_tx = event_tx.clone();
-                        let basepath = basepath.clone();
-                        let client = client.clone();
-                        let picker = thread_picker.clone();
-                        // TODO: handle spawned task result errors, right now it's just discarded.
-                        tokio::spawn(async move {
-                            match image_source(
-                                &picker,
-                                config_max_image_height,
-                                width,
-                                &basepath,
-                                client,
-                                source_id,
-                                &url,
-                                deep_fry,
-                            )
-                            .await
-                            {
-                                Ok(source) => {
-                                    task_tx.send(Event::Update(document_id, vec![source]))?
-                                }
-                                Err(Error::UnknownImage(id, link)) => {
-                                    task_tx.send(Event::Update(
-                                        document_id,
-                                        vec![WidgetSource::image_unknown(id, link, text)],
-                                    ))?
-                                }
-                                Err(_) => task_tx.send(Event::Update(
-                                    document_id,
-                                    vec![WidgetSource::image_unknown(source_id, url, text)],
-                                ))?,
-                            }
-                            Ok::<(), Error>(())
-                        });
-                    }
-                    Cmd::XdgOpen(url) => {
-                        std::process::Command::new("xdg-open").arg(&url).spawn()?;
-                    }
-                    Cmd::FileChanged => {
-                        log::info!("cmd FileChanged");
-                        event_tx.send(Event::FileChanged)?;
-                    }
-                }
-            }
-            Ok::<(), Error>(())
-        })?;
-        Ok::<(), Error>(())
-    });
+    let document_id = DocumentId {
+        id: 0,
+        reload_id: None,
+    };
+    let cmd_document_id = document_id;
+    let cmd_thread = worker_thread(
+        basepath,
+        picker,
+        renderer,
+        skin,
+        bg,
+        has_text_size_protocol,
+        deep_fry,
+        cmd_rx,
+        event_tx,
+        config_max_image_height,
+        cmd_document_id,
+    );
 
     ratatui::crossterm::terminal::enable_raw_mode()?;
     let backend = CrosstermBackend::new(io::stdout());
@@ -344,7 +246,9 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         config,
         document_id,
     );
-    model.parse(terminal_size, text).map_err(Error::from)?;
+    model
+        .parse(None, terminal_size, text)
+        .map_err(Error::from)?;
 
     let debouncer = if let Some(path) = watchmode_path {
         log::info!("watching file");
@@ -373,18 +277,32 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
 #[derive(Default, Debug, PartialEq, Clone, Copy)]
 struct DocumentId {
-    read_number: usize,
+    id: usize,
+    reload_id: Option<usize>,
+}
+
+impl DocumentId {
+    fn is_same_document(&self, other: &DocumentId) -> bool {
+        self.id == other.id
+    }
 }
 
 impl Display for DocumentId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "D{}", self.read_number)
+        write!(
+            f,
+            "D{}.{}",
+            self.id,
+            self.reload_id
+                .map(|id| format!("{id}"))
+                .unwrap_or("␀".to_owned())
+        )
     }
 }
 
 #[derive(Debug)]
 enum Cmd {
-    Parse(u16, String),
+    Parse(Option<usize>, u16, String),
     UrlImage(DocumentId, usize, u16, String, String, String),
     Header(DocumentId, usize, u16, u8, String),
     // TODO: why not run this at call-site?
@@ -395,7 +313,9 @@ enum Cmd {
 impl Display for Cmd {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Cmd::Parse(width, _) => write!(f, "Cmd::Parse({width}, <text>)"),
+            Cmd::Parse(reload_id, width, _) => {
+                write!(f, "Cmd::Parse({reload_id:?}, {width}, <text>)")
+            }
             Cmd::UrlImage(document_id, source_id, width, url, _, _) => write!(
                 f,
                 "Cmd::UrlImage({document_id}, {source_id}, {width}, {url}, _, _)"
@@ -413,6 +333,7 @@ impl Display for Cmd {
 #[derive(Debug, PartialEq)]
 enum Event<'a> {
     NewDocument(DocumentId),
+    ParseDone(DocumentId, Option<SourceID>), // Only signals "parsing done", not "images ready"!
     Parsed(DocumentId, WidgetSource<'a>),
     ParseImage(DocumentId, SourceID, String, String, String),
     ParseHeader(DocumentId, SourceID, u8, String),
@@ -424,16 +345,21 @@ impl Display for Event<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Event::NewDocument(document_id) => write!(f, "Event::NewDocument({document_id})"),
-
-            Event::Parsed(document_id, source) => {
-                write!(f, "Event::Parsed({document_id}, source.id:{})", source.id)
+            Event::ParseDone(document_id, last_source_id) => {
+                write!(f, "Event::ParseDone({document_id}, {last_source_id:?})")
             }
 
-            Event::Update(document_id, updates) => write!(
-                f,
-                "Event::Update({document_id}, <{} updates>)",
-                updates.len()
-            ),
+            Event::Parsed(document_id, source) => {
+                write!(
+                    f,
+                    "Event::Parsed({document_id}, id:{}, data: {})",
+                    source.id, source.data
+                )
+            }
+
+            Event::Update(document_id, updates) => {
+                write!(f, "Event::Update({document_id}, <{updates:?}>)",)
+            }
 
             Event::ParseImage(document_id, id, url, _, _) => {
                 write!(f, "Event::ParseImage({document_id}, {id}, {url}, _, _)")
@@ -463,7 +389,7 @@ fn run<'a>(
     loop {
         let page_scroll_count = model.inner_height(screen_size.height) as i16 - 2;
 
-        let had_events = model.process_events(screen_size.width)?;
+        let (had_events, _) = model.process_events(screen_size.width)?;
 
         let mut had_input = false;
         if event::poll(if had_events {
@@ -558,7 +484,7 @@ fn run<'a>(
                                         if let Cursor::Links(CursorPointer { id, index }) =
                                             model.cursor
                                         {
-                                            let url = model.sources.iter().find_map(|source| {
+                                            let url = model.sources().find_map(|source| {
                                                 if source.id == id {
                                                     let WidgetSourceData::Line(_, extras) =
                                                         &source.data
@@ -652,7 +578,7 @@ fn view(model: &Model, frame: &mut Frame) {
     let mut cursor_positioned = None;
 
     let mut y: i16 = 0 - (model.scroll as i16);
-    for source in model.sources.iter() {
+    for source in model.sources() {
         if y >= 0 {
             let y: u16 = y as u16;
             match &source.data {
@@ -702,7 +628,7 @@ fn view(model: &Model, frame: &mut Frame) {
                         _ => {}
                     }
                 }
-                WidgetSourceData::Image(proto) => {
+                WidgetSourceData::Image(_, proto) => {
                     let img = Image::new(proto);
                     render_widget(img, source.height, y, inner_area, frame);
                 }
@@ -769,5 +695,272 @@ fn render_widget<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, f
         widget_area.y += y;
         widget_area.height = widget_area.height.min(source_height);
         f.render_widget(widget, widget_area);
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used)]
+mod tests {
+    use std::{sync::mpsc, thread::JoinHandle};
+
+    use insta::assert_snapshot;
+    use ratatui::{Terminal, backend::TestBackend, layout::Size};
+    use ratatui_image::picker::{Picker, ProtocolType};
+
+    use crate::{
+        Cmd, DocumentId, Event, config::Config, error::Error, model::Model, view,
+        worker::worker_thread,
+    };
+
+    fn setup(config: Config) -> (Model<'static, 'static>, JoinHandle<Result<(), Error>>, Size) {
+        #[expect(clippy::let_underscore_untyped)]
+        let _ = flexi_logger::Logger::try_with_env()
+            .unwrap()
+            .start()
+            .inspect_err(|err| eprint!("test logger setup failed: {err}"));
+
+        let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
+        let (event_tx, event_rx) = mpsc::channel::<Event>();
+        let document_id = DocumentId {
+            id: 0,
+            reload_id: None,
+        };
+
+        let picker = Picker::from_fontsize((1, 2));
+        assert_eq!(picker.protocol_type(), ProtocolType::Halfblocks);
+        let worker = worker_thread(
+            None,
+            picker,
+            None,
+            config.skin.clone(),
+            None,
+            true,
+            false,
+            cmd_rx,
+            event_tx,
+            config.max_image_height,
+            document_id,
+        );
+
+        let screen_size = (80, 20).into();
+
+        let model = Model::new(
+            None,
+            None,
+            cmd_tx,
+            event_rx,
+            screen_size,
+            config,
+            document_id,
+        );
+        (model, worker, screen_size)
+    }
+
+    // Drop model so that cmd_rx gets closed and worker exits, then exit/join worker.
+    fn teardown(model: Model<'static, 'static>, worker: JoinHandle<Result<(), Error>>) {
+        drop(model);
+        worker.join().unwrap().unwrap();
+    }
+
+    // Poll until parsed and no pending images.
+    fn poll_parsed(model: &mut Model<'static, 'static>, screen_size: &Size) {
+        loop {
+            let (_, parse_done) = model.process_events(screen_size.width).unwrap();
+            if parse_done {
+                break;
+            }
+        }
+        log::debug!("poll_parsed completed");
+    }
+
+    // Poll until parsed and no pending images.
+    fn poll_done(model: &mut Model<'static, 'static>, screen_size: &Size) {
+        while model.pending_image_count > 0 {
+            model.process_events(screen_size.width).unwrap();
+        }
+        log::debug!("poll_done completed");
+    }
+
+    #[test]
+    fn parse() {
+        let config = Config {
+            max_image_height: 10,
+            ..Default::default()
+        };
+        let (mut model, worker, screen_size) = setup(config);
+        let mut terminal =
+            Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
+
+        model
+            .parse(
+                None,
+                screen_size,
+                String::from(
+                    r#"# Hello
+This is a test markdown document.
+![image](./assets/NixOS.png)
+Goodbye."#,
+                ),
+            )
+            .unwrap();
+        poll_parsed(&mut model, &screen_size);
+        terminal.draw(|frame| view(&model, frame)).unwrap();
+        assert_snapshot!("first parse image previews", terminal.backend());
+        // Must load an image.
+        poll_done(&mut model, &screen_size);
+        terminal.draw(|frame| view(&model, frame)).unwrap();
+        assert_snapshot!("first parse done", terminal.backend());
+
+        teardown(model, worker);
+    }
+
+    #[test]
+    fn reload_move_image() {
+        let config = Config {
+            max_image_height: 10,
+            ..Default::default()
+        };
+        let (mut model, worker, screen_size) = setup(config);
+        let mut terminal =
+            Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
+
+        model
+            .parse(
+                None,
+                screen_size,
+                String::from(
+                    r#"# Hello
+This is a test markdown document.
+![image](./assets/NixOS.png)
+Goodbye."#,
+                ),
+            )
+            .unwrap();
+        poll_parsed(&mut model, &screen_size);
+        poll_done(&mut model, &screen_size);
+
+        model
+            .reparse(
+                screen_size,
+                String::from(
+                    r#"# Hello
+![image](./assets/NixOS.png)
+This is a test markdown document.
+Goodbye."#,
+                ),
+            )
+            .unwrap();
+        poll_parsed(&mut model, &screen_size);
+        terminal.draw(|frame| view(&model, frame)).unwrap();
+        assert_snapshot!("reload move image up", terminal.backend());
+
+        model
+            .reparse(
+                screen_size,
+                String::from(
+                    r#"# Hello
+This is a test markdown document.
+![image](./assets/NixOS.png)
+Goodbye."#,
+                ),
+            )
+            .unwrap();
+        poll_parsed(&mut model, &screen_size);
+        terminal.draw(|frame| view(&model, frame)).unwrap();
+        assert_snapshot!("reload move image down", terminal.backend());
+
+        teardown(model, worker);
+    }
+
+    #[test]
+    fn reload_add_image() {
+        let config = Config {
+            max_image_height: 10,
+            ..Default::default()
+        };
+        let (mut model, worker, screen_size) = setup(config);
+        let mut terminal =
+            Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
+
+        model
+            .parse(
+                None,
+                screen_size,
+                String::from(
+                    r#"# Hello
+This is a test markdown document.
+![image](./assets/NixOS.png)
+Goodbye."#,
+                ),
+            )
+            .unwrap();
+        poll_parsed(&mut model, &screen_size);
+        poll_done(&mut model, &screen_size);
+
+        model
+            .reparse(
+                screen_size,
+                String::from(
+                    r#"# Hello
+This is a test markdown document.
+![image](./assets/NixOS.png)
+![image](./assets/you_fried.png)
+Goodbye."#,
+                ),
+            )
+            .unwrap();
+        poll_parsed(&mut model, &screen_size);
+        terminal.draw(|frame| view(&model, frame)).unwrap();
+        assert_snapshot!("reload add image preview", terminal.backend());
+        // Must load an image.
+        poll_done(&mut model, &screen_size);
+        terminal.draw(|frame| view(&model, frame)).unwrap();
+        assert_snapshot!("reload add image done", terminal.backend());
+        teardown(model, worker);
+    }
+
+    #[test]
+    fn duplicate_image() {
+        let config = Config {
+            max_image_height: 8,
+            ..Default::default()
+        };
+        let (mut model, worker, screen_size) = setup(config);
+        let mut terminal =
+            Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
+
+        model
+            .parse(
+                None,
+                screen_size,
+                String::from(
+                    r#"# Hello
+![image](./assets/NixOS.png)
+Goodbye."#,
+                ),
+            )
+            .unwrap();
+        poll_parsed(&mut model, &screen_size);
+        poll_done(&mut model, &screen_size);
+
+        model
+            .reparse(
+                screen_size,
+                String::from(
+                    r#"# Hello
+![image](./assets/NixOS.png)
+Goodbye.
+![image](./assets/NixOS.png)"#,
+                ),
+            )
+            .unwrap();
+        poll_parsed(&mut model, &screen_size);
+        terminal.draw(|frame| view(&model, frame)).unwrap();
+        assert_snapshot!("duplicate image preview", terminal.backend());
+        // Must load an image.
+        poll_done(&mut model, &screen_size);
+        terminal.draw(|frame| view(&model, frame)).unwrap();
+        assert_snapshot!("duplicate image done", terminal.backend());
+        teardown(model, worker);
     }
 }

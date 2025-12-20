@@ -101,7 +101,7 @@ pub fn parse<'a>(
         let mut events = Vec::new();
         if needs_space {
             // Send a newline after things like Markdowns and Images, but not after the last block.
-            events = vec![send_line(
+            events = vec![send_parsed(
                 document_id,
                 &mut id,
                 WidgetSourceData::Line(Line::default(), Vec::new()),
@@ -117,7 +117,7 @@ pub fn parse<'a>(
                     let madtext = RatSkin::parse_text(&text);
                     for line in skin.parse(madtext, width / 2) {
                         let text = line.to_string();
-                        events.push(send_line(
+                        events.push(send_parsed(
                             document_id,
                             &mut id,
                             WidgetSourceData::Header(text, tier),
@@ -141,7 +141,7 @@ pub fn parse<'a>(
                 for line in skin.parse(madtext, width) {
                     let (line, links) = links::capture_line(line, &text, width);
 
-                    events.push(send_line(
+                    events.push(send_parsed(
                         document_id,
                         &mut id,
                         WidgetSourceData::Line(line, links),
@@ -154,7 +154,7 @@ pub fn parse<'a>(
     })
 }
 
-fn send_line<'a>(
+fn send_parsed<'a>(
     document_id: DocumentId,
     id: &mut usize,
     data: WidgetSourceData<'a>,
@@ -181,10 +181,14 @@ fn send_event<'a>(id: &mut usize, ev: Event<'a>) -> Event<'a> {
 #[cfg(test)]
 mod tests {
     use crate::{
-        markdown::links::{COLOR_DECOR, COLOR_LINK, COLOR_TEXT},
+        markdown::{
+            links::{COLOR_DECOR, COLOR_LINK, COLOR_TEXT},
+            parse,
+        },
         *,
     };
     use pretty_assertions::assert_eq;
+    use ratskin::RatSkin;
 
     #[test]
     fn split_headers_and_images() {

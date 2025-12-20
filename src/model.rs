@@ -28,7 +28,7 @@ use crate::{
 
 pub struct Model<'a, 'b> {
     pub bg: Option<BgColor>,
-    pub sources: WidgetSources<'a>,
+    sources: WidgetSources<'a>,
     pub scroll: u16,
     pub cursor: Cursor,
     pub log_snapshot: Option<flexi_logger::Snapshot>,
@@ -38,6 +38,8 @@ pub struct Model<'a, 'b> {
     cmd_tx: Sender<Cmd>,
     event_rx: Receiver<Event<'b>>,
     document_id: DocumentId,
+    #[cfg(test)]
+    pub pending_image_count: usize,
 }
 
 impl<'a, 'b: 'a> Model<'a, 'b> {
@@ -62,6 +64,8 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
             event_rx,
             log_snapshot: None,
             document_id,
+            #[cfg(test)]
+            pending_image_count: 0,
         }
     }
 
@@ -69,17 +73,29 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         log::info!("reload");
         if let Some(original_file_path) = &self.original_file_path {
             let text = fs::read_to_string(original_file_path)?;
-            self.sources = WidgetSources::default();
-            self.scroll = 0;
-            self.screen_size = screen_size;
-            self.parse(screen_size, text)?;
+            self.reparse(screen_size, text)?;
         }
         Ok(())
     }
 
-    pub fn parse(&self, screen_size: Size, text: String) -> Result<(), SendError<Cmd>> {
+    pub fn reparse(&mut self, screen_size: Size, text: String) -> Result<(), Error> {
+        self.screen_size = screen_size;
+        self.parse(
+            Some(self.document_id.reload_id.map(|id| id + 1).unwrap_or(1)),
+            screen_size,
+            text,
+        )?;
+        Ok(())
+    }
+
+    pub fn parse(
+        &self,
+        reload_id: Option<usize>,
+        screen_size: Size,
+        text: String,
+    ) -> Result<(), SendError<Cmd>> {
         let inner_width = self.inner_width(screen_size.width);
-        self.cmd_tx.send(Cmd::Parse(inner_width, text))
+        self.cmd_tx.send(Cmd::Parse(reload_id, inner_width, text))
     }
 
     pub fn inner_width(&self, screen_width: u16) -> u16 {
@@ -106,38 +122,102 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         self.sources.iter().map(|s| s.height).sum()
     }
 
-    pub fn process_events(&mut self, screen_width: u16) -> Result<bool, Error> {
+    pub fn process_events(&mut self, screen_width: u16) -> Result<(bool, bool), Error> {
         let inner_width = self.inner_width(screen_width);
         let mut had_events = false;
+        let mut had_done = false;
         while let Ok(event) = self.event_rx.try_recv() {
             had_events = true;
+
             if !matches!(event, Event::Parsed(_, _)) {
-                log::debug!("Event: {event}");
+                log::debug!("{event}");
             }
+
             match event {
                 Event::NewDocument(document_id) => {
                     self.document_id = document_id;
                 }
+                Event::ParseDone(document_id, last_source_id) => {
+                    if !self.document_id.is_same_document(&document_id) {
+                        log::debug!("stale event, ignoring");
+                        continue;
+                    }
+                    self.sources.trim_last_source(last_source_id);
+                    had_done = true;
+                }
                 Event::Parsed(document_id, source) => {
-                    if self.document_id == document_id {
+                    if !self.document_id.is_same_document(&document_id) {
+                        log::debug!("stale event, ignoring");
+                        continue;
+                    }
+
+                    debug_assert!(
+                        !matches!(source.data, WidgetSourceData::Image(_, _),),
+                        "unexped Event::Parsed with Image: {:?}",
+                        source.data
+                    );
+
+                    if self.document_id.reload_id.is_none() {
                         self.sources.push(source);
+                    } else {
+                        self.sources.update(vec![source]);
                     }
                 }
                 Event::Update(document_id, updates) => {
-                    if self.document_id == document_id {
-                        self.sources.update(updates);
+                    if !self.document_id.is_same_document(&document_id) {
+                        log::debug!("stale event, ignoring");
+                        continue;
                     }
+                    #[cfg(test)]
+                    for source in &updates {
+                        if let WidgetSourceData::Image(_, _) = source.data {
+                            log::debug!("Update #{}: {:?}", source.id, source.data);
+                            self.pending_image_count -= 1;
+                        }
+                    }
+                    self.sources.update(updates);
                 }
                 Event::ParseImage(document_id, id, url, text, title) => {
-                    if self.document_id == document_id {
-                        self.sources.push(WidgetSource {
-                            id,
-                            height: 1,
-                            data: WidgetSourceData::Line(
-                                Line::from(format!("![Loading...]({url})")),
-                                Vec::new(),
-                            ),
-                        });
+                    if !self.document_id.is_same_document(&document_id) {
+                        log::debug!("stale event, ignoring");
+                        continue;
+                    }
+
+                    if let Some(mut existing_image) = self.sources.replace(id, &url) {
+                        log::debug!("replacing from existing image ({url})");
+                        existing_image.id = id;
+                        self.sources.update(vec![existing_image]);
+                    } else {
+                        if self.document_id.reload_id.is_none() {
+                            log::debug!(
+                                "existing image not found, push placeholder and process image ({url})"
+                            );
+                            self.sources.push(WidgetSource {
+                                id,
+                                height: 1,
+                                data: WidgetSourceData::Line(
+                                    Line::from(format!("![Loading...]({url})")),
+                                    Vec::new(),
+                                ),
+                            });
+                        } else {
+                            log::debug!(
+                                "existing image not found, update placeholder and process image ({url})"
+                            );
+                            self.sources.update(vec![WidgetSource {
+                                id,
+                                height: 1,
+                                data: WidgetSourceData::Line(
+                                    Line::from(format!("![Loading...]({url})")),
+                                    Vec::new(),
+                                ),
+                            }]);
+                        }
+                        #[cfg(test)]
+                        {
+                            log::debug!("UrlImage");
+                            self.pending_image_count += 1;
+                        }
                         self.cmd_tx.send(Cmd::UrlImage(
                             document_id,
                             id,
@@ -149,7 +229,11 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                     }
                 }
                 Event::ParseHeader(document_id, id, tier, text) => {
-                    if self.document_id == document_id {
+                    if !self.document_id.is_same_document(&document_id) {
+                        log::debug!("stale event, ignoring");
+                        continue;
+                    }
+                    if self.document_id.reload_id == document_id.reload_id {
                         let line = Line::from(vec![
                             #[expect(clippy::string_add)]
                             Span::from("#".repeat(tier as usize) + " ").light_blue(),
@@ -160,9 +244,14 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                             height: 2,
                             data: WidgetSourceData::Line(line, Vec::new()),
                         });
-                        self.cmd_tx
-                            .send(Cmd::Header(document_id, id, inner_width, tier, text))?;
                     }
+                    #[cfg(test)]
+                    {
+                        log::debug!("ParseHeader");
+                        self.pending_image_count += 1;
+                    }
+                    self.cmd_tx
+                        .send(Cmd::Header(document_id, id, inner_width, tier, text))?;
                 }
                 Event::FileChanged => {
                     log::info!("reload: FileChanged");
@@ -170,7 +259,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                 }
             }
         }
-        Ok(had_events)
+        Ok((had_events, had_done))
     }
 
     pub fn scroll_by(&mut self, lines: i16) {
@@ -292,6 +381,10 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
             }
         }
     }
+
+    pub fn sources(&self) -> impl Iterator<Item = &WidgetSource<'a>> {
+        self.sources.iter()
+    }
 }
 
 #[cfg(test)]
@@ -324,7 +417,11 @@ mod tests {
             cmd_tx,
             event_rx,
             log_snapshot: None,
-            document_id: DocumentId { read_number: 1 },
+            document_id: DocumentId {
+                id: 0,
+                reload_id: None,
+            },
+            pending_image_count: 0,
         }
     }
 

@@ -26,7 +26,7 @@ pub enum Error {
     Protocol(ratatui_image::errors::Errors),
     Download(reqwest::Error),
     NoFont,
-    Thread,
+    Thread(String),
     UnknownImage(usize, String),
     Notify(notify::Error),
     // Do not overuse this one!
@@ -54,7 +54,7 @@ impl fmt::Display for Error {
             Error::Protocol(err) => write!(f, "Terminal graphics error: {err}"),
             Error::Download(err) => write!(f, "HTTP request error: {err}"),
             Error::NoFont => write!(f, "No font available"),
-            Error::Thread => write!(f, "Thread error"),
+            Error::Thread(msg) => write!(f, "Thread error: {msg}"),
             Error::UnknownImage(_, url) => write!(f, "Unknown image format: {url}"),
             Error::Notify(err) => write!(f, "Watch error: {err}"),
             Error::Generic(msg) => write!(f, "Generic error: {msg}"),
@@ -114,26 +114,26 @@ impl From<reqwest::Error> for Error {
 }
 
 impl From<SendError<Event<'_>>> for Error {
-    fn from(_: SendError<Event<'_>>) -> Self {
-        Self::Thread
+    fn from(err: SendError<Event<'_>>) -> Self {
+        Self::Thread(format!("SendError<Event>: {err}"))
     }
 }
 
 impl From<SendError<Cmd>> for Error {
-    fn from(_: SendError<Cmd>) -> Self {
-        Self::Thread
+    fn from(err: SendError<Cmd>) -> Self {
+        Self::Thread(format!("SendError<Cmd>: {err}"))
     }
 }
 
 impl From<JoinError> for Error {
-    fn from(_: JoinError) -> Self {
-        Self::Thread
+    fn from(err: JoinError) -> Self {
+        Self::Thread(format!("JoinError: {err}"))
     }
 }
 
 impl From<PoisonError<std::sync::MutexGuard<'_, Box<FontRenderer>>>> for Error {
-    fn from(_: PoisonError<std::sync::MutexGuard<'_, Box<FontRenderer>>>) -> Self {
-        Self::Thread
+    fn from(err: PoisonError<std::sync::MutexGuard<'_, Box<FontRenderer>>>) -> Self {
+        Self::Thread(format!("PoisonError: {err}"))
     }
 }
 

@@ -46,6 +46,7 @@ notify-debouncer-mini = "0.6.0"
 color-eyre = "0.6.5"
 log = { version = "0.4.28" }
 flexi_logger = { version = "0.31.7", features = ["buffer_writer"] }
+insta = "1.44.3"
 
 [dev-dependencies]
 pretty_assertions = "1.4"

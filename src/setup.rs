@@ -63,6 +63,7 @@ pub fn setup_graphics(
     config: &mut Config,
     force_font_setup: bool,
     no_cap_checks: bool,
+    debug_override_protocol_type: Option<ProtocolType>,
 ) -> Result<SetupResult, Error> {
     let mut picker = if no_cap_checks {
         Picker::from_fontsize((8, 16))
@@ -127,6 +128,12 @@ pub fn setup_graphics(
     };
 
     let font_size = picker.font_size();
+
+    if let Some(debug_override_protocol_type) = debug_override_protocol_type {
+        log::warn!("debug_override_protocol_type set to {debug_override_protocol_type:?}");
+        picker.set_protocol_type(debug_override_protocol_type);
+    }
+
     Ok(SetupResult::Complete(
         picker,
         bg,

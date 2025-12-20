@@ -11,6 +11,7 @@ use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
 
 use crate::{Cmd, error::Error};
 
+// Should take `tx: Sender<Event>` but that complains about some weird lifetime stuff.
 pub fn watch(path: &PathBuf, tx: Sender<Cmd>) -> Result<Debouncer<RecommendedWatcher>, Error> {
     let parent = path
         .parent()
@@ -49,11 +50,10 @@ pub fn watch(path: &PathBuf, tx: Sender<Cmd>) -> Result<Debouncer<RecommendedWat
 
                 let mtime = fs::metadata(&mtime_path).and_then(|m| m.modified()).ok();
                 if mtime == last_mtime.get() {
-                    log::debug!("mtime unchanged, skipping");
                     return;
                 }
-                log::warn!("mtime changed: {:?}", mtime);
                 last_mtime.set(mtime);
+                log::warn!("watch mtime changed, Cmd::FileChanged");
                 if let Err(err) = tx.send(Cmd::FileChanged) {
                     log::error!("Failed to send Cmd::FileChanged: {err}");
                 }
