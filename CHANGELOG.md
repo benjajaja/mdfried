@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+- [Chafa](https://hpjansson.org/chafa/) preliminary support, loaded at runtime, falls back to
+  the existing primitive halfblocks implementation.
+- Add `--no-cap-checks` to entirely skip querying the terminal's stdio for capabilities.
+- Build a static binary, included in release assets.
+
+### Fixed
+- Handle panics gracefully (restore terminal mode)
+
 ## [0.15.0] - 2025-12-14
 
 ### Added
