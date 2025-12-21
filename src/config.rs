@@ -1,21 +1,11 @@
 use std::path::PathBuf;
 
-use clap::Parser;
 use confy::ConfyError;
 use ratatui::crossterm::style::Color;
 use ratatui_image::picker::ProtocolType;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Error;
-
-#[derive(Parser)]
-#[command(name = "mdfried")]
-#[command(version = "0.1")]
-#[command(about = "Deep fries Markdown", long_about = Some("You can cook a terminal. Can you *deep fry* a terminal?"))]
-pub struct Cli {
-    /// Optional name to operate on
-    pub filename: Option<String>,
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
