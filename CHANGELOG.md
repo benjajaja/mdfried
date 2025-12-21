@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.17.1] - 2025-12-21
+
 ### Fixed
 - Text Sizing Protocol spacing
   All tiers above #1 had letter spacing too wide.
