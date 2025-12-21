@@ -9,10 +9,13 @@ use std::{
 use notify::{RecommendedWatcher, RecursiveMode};
 use notify_debouncer_mini::{DebounceEventResult, Debouncer, new_debouncer};
 
-use crate::{Cmd, error::Error};
+use crate::{Event, error::Error};
 
 // Should take `tx: Sender<Event>` but that complains about some weird lifetime stuff.
-pub fn watch(path: &PathBuf, tx: Sender<Cmd>) -> Result<Debouncer<RecommendedWatcher>, Error> {
+pub fn watch(
+    path: &PathBuf,
+    tx: Sender<Event<'static>>,
+) -> Result<Debouncer<RecommendedWatcher>, Error> {
     let parent = path
         .parent()
         .ok_or(Error::Generic(String::from("cannot watch without path")))?
@@ -54,7 +57,7 @@ pub fn watch(path: &PathBuf, tx: Sender<Cmd>) -> Result<Debouncer<RecommendedWat
                 }
                 last_mtime.set(mtime);
                 log::warn!("watch mtime changed, Cmd::FileChanged");
-                if let Err(err) = tx.send(Cmd::FileChanged) {
+                if let Err(err) = tx.send(Event::FileChanged) {
                     log::error!("Failed to send Cmd::FileChanged: {err}");
                 }
             }

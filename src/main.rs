@@ -207,8 +207,8 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     };
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
-    let watch_cmd_tx = cmd_tx.clone();
     let (event_tx, event_rx) = mpsc::channel::<Event>();
+    let watch_event_tx = event_tx.clone();
 
     let config_max_image_height = config.max_image_height;
     let skin = config.skin.clone();
@@ -247,9 +247,9 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     let debouncer = if let Some(path) = watchmode_path {
         log::info!("watching file");
-        Some(watch(&path, watch_cmd_tx)?)
+        Some(watch(&path, watch_event_tx)?)
     } else {
-        drop(watch_cmd_tx);
+        drop(watch_event_tx);
         None
     };
 
@@ -277,7 +277,6 @@ enum Cmd {
     Header(DocumentId, usize, u16, u8, String),
     // TODO: why not run this at call-site?
     XdgOpen(String),
-    FileChanged,
 }
 
 impl Display for Cmd {
@@ -295,7 +294,6 @@ impl Display for Cmd {
                 "Cmd::Header({document_id}, {source_id}, {width}, {tier}, {text})"
             ),
             Cmd::XdgOpen(url) => write!(f, "Cmd::XdgOpen({url})"),
-            Cmd::FileChanged => write!(f, "Cmd::FileChanged"),
         }
     }
 }

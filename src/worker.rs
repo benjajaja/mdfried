@@ -140,10 +140,6 @@ pub fn worker_thread(
                     Cmd::XdgOpen(url) => {
                         std::process::Command::new("xdg-open").arg(&url).spawn()?;
                     }
-                    Cmd::FileChanged => {
-                        log::info!("cmd FileChanged");
-                        event_tx.send(Event::FileChanged)?;
-                    }
                 }
             }
             Ok::<(), Error>(())
