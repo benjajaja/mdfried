@@ -232,6 +232,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     if enable_mouse_capture.unwrap_or_default() {
         ratatui::crossterm::execute!(io::stderr(), EnableMouseCapture)?;
     }
+    let watch_debounce_milliseconds = config.watch_debounce_milliseconds;
     terminal.clear()?;
 
     let terminal_size = terminal.size()?;
@@ -247,7 +248,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     let debouncer = if let Some(path) = watchmode_path {
         log::info!("watching file");
-        Some(watch(&path, watch_event_tx)?)
+        Some(watch(&path, watch_event_tx, watch_debounce_milliseconds)?)
     } else {
         drop(watch_event_tx);
         None
