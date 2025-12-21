@@ -56,22 +56,26 @@ const OK_END: &str = " ok.";
 
 fn main() -> io::Result<()> {
     let mut cmd = command!() // requires `cargo` feature
-        .arg(
-            arg!([path] "The markdown file path, or '-', or omit, for stdin")
-                .value_parser(value_parser!(PathBuf)),
-        )
+        .arg(arg!(-d --"deep-fry" "Extra deep fried images").value_parser(value_parser!(bool)))
+        .arg(arg!(-w --"watch" "Watch markdown file").value_parser(value_parser!(bool)))
         .arg(arg!(-s --"setup" "Force font setup").value_parser(value_parser!(bool)))
         .arg(
-            arg!(--"no-cap-checks" "No terminal capability checks")
+            arg!(--"print-config" "Write out full config file example to stdout")
                 .value_parser(value_parser!(bool)),
         )
-        .arg(arg!(--"debug-override-protocol-type" <PROTOCOL> "Force graphics protocol type"))
+        .arg(
+            arg!(--"no-cap-checks" "Don't query the terminal stdin for capabilities")
+                .value_parser(value_parser!(bool)),
+        )
+        .arg(arg!(--"debug-override-protocol-type" <PROTOCOL> "Force graphics protocol to a specific type"))
         .arg(
             arg!(--"log" "log to mdfried_<timestamp>.log file in working directory")
                 .value_parser(value_parser!(bool)),
         )
-        .arg(arg!(-w --"watch" "Watch markdown file").value_parser(value_parser!(bool)))
-        .arg(arg!(-d --"deep-fry" "Extra deep fried images").value_parser(value_parser!(bool)));
+        .arg(
+            arg!([path] "The markdown file path, or '-', or omit, for stdin")
+                .value_parser(value_parser!(PathBuf)),
+        );
     let matches = cmd.get_matches_mut();
 
     match main_with_args(&matches) {
@@ -112,6 +116,11 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         #[expect(clippy::exit)]
         std::process::exit(libc::EXIT_FAILURE);
     }));
+
+    if *matches.get_one("print-config").unwrap_or(&false) {
+        config::print_default()?;
+        return Ok(());
+    }
 
     let ui_logger = debug::ui_logger(*matches.get_one("log").unwrap_or(&false))?;
 

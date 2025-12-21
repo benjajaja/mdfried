@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
 use confy::ConfyError;
 use ratatui::crossterm::style::Color;
@@ -141,4 +141,32 @@ pub fn load_or_ask() -> Result<UserConfig, Error> {
             }
         }
     })
+}
+
+// Write a default config file to stdout.
+pub fn print_default() -> Result<(), Error> {
+    let config = Config::from(UserConfig::default());
+    let user_config = UserConfig {
+        padding: Some(config.padding),
+        font_family: None,
+        max_image_height: Some(config.max_image_height),
+        watch_debounce_milliseconds: Some(config.watch_debounce_milliseconds),
+        enable_mouse_capture: Some(config.enable_mouse_capture),
+        debug_override_protocol_type: config.debug_override_protocol_type,
+        theme: Some(config.theme),
+    };
+
+    // We could use the toml crate to avoid doing the temp-file roundtrip, but doing it this way
+    // means it's guaranteed to be good for `confy::load`.
+    let tmp_path = std::env::temp_dir().join(format!("mdfried_tmp_config_{}", std::process::id()));
+    confy::store_path(&tmp_path, user_config)?;
+    let text = fs::read_to_string(&tmp_path)?;
+    println!("{text}");
+    fs::remove_file(tmp_path)?;
+
+    let default_config_path = get_configuration_file_path()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| String::from("(not found)"));
+    eprintln!("Config file default path: {default_config_path}",);
+    Ok(())
 }
