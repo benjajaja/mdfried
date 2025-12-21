@@ -137,9 +137,6 @@ pub fn worker_thread(
                             Ok::<(), Error>(())
                         });
                     }
-                    Cmd::XdgOpen(url) => {
-                        std::process::Command::new("xdg-open").arg(&url).spawn()?;
-                    }
                 }
             }
             Ok::<(), Error>(())

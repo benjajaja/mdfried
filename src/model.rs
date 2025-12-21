@@ -3,7 +3,7 @@ use std::{
     fmt::Display,
     fs,
     path::PathBuf,
-    sync::mpsc::{Receiver, SendError, Sender},
+    sync::mpsc::{Receiver, Sender},
 };
 
 use ratatui::{
@@ -285,8 +285,9 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         (start_y, end_y)
     }
 
-    pub fn open_link(&self, url: String) -> Result<(), SendError<Cmd>> {
-        self.cmd_tx.send(Cmd::XdgOpen(url))
+    pub fn open_link(&self, url: String) -> Result<(), Error> {
+        std::process::Command::new("xdg-open").arg(&url).spawn()?;
+        Ok(())
     }
 
     pub fn cursor_next(&mut self) {

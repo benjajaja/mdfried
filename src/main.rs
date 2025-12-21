@@ -275,8 +275,6 @@ enum Cmd {
     Parse(DocumentId, u16, String),
     UrlImage(DocumentId, usize, u16, String, String, String),
     Header(DocumentId, usize, u16, u8, String),
-    // TODO: why not run this at call-site?
-    XdgOpen(String),
 }
 
 impl Display for Cmd {
@@ -293,7 +291,6 @@ impl Display for Cmd {
                 f,
                 "Cmd::Header({document_id}, {source_id}, {width}, {tier}, {text})"
             ),
-            Cmd::XdgOpen(url) => write!(f, "Cmd::XdgOpen({url})"),
         }
     }
 }
