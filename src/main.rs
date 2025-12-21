@@ -4,8 +4,8 @@ mod debug;
 mod error;
 mod markdown;
 mod model;
-mod notify;
 mod setup;
+mod watch;
 mod widget_sources;
 mod worker;
 
@@ -46,7 +46,7 @@ use crate::{
     cursor::{Cursor, CursorPointer, SearchState},
     error::Error,
     model::{DocumentId, Model},
-    notify::watch,
+    watch::watch,
     widget_sources::{BigText, LineExtra, SourceID, WidgetSource, WidgetSourceData},
     worker::worker_thread,
 };
