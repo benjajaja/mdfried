@@ -441,7 +441,7 @@ mod tests {
 
     use crate::{
         Cmd, DocumentId, Event,
-        config::Config,
+        config::UserConfig,
         cursor::{Cursor, CursorPointer, SearchState},
         model::Model,
         widget_sources::{LineExtra, WidgetSource, WidgetSourceData, WidgetSources},
@@ -454,7 +454,7 @@ mod tests {
             original_file_path: None,
             bg: None,
             screen_size: (80, 20).into(),
-            config: Config::default(),
+            config: UserConfig::default().into(),
             scroll: 0,
             cursor: Cursor::default(),
             sources: WidgetSources::default(),

@@ -10,7 +10,7 @@ use ratatui_image::{
 };
 
 use crate::{
-    config::{self, Config},
+    config::{self, UserConfig},
     error::Error,
 };
 use fontpicker::interactive_font_picker;
@@ -60,7 +60,7 @@ pub enum SetupResult {
 }
 
 pub fn setup_graphics(
-    config: &mut Config,
+    config: &mut UserConfig,
     force_font_setup: bool,
     no_cap_checks: bool,
     debug_override_protocol_type: Option<ProtocolType>,

@@ -43,6 +43,7 @@ use ratatui_image::{Image, picker::ProtocolType};
 use setup::{SetupResult, setup_graphics};
 
 use crate::{
+    config::Config,
     cursor::{Cursor, CursorPointer, SearchState},
     error::Error,
     model::{DocumentId, Model},
@@ -146,7 +147,8 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         return Err(Error::Usage(Some("no input or empty")));
     }
 
-    let mut config = config::load_or_ask()?;
+    let mut user_config = config::load_or_ask()?;
+    let config = Config::from(user_config.clone());
 
     #[cfg(not(windows))]
     if !io::stdin().is_tty() {
@@ -183,7 +185,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     let (picker, bg, renderer, has_text_size_protocol) = {
         let setup_result = setup_graphics(
-            &mut config,
+            &mut user_config,
             force_setup,
             no_cap_checks,
             debug_override_protocol_type,
@@ -211,7 +213,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let watch_event_tx = event_tx.clone();
 
     let config_max_image_height = config.max_image_height;
-    let skin = config.skin.clone();
+    let skin = config.theme.skin.clone();
     let cmd_thread = worker_thread(
         basepath,
         picker,
@@ -229,7 +231,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
     let enable_mouse_capture = config.enable_mouse_capture;
-    if enable_mouse_capture.unwrap_or_default() {
+    if enable_mouse_capture {
         ratatui::crossterm::execute!(io::stderr(), EnableMouseCapture)?;
     }
     let watch_debounce_milliseconds = config.watch_debounce_milliseconds;
@@ -260,7 +262,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     // Cursor might be in wird places, prompt or whatever should always show at the bottom now.
     terminal.set_cursor_position((0, terminal_size.height - 1))?;
 
-    if enable_mouse_capture.unwrap_or_default() {
+    if enable_mouse_capture {
         ratatui::crossterm::execute!(io::stderr(), DisableMouseCapture)?;
     }
     ratatui::crossterm::terminal::disable_raw_mode()?;
@@ -674,7 +676,12 @@ mod tests {
     use ratatui_image::picker::{Picker, ProtocolType};
 
     use crate::{
-        Cmd, Event, config::Config, error::Error, model::Model, view, worker::worker_thread,
+        Cmd, Event,
+        config::{Config, UserConfig},
+        error::Error,
+        model::Model,
+        view,
+        worker::worker_thread,
     };
 
     fn setup(config: Config) -> (Model<'static, 'static>, JoinHandle<Result<(), Error>>, Size) {
@@ -693,7 +700,7 @@ mod tests {
             None,
             picker,
             None,
-            config.skin.clone(),
+            config.theme.skin.clone(),
             None,
             true,
             false,
@@ -735,10 +742,11 @@ mod tests {
 
     #[test]
     fn parse() {
-        let config = Config {
-            max_image_height: 10,
+        let config = UserConfig {
+            max_image_height: Some(10),
             ..Default::default()
-        };
+        }
+        .into();
         let (mut model, worker, screen_size) = setup(config);
         let mut terminal =
             Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
@@ -767,10 +775,11 @@ Goodbye."#,
 
     #[test]
     fn reload_move_image() {
-        let config = Config {
-            max_image_height: 10,
+        let config = UserConfig {
+            max_image_height: Some(10),
             ..Default::default()
-        };
+        }
+        .into();
         let (mut model, worker, screen_size) = setup(config);
         let mut terminal =
             Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
@@ -824,10 +833,11 @@ Goodbye."#,
 
     #[test]
     fn reload_add_image() {
-        let config = Config {
-            max_image_height: 10,
+        let config = UserConfig {
+            max_image_height: Some(10),
             ..Default::default()
-        };
+        }
+        .into();
         let (mut model, worker, screen_size) = setup(config);
         let mut terminal =
             Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
@@ -870,10 +880,11 @@ Goodbye."#,
 
     #[test]
     fn duplicate_image() {
-        let config = Config {
-            max_image_height: 8,
+        let config = UserConfig {
+            max_image_height: Some(8),
             ..Default::default()
-        };
+        }
+        .into();
         let (mut model, worker, screen_size) = setup(config);
         let mut terminal =
             Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();

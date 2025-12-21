@@ -15,7 +15,7 @@ use crate::{Event, error::Error};
 pub fn watch(
     path: &PathBuf,
     tx: Sender<Event<'static>>,
-    debounce_milliseconds: Option<u64>,
+    debounce_milliseconds: u64,
 ) -> Result<Debouncer<RecommendedWatcher>, Error> {
     let parent = path
         .parent()
@@ -40,11 +40,9 @@ pub fn watch(
     // - HFS+ (old mac): 1s    - rare edge case
     // - ext4 (Linux):   1ns   - fine
     // - NFS/SMB:        varies, can lag on network mounts
-    // TODO: make this configurable - or ignore it - who uses FAT32/HFS+ on this day an age?
-    const DEBOUNCE_MILLISECONDS_DEFAULT: u64 = 100;
 
     let mut debouncer = new_debouncer(
-        Duration::from_millis(debounce_milliseconds.unwrap_or(DEBOUNCE_MILLISECONDS_DEFAULT)),
+        Duration::from_millis(debounce_milliseconds),
         move |res: DebounceEventResult| match res {
             Ok(events) => {
                 let dominated = events.iter().any(|e| e.path.file_name() == Some(&filename));
