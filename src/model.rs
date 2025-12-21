@@ -1,5 +1,6 @@
 use std::{
     cmp::min,
+    fmt::Display,
     fs,
     path::PathBuf,
     sync::mpsc::{Receiver, SendError, Sender},
@@ -15,7 +16,7 @@ use regex::RegexBuilder;
 
 use crate::setup::BgColor;
 use crate::{
-    Cmd, DocumentId,
+    Cmd,
     config::{Config, PaddingConfig},
     error::Error,
     widget_sources::{FindMode, FindTarget},
@@ -50,7 +51,6 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         event_rx: Receiver<Event<'b>>,
         screen_size: Size,
         config: Config,
-        document_id: DocumentId,
     ) -> Model<'a, 'b> {
         Model {
             original_file_path,
@@ -63,14 +63,13 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
             cmd_tx,
             event_rx,
             log_snapshot: None,
-            document_id,
+            document_id: DocumentId::default(),
             #[cfg(test)]
             pending_image_count: 0,
         }
     }
 
     pub fn reload(&mut self, screen_size: Size) -> Result<(), Error> {
-        log::info!("reload");
         if let Some(original_file_path) = &self.original_file_path {
             let text = fs::read_to_string(original_file_path)?;
             self.reparse(screen_size, text)?;
@@ -78,24 +77,25 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         Ok(())
     }
 
-    pub fn reparse(&mut self, screen_size: Size, text: String) -> Result<(), Error> {
-        self.screen_size = screen_size;
-        self.parse(
-            Some(self.document_id.reload_id.map(|id| id + 1).unwrap_or(1)),
-            screen_size,
-            text,
-        )?;
-        Ok(())
+    pub fn open(&self, screen_size: Size, text: String) -> Result<(), Error> {
+        self.parse(self.document_id.open(), screen_size, text)
     }
 
-    pub fn parse(
+    pub fn reparse(&self, screen_size: Size, text: String) -> Result<(), Error> {
+        log::info!("reparse");
+        self.parse(self.document_id.reload(), screen_size, text)
+    }
+
+    fn parse(
         &self,
-        reload_id: Option<usize>,
+        next_document_id: DocumentId,
         screen_size: Size,
         text: String,
-    ) -> Result<(), SendError<Cmd>> {
+    ) -> Result<(), Error> {
         let inner_width = self.inner_width(screen_size.width);
-        self.cmd_tx.send(Cmd::Parse(reload_id, inner_width, text))
+        self.cmd_tx
+            .send(Cmd::Parse(next_document_id, inner_width, text))?;
+        Ok(())
     }
 
     pub fn inner_width(&self, screen_width: u16) -> u16 {
@@ -135,6 +135,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
 
             match event {
                 Event::NewDocument(document_id) => {
+                    log::info!("NewDocument {document_id}");
                     self.document_id = document_id;
                 }
                 Event::ParseDone(document_id, last_source_id) => {
@@ -157,7 +158,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                         source.data
                     );
 
-                    if self.document_id.reload_id.is_none() {
+                    if self.document_id.is_first_load() {
                         self.sources.push(source);
                     } else {
                         self.sources.update(vec![source]);
@@ -188,7 +189,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                         existing_image.id = id;
                         self.sources.update(vec![existing_image]);
                     } else {
-                        if self.document_id.reload_id.is_none() {
+                        if self.document_id.is_first_load() {
                             log::debug!(
                                 "existing image not found, push placeholder and process image ({url})"
                             );
@@ -233,17 +234,23 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
                         log::debug!("stale event, ignoring");
                         continue;
                     }
-                    if self.document_id.reload_id == document_id.reload_id {
-                        let line = Line::from(vec![
-                            #[expect(clippy::string_add)]
-                            Span::from("#".repeat(tier as usize) + " ").light_blue(),
-                            Span::from(text.clone()),
-                        ]);
+                    let line = Line::from(vec![
+                        #[expect(clippy::string_add)]
+                        Span::from("#".repeat(tier as usize) + " ").light_blue(),
+                        Span::from(text.clone()),
+                    ]);
+                    if self.document_id.is_first_load() {
                         self.sources.push(WidgetSource {
                             id,
                             height: 2,
                             data: WidgetSourceData::Line(line, Vec::new()),
                         });
+                    } else {
+                        self.sources.update(vec![WidgetSource {
+                            id,
+                            height: 2,
+                            data: WidgetSourceData::Line(line, Vec::new()),
+                        }]);
                     }
                     #[cfg(test)]
                     {
@@ -387,6 +394,42 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
     }
 }
 
+#[derive(Default, Debug, PartialEq, Clone, Copy)]
+pub struct DocumentId {
+    id: usize, // Reserved for when we can open another file
+    reload_id: usize,
+}
+
+impl DocumentId {
+    fn is_same_document(&self, other: &DocumentId) -> bool {
+        self.id == other.id
+    }
+
+    fn open(&self) -> DocumentId {
+        DocumentId {
+            id: self.id + 1,
+            reload_id: 0,
+        }
+    }
+
+    fn reload(&self) -> DocumentId {
+        DocumentId {
+            id: self.id,
+            reload_id: self.reload_id + 1,
+        }
+    }
+
+    fn is_first_load(&self) -> bool {
+        self.reload_id == 0
+    }
+}
+
+impl Display for DocumentId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "D{}.{}", self.id, self.reload_id,)
+    }
+}
+
 #[cfg(test)]
 #[expect(clippy::unwrap_used)]
 mod tests {
@@ -417,10 +460,7 @@ mod tests {
             cmd_tx,
             event_rx,
             log_snapshot: None,
-            document_id: DocumentId {
-                id: 0,
-                reload_id: None,
-            },
+            document_id: DocumentId::default(),
             pending_image_count: 0,
         }
     }

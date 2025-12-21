@@ -1,14 +1,20 @@
 use std::io::Write;
 
-use flexi_logger::{DeferredNow, FlexiLoggerError, Logger};
+use flexi_logger::{DeferredNow, FileSpec, FlexiLoggerError, Logger};
 use log::Record;
 use ratatui::{Frame, crossterm::style::Color, layout::Rect, widgets::Block};
 use ratskin::RatSkin;
 
-pub fn ui_logger() -> Result<flexi_logger::LoggerHandle, FlexiLoggerError> {
-    Logger::try_with_env_or_str("info")?
-        .log_to_buffer(10000, Some(markdown_format))
-        .start()
+pub fn ui_logger(log_to_file: bool) -> Result<flexi_logger::LoggerHandle, FlexiLoggerError> {
+    if log_to_file {
+        Logger::try_with_env_or_str("info")?
+            .log_to_file(FileSpec::default())
+            .start()
+    } else {
+        Logger::try_with_env_or_str("info")?
+            .log_to_buffer(10000, Some(markdown_format))
+            .start()
+    }
 }
 
 fn markdown_format(

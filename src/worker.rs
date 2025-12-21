@@ -13,7 +13,7 @@ use reqwest::Client;
 use tokio::{runtime::Builder, sync::RwLock};
 
 use crate::{
-    Cmd, DocumentId, Event,
+    Cmd, Event,
     error::Error,
     markdown::parse,
     setup::{BgColor, FontRenderer},
@@ -32,7 +32,6 @@ pub fn worker_thread(
     cmd_rx: Receiver<Cmd>,
     event_tx: Sender<Event<'static>>,
     config_max_image_height: u16,
-    mut cmd_document_id: DocumentId,
 ) -> JoinHandle<Result<(), Error>> {
     thread::spawn(move || {
         let runtime = Builder::new_multi_thread()
@@ -52,14 +51,11 @@ pub fn worker_thread(
             for cmd in cmd_rx {
                 log::debug!("Cmd: {cmd}");
                 match cmd {
-                    Cmd::Parse(reload_id, width, text) => {
-                        let log_previous_document = cmd_document_id;
-                        cmd_document_id.reload_id = reload_id;
-                        log::info!("Parse {log_previous_document} -> {cmd_document_id}");
-                        event_tx.send(Event::NewDocument(cmd_document_id))?;
+                    Cmd::Parse(document_id, width, text) => {
+                        log::info!("Parse {document_id}");
+                        event_tx.send(Event::NewDocument(document_id))?;
                         let mut last_parsed_source_id = None;
-                        for event in
-                            parse(&text, &skin, cmd_document_id, width, has_text_size_protocol)
+                        for event in parse(&text, &skin, document_id, width, has_text_size_protocol)
                         {
                             match &event {
                                 Event::Parsed(_, source) => {
@@ -76,7 +72,7 @@ pub fn worker_thread(
                             event_tx.send(event)?;
                         }
                         log::debug!("Cmd::Parse finished");
-                        event_tx.send(Event::ParseDone(cmd_document_id, last_parsed_source_id))?;
+                        event_tx.send(Event::ParseDone(document_id, last_parsed_source_id))?;
                     }
                     Cmd::Header(document_id, source_id, width, tier, text) => {
                         debug_assert!(

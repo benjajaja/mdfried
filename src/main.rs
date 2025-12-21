@@ -45,7 +45,7 @@ use setup::{SetupResult, setup_graphics};
 use crate::{
     cursor::{Cursor, CursorPointer, SearchState},
     error::Error,
-    model::Model,
+    model::{DocumentId, Model},
     notify::watch,
     widget_sources::{BigText, LineExtra, SourceID, WidgetSource, WidgetSourceData},
     worker::worker_thread,
@@ -65,6 +65,10 @@ fn main() -> io::Result<()> {
                 .value_parser(value_parser!(bool)),
         )
         .arg(arg!(--"debug-override-protocol-type" <PROTOCOL> "Force graphics protocol type"))
+        .arg(
+            arg!(--"log" "log to mdfried_<timestamp>.log file in working directory")
+                .value_parser(value_parser!(bool)),
+        )
         .arg(arg!(-w --"watch" "Watch markdown file").value_parser(value_parser!(bool)))
         .arg(arg!(-d --"deep-fry" "Extra deep fried images").value_parser(value_parser!(bool)));
     let matches = cmd.get_matches_mut();
@@ -108,7 +112,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         std::process::exit(libc::EXIT_FAILURE);
     }));
 
-    let ui_logger = debug::ui_logger()?;
+    let ui_logger = debug::ui_logger(*matches.get_one("log").unwrap_or(&false))?;
 
     let path = matches.get_one::<PathBuf>("path");
 
@@ -208,11 +212,6 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     let config_max_image_height = config.max_image_height;
     let skin = config.skin.clone();
-    let document_id = DocumentId {
-        id: 0,
-        reload_id: None,
-    };
-    let cmd_document_id = document_id;
     let cmd_thread = worker_thread(
         basepath,
         picker,
@@ -224,7 +223,6 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         cmd_rx,
         event_tx,
         config_max_image_height,
-        cmd_document_id,
     );
 
     ratatui::crossterm::terminal::enable_raw_mode()?;
@@ -244,11 +242,8 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         event_rx,
         terminal.size()?,
         config,
-        document_id,
     );
-    model
-        .parse(None, terminal_size, text)
-        .map_err(Error::from)?;
+    model.open(terminal_size, text)?;
 
     let debouncer = if let Some(path) = watchmode_path {
         log::info!("watching file");
@@ -275,34 +270,9 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     Ok(())
 }
 
-#[derive(Default, Debug, PartialEq, Clone, Copy)]
-struct DocumentId {
-    id: usize,
-    reload_id: Option<usize>,
-}
-
-impl DocumentId {
-    fn is_same_document(&self, other: &DocumentId) -> bool {
-        self.id == other.id
-    }
-}
-
-impl Display for DocumentId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "D{}.{}",
-            self.id,
-            self.reload_id
-                .map(|id| format!("{id}"))
-                .unwrap_or("␀".to_owned())
-        )
-    }
-}
-
 #[derive(Debug)]
 enum Cmd {
-    Parse(Option<usize>, u16, String),
+    Parse(DocumentId, u16, String),
     UrlImage(DocumentId, usize, u16, String, String, String),
     Header(DocumentId, usize, u16, u8, String),
     // TODO: why not run this at call-site?
@@ -708,8 +678,7 @@ mod tests {
     use ratatui_image::picker::{Picker, ProtocolType};
 
     use crate::{
-        Cmd, DocumentId, Event, config::Config, error::Error, model::Model, view,
-        worker::worker_thread,
+        Cmd, Event, config::Config, error::Error, model::Model, view, worker::worker_thread,
     };
 
     fn setup(config: Config) -> (Model<'static, 'static>, JoinHandle<Result<(), Error>>, Size) {
@@ -721,10 +690,6 @@ mod tests {
 
         let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
         let (event_tx, event_rx) = mpsc::channel::<Event>();
-        let document_id = DocumentId {
-            id: 0,
-            reload_id: None,
-        };
 
         let picker = Picker::from_fontsize((1, 2));
         assert_eq!(picker.protocol_type(), ProtocolType::Halfblocks);
@@ -739,20 +704,11 @@ mod tests {
             cmd_rx,
             event_tx,
             config.max_image_height,
-            document_id,
         );
 
         let screen_size = (80, 20).into();
 
-        let model = Model::new(
-            None,
-            None,
-            cmd_tx,
-            event_rx,
-            screen_size,
-            config,
-            document_id,
-        );
+        let model = Model::new(None, None, cmd_tx, event_rx, screen_size, config);
         (model, worker, screen_size)
     }
 
@@ -792,8 +748,7 @@ mod tests {
             Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
 
         model
-            .parse(
-                None,
+            .open(
                 screen_size,
                 String::from(
                     r#"# Hello
@@ -825,8 +780,7 @@ Goodbye."#,
             Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
 
         model
-            .parse(
-                None,
+            .open(
                 screen_size,
                 String::from(
                     r#"# Hello
@@ -883,8 +837,7 @@ Goodbye."#,
             Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
 
         model
-            .parse(
-                None,
+            .open(
                 screen_size,
                 String::from(
                     r#"# Hello
@@ -930,8 +883,7 @@ Goodbye."#,
             Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
 
         model
-            .parse(
-                None,
+            .open(
                 screen_size,
                 String::from(
                     r#"# Hello
