@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.17.0] - 2025-12-21
+
 ### Added
 - Watch mode
   Use `-w` to watch the file for changes and reload.
