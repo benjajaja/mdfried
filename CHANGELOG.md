@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+- Watch mode
+  Use `-w` to watch the file for changes and reload.
+- Print config
+  Use `--print-config` to write a default config file to stdout.
+
+### Changed
+- Config defaults
+  All config entries are now optional.
+
 ## [0.16.0] - 2025-12-20
 
 ### Added
