@@ -683,6 +683,41 @@ impl<'a> BigText<'a> {
     pub fn new(text: &'a str, tier: u8) -> Self {
         BigText { text, tier }
     }
+
+    #[expect(clippy::unwrap_used)]
+    #[inline]
+    fn text_sizing_sequence(&self, area_width: u16) -> String {
+        let (n, d) = match self.tier {
+            1 => (7, 7),
+            2 => (5, 6),
+            3 => (3, 4),
+            4 => (2, 3),
+            5 => (3, 5),
+            _ => (1, 3),
+        };
+
+        let chars: Vec<char> = self.text.chars().collect();
+        let chunk_count = chars.len().div_ceil(d);
+        let width_digits = area_width.checked_ilog10().unwrap_or(0) as usize + 1;
+        let capacity = 19 + 2 * width_digits + self.text.len() + chunk_count * 24;
+        let mut symbol = String::with_capacity(capacity);
+
+        // Erase-character dance.
+        // We must erase anything inside area, which is 2 lines high and `area.width` wide.
+        // This must be done before we write the text.
+        // Also disable DECAWM, unsure if really necessary.
+        write!(symbol, "\x1b[{}X\x1B[?7l", area_width).expect("write to string");
+        write!(symbol, "\x1b[1B").expect("write to string");
+        write!(symbol, "\x1b[{}X\x1B[?7l", area_width).expect("write to string");
+        write!(symbol, "\x1b[1A").expect("write to string");
+
+        for chunk in chars.chunks(d) {
+            write!(symbol, "\x1b]66;s=2:n={n}:d={d}:w={n};").unwrap();
+            symbol.extend(chunk);
+            write!(symbol, "\x1b\\").unwrap(); // Could also use BEL, but this seems safer.
+        }
+        symbol
+    }
 }
 
 impl Widget for BigText<'_> {
@@ -691,29 +726,7 @@ impl Widget for BigText<'_> {
             return;
         }
 
-        let mut symbol = String::new();
-
-        // Erase character dance.
-        // We must erase anything inside area, which is 2 lines high and `area.width` wide.
-        // This must be done before we write the text.
-        // Also disable DECAWM, unsure if really necessary.
-        write!(symbol, "\x1b[{}X\x1B[?7l", area.width).expect("write to string");
-        write!(symbol, "\x1b[1B").expect("write to string");
-        write!(symbol, "\x1b[{}X\x1B[?7l", area.width).expect("write to string");
-        write!(symbol, "\x1b[1A").expect("write to string");
-
-        let (n, d) = match self.tier {
-            1 => (1, 1),
-            2 => (3, 4),
-            3 => (7, 12),
-            4 => (1, 2),
-            5 => (5, 12),
-            _ => (1, 3),
-        };
-        // Start the Text Size Protocol sequence.
-        write!(symbol, "\x1b]66;s=2:n={n}:d={d};").expect("write to string");
-        symbol.push_str(truncate_str(self.text, (area.width / 2) as usize));
-        write!(symbol, "\x1b\x5c").expect("write to string"); // Could also use BEL, but this seems safer.
+        let symbol = self.text_sizing_sequence(area.width);
 
         // Skip entire text area except first cell
         let mut skip_first = false;
@@ -729,20 +742,6 @@ impl Widget for BigText<'_> {
             }
         }
     }
-}
-
-fn truncate_str(s: &str, max_chars: usize) -> &str {
-    if s.chars().count() <= max_chars {
-        return s;
-    }
-
-    let mut end = 0;
-    for (i, _) in s.char_indices().take(max_chars) {
-        end = i;
-    }
-
-    #[expect(clippy::string_slice)] // using char_indices here.
-    &s[..end]
 }
 
 #[cfg(test)]
