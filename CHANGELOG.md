@@ -3,9 +3,10 @@
 ## [Unreleased]
 
 ### Fixed
-- Chafa features and dynamic linking
-  End users that compile from source or `cargo install` can opt-out of the default feature of dynamically linking to libchafa.
-  For distribution, libchafa (with dev headers at build time) should be a dependency.
+- Chafa linking split into three features
+  - `chafa-dyn` (default) normal dynamic linking.
+  - `chafa-static` statically links `libchafa.a`, which is usually not in distributions. The flake.nix builds this for the `static` output.
+  - `chafa-libload` runtime libloading of chafa with halfblocks fallback. In practice, picking this means that `chafa` will most likely not be used for rendering, as it is highly unlikely that chafa would be available at runtime but not at compile-time.
 
 ## [0.17.1] - 2025-12-21
 

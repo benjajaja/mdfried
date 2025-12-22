@@ -39,15 +39,16 @@ On terminals without graphics whatsoever, like Alactritty, images are rendered w
 # Installation
 
 * Rust cargo: `cargo install mdfried`
+  * From source : `cargo install --path .`
+  * Needs a chafa package with development headers, usually called something like `libchafa-dev`, `libchafa-devel`, or just `libchafa`, or even just `chafa`.
+  * If chafa is not available at all, or you don't care about it because your terminal supports some graphic protocol, then use `--no-default-features --features chafa-libload`.
+  * If `cargo install ...` fails, try it with `--locked`, and/or report an issue.
 * Nix flake: `github:benjajaja/mdfried`
 * Nixpkgs: [`mdfried`](https://search.nixos.org/packages?channel=unstable&query=mdfried)
 * Arch Linux: `pacman -S mdfried` ([extra repository](https://archlinux.org/packages/extra/x86_64/mdfried/))
 * Ubuntu: [Download release .deb](https://github.com/benjajaja/mdfried/releases/latest)
 * Mac: `brew install mdfried` or [realease binaries](https://github.com/benjajaja/mdfried/releases/latest)
 * Windows: [Download release .exe](https://github.com/benjajaja/mdfried/releases/latest)
-* From source : `cargo install --path .`
-
-If `cargo install ...` fails, try it with `--locked`.
 
 # Usage
 

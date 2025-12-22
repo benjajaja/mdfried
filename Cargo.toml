@@ -21,8 +21,9 @@ rust-version = "1.86.0"
 
 [features]
 default = ["chafa-dyn"]
-chafa-dyn = ["ratatui-image/chafa-dyn"]
-chafa-static = ["ratatui-image/chafa-static"]
+chafa-dyn = ["ratatui-image/chafa-dyn", "ratatui-image/crossterm"] # for distribution
+chafa-static = ["ratatui-image/chafa-static", "ratatui-image/crossterm"] # for building a static binary with musl
+chafa-libload = ["ratatui-image/chafa-libload", "ratatui-image/crossterm"] # for legacy distros without chafa, avoid
 
 [dependencies]
 itertools = "0.14.0"
