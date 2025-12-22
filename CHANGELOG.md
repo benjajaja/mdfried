@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.17.2] - 2025-12-22
+
 ### Fixed
 - Chafa features and dynamic linking
   End users that compile from source or `cargo install` can opt to use `chafa-libload`.
