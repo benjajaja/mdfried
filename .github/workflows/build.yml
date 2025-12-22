@@ -75,18 +75,23 @@ jobs:
     strategy:
       matrix:
         include:
+          # Ubuntu 20.04: chafa-libload for .deb compatibility (old glibc)
           - os: ubuntu-latest
             container: ubuntu:20.04
-            artifact_name: mdfried-ubuntu
-            build_deb: true
+            artifact_name: mdfried-libload-ubuntu-20.04
+            libload: true
+          - os: ubuntu-latest
+            container: ubuntu:24.04
+            artifact_name: mdfried-ubuntu-24.04
+            libload: false
           - os: macos-15-intel
             container: null
             artifact_name: mdfried_macos_x86_64
-            build_deb: false
+            libload: false
           - os: macos-latest
             container: null
             artifact_name: mdfried_macos_aarch64
-            build_deb: false
+            libload: false
     container: ${{ matrix.container }}
     outputs:
       artifact_path: ${{ steps.upload-artifact.outputs.artifact_path }}
@@ -106,6 +111,17 @@ jobs:
             lld \
             ca-certificates
 
+      - name: Install chafa (Ubuntu)
+        if: runner.os == 'Linux' && !matrix.libload
+        run: |
+          apt-get install -y libchafa-dev libglib2.0-dev
+
+      - name: Install chafa (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install chafa pkg-config
+          echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig:$(brew --prefix)/share/pkgconfig" >> $GITHUB_ENV
+
       - name: Set up Rust
         uses: actions-rs/toolchain@v1
         with:
@@ -120,15 +136,15 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ matrix.artifact_name }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ matrix.artifact_name }}-cargo-
 
       - name: Build locked release
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --locked
+          args: --release --locked ${{ matrix.libload && '--no-default-features --features chafa-libload' || '' }}
 
       - name: Test binary works (macOS)
         if: runner.os == 'macOS'
@@ -149,21 +165,21 @@ jobs:
           path: ./target/release/mdfried
 
       - name: Install cargo-deb
-        if: matrix.build_deb
+        if: matrix.libload
         uses: actions-rs/cargo@v1
         with:
           command: install
           args: cargo-deb
 
       - name: Build .deb package
-        if: matrix.build_deb
+        if: matrix.libload
         uses: actions-rs/cargo@v1
         with:
           command: deb
           args: --no-build
 
       - name: Upload .deb artifact
-        if: matrix.build_deb
+        if: matrix.libload
         uses: actions/upload-artifact@v4
         with:
           name: mdfried-deb

@@ -21,8 +21,9 @@ rust-version = "1.86.0"
 
 [features]
 default = ["chafa-dyn"]
-chafa-dyn = ["ratatui-image/chafa-dyn"]
-chafa-static = ["ratatui-image/chafa-static"]
+chafa-dyn = ["ratatui-image/chafa-dyn", "ratatui-image/crossterm"] # for distribution
+chafa-static = ["ratatui-image/chafa-static", "ratatui-image/crossterm"] # for building a static binary with musl
+chafa-libload = ["ratatui-image/chafa-libload", "ratatui-image/crossterm"] # for legacy distros without chafa, avoid
 
 [dependencies]
 itertools = "0.14.0"
@@ -32,7 +33,7 @@ cosmic-text = "0.14.2"
 image = "0.25.2"
 ratatui = { version = "^0.30.0-beta.0", features = ["serde"] }
 ratskin = "0.3.0"
-ratatui-image = { version = "9.0.0-beta.2", features = ["serde"] }
+ratatui-image = { version = "9.0.0-beta.4", features = ["serde"] }
 regex = "1.11.1"
 unicode-width = "0.2.2"
 serde = { version = "^1.0", features = ["derive"] }
