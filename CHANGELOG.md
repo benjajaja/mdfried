@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.17.3] - 2025-12-22
+
 ### Fixed
 - Chafa linking split into three features
   - `chafa-dyn` (default) normal dynamic linking.
