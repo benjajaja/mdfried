@@ -1774,16 +1774,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "libloading"
-version = "0.8.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
-dependencies = [
- "cfg-if",
- "windows-link 0.2.1",
-]
-
-[[package]]
 name = "libm"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2534,14 +2524,13 @@ dependencies = [
 
 [[package]]
 name = "ratatui-image"
-version = "9.0.0-beta.2"
+version = "9.0.0-beta.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34911ff3f5e1ae93952279636655f555e44798218870b80c003e254d715d7281"
+checksum = "543fe862b07eb2dbcb6519e9351ca9f2586adefcec25c142c32e183965c8a2fd"
 dependencies = [
  "base64-simd",
  "icy_sixel",
  "image",
- "libloading",
  "pkg-config",
  "rand",
  "ratatui",

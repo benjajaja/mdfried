@@ -53,8 +53,15 @@
           inherit src;
           strictDeps = true;
 
+          nativeBuildInputs = [
+            pkgs.pkg-config
+          ];
+
           buildInputs = lib.optionals pkgs.stdenv.isDarwin [
             pkgs.libiconv
+          ] ++ lib.optionals pkgs.stdenv.isLinux [
+            pkgs.chafa
+            pkgs.glib
           ];
         };
 
@@ -160,6 +167,7 @@
           inherit src;
           strictDeps = true;
           doCheck = false;
+          cargoExtraArgs = "--no-default-features";
         };
 
         # LLVM coverage toolchain

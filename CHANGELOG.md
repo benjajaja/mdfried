@@ -2,11 +2,9 @@
 
 ## [Unreleased]
 
-## [0.17.2] - 2025-12-22
-
 ### Fixed
 - Chafa features and dynamic linking
-  End users that compile from source or `cargo install` can opt to use `chafa-libload`.
+  End users that compile from source or `cargo install` can opt-out of the default feature of dynamically linking to libchafa.
   For distribution, libchafa (with dev headers at build time) should be a dependency.
 
 ## [0.17.1] - 2025-12-21
