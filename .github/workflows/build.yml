@@ -75,23 +75,22 @@ jobs:
     strategy:
       matrix:
         include:
-          # Ubuntu 20.04: chafa-libload for .deb compatibility (old glibc)
           - os: ubuntu-latest
-            container: ubuntu:20.04
-            artifact_name: mdfried-libload-ubuntu-20.04
-            libload: true
+            container: ubuntu:22.04 # chafa 1.18.0, glibc 2.35
+            artifact_name: mdfried-ubuntu-22.04
+            deb: true
           - os: ubuntu-latest
-            container: ubuntu:24.04
+            container: ubuntu:24.04 # chafa 1.14.0, glibc 2.39
             artifact_name: mdfried-ubuntu-24.04
-            libload: false
+            deb: null
           - os: macos-15-intel
             container: null
             artifact_name: mdfried_macos_x86_64
-            libload: false
+            deb: null
           - os: macos-latest
             container: null
             artifact_name: mdfried_macos_aarch64
-            libload: false
+            deb: null
     container: ${{ matrix.container }}
     outputs:
       artifact_path: ${{ steps.upload-artifact.outputs.artifact_path }}
@@ -109,14 +108,11 @@ jobs:
             git \
             clang \
             lld \
-            ca-certificates
+            ca-certificates \
+            libchafa-dev \
+            libglib2.0-dev
 
-      - name: Install chafa (Ubuntu)
-        if: runner.os == 'Linux' && !matrix.libload
-        run: |
-          apt-get install -y libchafa-dev libglib2.0-dev
-
-      - name: Install chafa (macOS)
+      - name: Install dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
           brew install chafa pkg-config
@@ -144,7 +140,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --locked ${{ matrix.libload && '--no-default-features --features chafa-libload' || '' }}
+          args: --release --locked
 
       - name: Test binary works (macOS)
         if: runner.os == 'macOS'
@@ -165,21 +161,21 @@ jobs:
           path: ./target/release/mdfried
 
       - name: Install cargo-deb
-        if: matrix.libload
+        if: matrix.deb
         uses: actions-rs/cargo@v1
         with:
           command: install
           args: cargo-deb
 
       - name: Build .deb package
-        if: matrix.libload
+        if: matrix.deb
         uses: actions-rs/cargo@v1
         with:
           command: deb
           args: --no-build
 
       - name: Upload .deb artifact
-        if: matrix.libload
+        if: matrix.deb
         uses: actions/upload-artifact@v4
         with:
           name: mdfried-deb
