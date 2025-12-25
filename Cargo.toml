@@ -25,7 +25,6 @@ color-eyre = "0.6.5"
 clap = { version = "4.5.21", features = ["cargo", "derive"] }
 confy = "0.6.1"
 cosmic-text = "0.14.2"
-futures = "0.3.28"
 image = "0.25.2"
 itertools = "0.14.0"
 libc = { version = "0.2", default-features = false }
