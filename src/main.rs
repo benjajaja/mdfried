@@ -703,7 +703,7 @@ mod tests {
         let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
         let (event_tx, event_rx) = mpsc::channel::<Event>();
 
-        let picker = Picker::from_fontsize((1, 2));
+        let picker = Picker::halfblocks();
         assert_eq!(picker.protocol_type(), ProtocolType::Halfblocks);
         let worker = worker_thread(
             None,
