@@ -1861,7 +1861,6 @@ dependencies = [
  "reqwest",
  "serde",
  "tokio",
- "tokio-util",
  "unicode-width 0.2.2",
 ]
 
@@ -2557,7 +2556,6 @@ name = "ratskin"
 version = "0.3.0"
 dependencies = [
  "ratatui",
- "regex",
  "termimad",
 ]
 
