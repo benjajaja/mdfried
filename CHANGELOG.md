@@ -4,6 +4,9 @@
 
 ## [0.17.4] - 2025-12-25
 
+### Fixed
+- When entering search (both Link and slash), jump to the first match with the current scroll offset
+
 ## [0.17.3] - 2025-12-22
 
 ### Fixed
