@@ -192,34 +192,41 @@ impl WidgetSources {
         first
     }
 
-    pub fn find_next_cursor<'b, Iter: DoubleEndedIterator<Item = &'b WidgetSource>>(
+    pub fn find_next_cursor<'b, Iter>(
         iter: Iter,
         current: &CursorPointer,
         mode: FindMode,
         target: FindTarget,
-    ) -> Option<CursorPointer> {
-        let iter = WidgetSources::flatten_sources(iter, &mode, &target);
-
-        let mut found = false;
-        let mut first = None;
-        for pointer in iter {
-            if pointer == *current {
-                found = true;
-            } else if found {
-                return Some(pointer);
-            } else if first.is_none() {
-                first = Some(pointer.clone())
-            }
+        steps: i16,
+    ) -> Option<CursorPointer>
+    where
+        Iter: DoubleEndedIterator<Item = &'b WidgetSource> + Clone,
+    {
+        let mut iter = WidgetSources::flatten_sources(iter, &mode, &target);
+        let mut iter2 = iter.clone();
+        let Some(curr_pos) = iter2.position(|x| x == *current) else {
+            // TODO: This probably won't happen after #52 and #53 are fixed
+            return iter.next();
+        };
+        let total = curr_pos + 1 + iter2.count();
+        let index = (curr_pos + steps as usize) % total;
+        if index == curr_pos {
+            return Some(current.clone());
         }
-        first
+        iter.nth(index)
     }
 
-    #[expect(single_use_lifetimes)] // error[E0658]: anonymous lifetimes in `impl Trait` are unstable
-    fn flatten_sources<'a>(
-        iter: impl DoubleEndedIterator<Item = &'a WidgetSource>,
+    fn flatten_sources<'a, Iter>(
+        iter: Iter,
         mode: &FindMode,
         target: &FindTarget,
-    ) -> Either<impl Iterator<Item = CursorPointer>, impl Iterator<Item = CursorPointer>> {
+    ) -> Either<
+        impl Iterator<Item = CursorPointer> + Clone,
+        impl Iterator<Item = CursorPointer> + Clone,
+    >
+    where
+        Iter: DoubleEndedIterator<Item = &'a WidgetSource> + Clone,
+    {
         match mode {
             FindMode::Next => Either::Left(iter.flat_map(move |source| {
                 WidgetSources::line_extras_to_cursor_pointers(source, mode, target)
@@ -235,8 +242,11 @@ impl WidgetSources {
         mode: &FindMode,
         target: &FindTarget,
     ) -> Either<
-        Either<impl Iterator<Item = CursorPointer>, impl Iterator<Item = CursorPointer>>,
-        impl Iterator<Item = CursorPointer>,
+        Either<
+            impl Iterator<Item = CursorPointer> + Clone,
+            impl Iterator<Item = CursorPointer> + Clone,
+        >,
+        impl Iterator<Item = CursorPointer> + Clone,
     > {
         match mode {
             FindMode::Next => {
@@ -302,7 +312,7 @@ impl DerefMut for WidgetSources {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum FindMode {
     Prev,
     Next,

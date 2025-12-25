@@ -407,8 +407,11 @@ fn run(
                                     let needle = mode.needle.clone();
                                     model.add_searches(Some(needle));
                                 }
-                                KeyCode::Esc => {
+                                KeyCode::Esc if model.movement_count == 0 => {
                                     model.cursor = Cursor::None;
+                                }
+                                KeyCode::Esc => {
+                                    model.movement_count = 0;
                                 }
                                 KeyCode::Enter => {
                                     mode.accepted = true;
@@ -447,16 +450,18 @@ fn run(
                                     KeyCode::Char('b') | KeyCode::PageUp => {
                                         model.scroll_by(-page_scroll_count);
                                     }
-                                    KeyCode::Char('g') => {
-                                        model.scroll = 0;
-                                    }
-                                    KeyCode::Char('G') => {
+                                    KeyCode::Char('G') if model.movement_count == 0 => {
                                         model.scroll = model.total_lines().saturating_sub(
                                             page_scroll_count as u16 + 1, // Why +1?
                                         );
                                     }
+                                    KeyCode::Char('g' | 'G') => {
+                                        model.scroll = model.movement_count.max(1) as u16 - 1;
+                                        model.movement_count = 0;
+                                    }
                                     KeyCode::Char('/') => {
                                         model.cursor = Cursor::Search(SearchState::default(), None);
+                                        model.movement_count = 0;
                                     }
                                     KeyCode::Char('n') => {
                                         model.cursor_next();
@@ -498,7 +503,7 @@ fn run(
                                             }
                                         }
                                     }
-                                    KeyCode::Esc => {
+                                    KeyCode::Esc if model.movement_count == 0 => {
                                         if let Cursor::Search(SearchState { accepted, .. }, _) =
                                             model.cursor
                                             && accepted
@@ -507,6 +512,19 @@ fn run(
                                         } else if let Cursor::Links(_) = model.cursor {
                                             model.cursor = Cursor::None;
                                         }
+                                    }
+                                    KeyCode::Esc => {
+                                        model.movement_count = 0;
+                                    }
+                                    KeyCode::Backspace => {
+                                        model.movement_count /= 10;
+                                    }
+                                    KeyCode::Char(x) if x.is_ascii_digit() => {
+                                        let x = x as i16 - '0' as i16;
+                                        model.movement_count = model
+                                            .movement_count
+                                            .saturating_mul(10)
+                                            .saturating_add(x);
                                     }
                                     _ => {}
                                 }
@@ -647,6 +665,18 @@ fn view(model: &Model, frame: &mut Frame) {
     }
 
     match &model.cursor {
+        _ if model.movement_count > 0 => {
+            let mut line = Line::default();
+            let mut span = Span::from(model.movement_count.to_string()).fg(Color::Indexed(250));
+            if model.movement_count == i16::MAX {
+                span = span.fg(Color::Indexed(167));
+            }
+            line.spans.push(span);
+            let width = line.width() as u16;
+            let searchbar = Paragraph::new(line);
+            frame.render_widget(searchbar, Rect::new(0, frame_area.height - 1, width, 1));
+            frame.set_cursor_position((width, frame_area.height - 1));
+        }
         Cursor::None => {
             frame.set_cursor_position((0, frame_area.height - 1));
         }

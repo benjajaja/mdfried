@@ -31,6 +31,7 @@ pub struct Model {
     pub bg: Option<BgColor>,
     sources: WidgetSources,
     pub scroll: u16,
+    pub movement_count: i16,
     pub cursor: Cursor,
     pub log_snapshot: Option<flexi_logger::Snapshot>,
     original_file_path: Option<PathBuf>,
@@ -58,6 +59,7 @@ impl Model {
             screen_size,
             config,
             scroll: 0,
+            movement_count: 0,
             cursor: Cursor::default(),
             sources: WidgetSources::default(),
             cmd_tx,
@@ -276,6 +278,8 @@ impl Model {
     }
 
     pub fn scroll_by(&mut self, lines: i16) {
+        let lines = lines.saturating_mul(self.movement_count.max(1));
+        self.movement_count = 0;
         self.scroll = min(
             self.scroll.saturating_add_signed(lines),
             self.total_lines()
@@ -297,48 +301,14 @@ impl Model {
     }
 
     pub fn cursor_next(&mut self) {
-        match &mut self.cursor {
-            Cursor::None => {
-                if let Some(pointer) = WidgetSources::find_first_cursor(
-                    self.sources.iter(),
-                    FindTarget::Link,
-                    self.scroll,
-                ) {
-                    self.cursor = Cursor::Links(pointer);
-                }
-            }
-            Cursor::Links(current) => {
-                if let Some(pointer) = WidgetSources::find_next_cursor(
-                    self.sources.iter(),
-                    current,
-                    FindMode::Next,
-                    FindTarget::Link,
-                ) {
-                    self.cursor = Cursor::Links(pointer);
-                }
-            }
-            Cursor::Search(_, pointer) => match pointer {
-                None => {
-                    *pointer = WidgetSources::find_first_cursor(
-                        self.sources.iter(),
-                        FindTarget::Search,
-                        self.scroll,
-                    );
-                }
-                Some(current) => {
-                    *pointer = WidgetSources::find_next_cursor(
-                        self.sources.iter(),
-                        current,
-                        FindMode::Next,
-                        FindTarget::Search,
-                    );
-                }
-            },
-        }
-        self.jump_to_pointer();
+        self.cursor_find(FindMode::Next)
     }
 
     pub fn cursor_prev(&mut self) {
+        self.cursor_find(FindMode::Prev)
+    }
+
+    fn cursor_find(&mut self, mode: FindMode) {
         match &mut self.cursor {
             Cursor::None => {
                 if let Some(pointer) = WidgetSources::find_first_cursor(
@@ -347,17 +317,21 @@ impl Model {
                     self.scroll,
                 ) {
                     self.cursor = Cursor::Links(pointer);
+                } else {
+                    self.movement_count = 0;
                 }
             }
             Cursor::Links(current) => {
                 if let Some(pointer) = WidgetSources::find_next_cursor(
                     self.sources.iter(),
                     current,
-                    FindMode::Prev,
+                    mode,
                     FindTarget::Link,
+                    self.movement_count.max(1),
                 ) {
                     self.cursor = Cursor::Links(pointer);
                 }
+                self.movement_count = 0;
             }
             Cursor::Search(_, pointer) => match pointer {
                 None => {
@@ -365,17 +339,26 @@ impl Model {
                         self.sources.iter(),
                         FindTarget::Search,
                         self.scroll,
-                    )
+                    );
+                    if pointer.is_none() {
+                        self.movement_count = 0;
+                    }
                 }
                 Some(current) => {
                     *pointer = WidgetSources::find_next_cursor(
                         self.sources.iter(),
                         current,
-                        FindMode::Prev,
+                        mode,
                         FindTarget::Search,
-                    )
+                        self.movement_count.max(1),
+                    );
+                    self.movement_count = 0;
                 }
             },
+        }
+        if self.movement_count > 1 {
+            self.movement_count -= 1;
+            return self.cursor_find(mode);
         }
         self.jump_to_pointer();
     }
@@ -472,6 +455,7 @@ mod tests {
             screen_size: (80, 20).into(),
             config: UserConfig::default().into(),
             scroll: 0,
+            movement_count: 0,
             cursor: Cursor::default(),
             sources: WidgetSources::default(),
             cmd_tx,
@@ -739,5 +723,37 @@ mod tests {
             panic!("expected Link");
         };
         assert_eq!("http://a.com", url);
+    }
+
+    #[test]
+    fn finds_links_with_count() {
+        let mut model = test_model();
+        for i in 1..10 {
+            let link = format!("http://{}.com", i);
+            model.sources.push(WidgetSource {
+                id: i,
+                height: 1,
+                data: WidgetSourceData::Line(
+                    Line::from(link.clone()),
+                    vec![LineExtra::Link(link, 0, 11)],
+                ),
+            });
+        }
+
+        model.movement_count = 3;
+        model.cursor_next();
+        assert_cursor_link(&model, "http://3.com");
+
+        model.movement_count = 2;
+        model.cursor_prev();
+        assert_cursor_link(&model, "http://1.com");
+
+        model.movement_count = 1;
+        model.cursor_prev();
+        assert_cursor_link(&model, "http://9.com");
+
+        model.movement_count = 4;
+        model.cursor_next();
+        assert_cursor_link(&model, "http://4.com");
     }
 }
