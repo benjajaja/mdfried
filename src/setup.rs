@@ -66,7 +66,7 @@ pub fn setup_graphics(
     debug_override_protocol_type: Option<ProtocolType>,
 ) -> Result<SetupResult, Error> {
     let mut picker = if no_cap_checks {
-        Picker::from_fontsize((8, 16))
+        Picker::halfblocks()
     } else {
         print!("Detecting supported graphics protocols...");
         let picker = Picker::from_query_stdio_with_options(QueryStdioOptions {

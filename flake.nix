@@ -127,8 +127,6 @@
           };
 
         # Windows cross-compilation (only on Linux)
-        # Uses chafa-libload which falls back to primitive halfblocks at runtime
-        # (cross-compiling chafa and all its dependencies for Windows is a nightmare)
         mdfriedWindows =
           let
             pkgsWindows = import nixpkgs {

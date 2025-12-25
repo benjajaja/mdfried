@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Removed
+- `chafa-libload` feature, has been removed from ratatui-image. Simply use halfblocks directly.
+
 ## [0.17.4] - 2025-12-25
 
 ### Fixed

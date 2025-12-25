@@ -18,7 +18,6 @@ rust-version = "1.86.0"
 default = ["chafa-dyn"]
 chafa-dyn = ["ratatui-image/chafa-dyn"] # for distribution
 chafa-static = ["ratatui-image/chafa-static"] # for building a static binary with musl
-chafa-libload = ["ratatui-image/chafa-libload"] # for legacy distros without chafa, avoid
 
 [dependencies]
 color-eyre = "0.6.5"
@@ -33,7 +32,7 @@ notify = "8.1.0"
 notify-debouncer-mini = "0.6.0"
 ratatui = { version = "^0.30.0-beta.0", features = ["serde"] }
 ratskin = "0.3.0"
-ratatui-image = { version = "9.0.0-beta.6", features = ["serde"] }
+ratatui-image = { version = "10.0.0-beta.0", features = ["serde"] }
 regex = "1.11.1"
 reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"] }
 unicode-width = "0.2.2"
