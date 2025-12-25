@@ -15,6 +15,7 @@ use std::{
     fmt::Display,
     fs::{self, File},
     io::{self, Read as _},
+    num::{NonZero, NonZeroU16},
     path::{Path, PathBuf},
     sync::mpsc::{self},
     time::Duration,
@@ -377,7 +378,7 @@ fn run(
     let mut screen_size = terminal.size()?;
 
     loop {
-        let page_scroll_count = model.inner_height(screen_size.height) as i16 - 2;
+        let page_scroll_count = model.inner_height(screen_size.height) as i32 - 2;
 
         let (had_events, _) = model.process_events(screen_size.width)?;
 
@@ -393,22 +394,29 @@ fn run(
                     if key.kind == KeyEventKind::Press {
                         match model.cursor {
                             Cursor::Search(ref mut mode, _) if !mode.accepted => match key.code {
-                                KeyCode::Char('/') if mode.accepted => {
-                                    *mode = SearchState::default();
-                                    model.add_searches(None);
-                                }
                                 KeyCode::Char(c) => {
-                                    mode.needle.push(c);
-                                    let needle = mode.needle.clone();
-                                    model.add_searches(Some(needle));
+                                    let mut needle = std::mem::take(&mut mode.needle);
+                                    needle.push(c);
+                                    model.add_searches(Some(&needle));
+                                    let Cursor::Search(mode, _) = &mut model.cursor else {
+                                        unreachable!("model.add_searches should not modify cursor");
+                                    };
+                                    mode.needle = needle;
                                 }
                                 KeyCode::Backspace => {
-                                    mode.needle.pop();
-                                    let needle = mode.needle.clone();
-                                    model.add_searches(Some(needle));
+                                    let mut needle = std::mem::take(&mut mode.needle);
+                                    needle.pop();
+                                    model.add_searches(Some(&needle));
+                                    let Cursor::Search(mode, _) = &mut model.cursor else {
+                                        unreachable!("model.add_searches should not modify cursor");
+                                    };
+                                    mode.needle = needle;
+                                }
+                                KeyCode::Esc if model.movement_count.is_none() => {
+                                    model.cursor = Cursor::None;
                                 }
                                 KeyCode::Esc => {
-                                    model.cursor = Cursor::None;
+                                    model.movement_count = None;
                                 }
                                 KeyCode::Enter => {
                                     mode.accepted = true;
@@ -447,13 +455,15 @@ fn run(
                                     KeyCode::Char('b') | KeyCode::PageUp => {
                                         model.scroll_by(-page_scroll_count);
                                     }
-                                    KeyCode::Char('g') => {
-                                        model.scroll = 0;
-                                    }
-                                    KeyCode::Char('G') => {
+                                    KeyCode::Char('G') if model.movement_count.is_none() => {
                                         model.scroll = model.total_lines().saturating_sub(
                                             page_scroll_count as u16 + 1, // Why +1?
                                         );
+                                    }
+                                    KeyCode::Char('g' | 'G') => {
+                                        model.scroll =
+                                            model.movement_count.take().map_or(1, NonZero::get);
+                                        model.scroll_by(0);
                                     }
                                     KeyCode::Char('/') => {
                                         model.cursor = Cursor::Search(SearchState::default(), None);
@@ -498,7 +508,7 @@ fn run(
                                             }
                                         }
                                     }
-                                    KeyCode::Esc => {
+                                    KeyCode::Esc if model.movement_count.is_none() => {
                                         if let Cursor::Search(SearchState { accepted, .. }, _) =
                                             model.cursor
                                             && accepted
@@ -507,6 +517,27 @@ fn run(
                                         } else if let Cursor::Links(_) = model.cursor {
                                             model.cursor = Cursor::None;
                                         }
+                                    }
+                                    KeyCode::Esc => {
+                                        model.movement_count = None;
+                                    }
+                                    KeyCode::Backspace => {
+                                        model.movement_count = model
+                                            .movement_count
+                                            .and_then(|x| NonZeroU16::new(x.get() / 10));
+                                    }
+                                    KeyCode::Char(x) if x.is_ascii_digit() => {
+                                        let x = x as u16 - '0' as u16;
+                                        model.movement_count = model
+                                            .movement_count
+                                            .map(|value| {
+                                                value
+                                                    .saturating_mul(
+                                                        NonZero::new(10).expect("10 != 0"),
+                                                    )
+                                                    .saturating_add(x)
+                                            })
+                                            .or(NonZero::new(x));
                                     }
                                     _ => {}
                                 }
@@ -646,11 +677,11 @@ fn view(model: &Model, frame: &mut Frame) {
         }
     }
 
-    match &model.cursor {
-        Cursor::None => {
+    match (&model.cursor, model.movement_count) {
+        (Cursor::None, None) => {
             frame.set_cursor_position((0, frame_area.height - 1));
         }
-        Cursor::Links(_) => {
+        (Cursor::Links(_), None) => {
             let mut line = Line::default();
             line.spans.push(Span::from("Links").fg(Color::Indexed(32)));
             let width = line.width() as u16;
@@ -660,7 +691,16 @@ fn view(model: &Model, frame: &mut Frame) {
                 frame.set_cursor_position((0, frame_area.height - 1));
             }
         }
-        Cursor::Search(mode, _) => {
+        (Cursor::Search(mode, _), None)
+        | (
+            Cursor::Search(
+                mode @ SearchState {
+                    accepted: false, ..
+                },
+                _,
+            ),
+            _,
+        ) => {
             let mut line = Line::default();
             line.spans.push(Span::from("/").fg(Color::Indexed(148)));
             let mut needle = Span::from(mode.needle.clone());
@@ -676,6 +716,19 @@ fn view(model: &Model, frame: &mut Frame) {
             } else if cursor_positioned.is_none() {
                 frame.set_cursor_position((0, frame_area.height - 1));
             }
+        }
+        (_, Some(movement_count)) => {
+            let movement_count = movement_count.get();
+            let mut line = Line::default();
+            let mut span = Span::from(movement_count.to_string()).fg(Color::Indexed(250));
+            if movement_count == u16::MAX {
+                span = span.fg(Color::Indexed(167));
+            }
+            line.spans.push(span);
+            let width = line.width() as u16;
+            let searchbar = Paragraph::new(line);
+            frame.render_widget(searchbar, Rect::new(0, frame_area.height - 1, width, 1));
+            frame.set_cursor_position((width, frame_area.height - 1));
         }
     }
 }
