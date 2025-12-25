@@ -533,6 +533,50 @@ mod tests {
     }
 
     #[test]
+    fn finds_link_with_scroll() {
+        let mut model = test_model();
+        for i in 1..5 {
+            let link = format!("http://{}.com", i);
+            model.sources.push(WidgetSource {
+                id: i,
+                height: 1,
+                data: WidgetSourceData::Line(
+                    Line::from(link.clone()),
+                    vec![LineExtra::Link(link, 0, 11)],
+                ),
+            });
+        }
+
+        model.scroll = 2;
+        model.cursor_next();
+        assert_cursor_link(&model, "http://3.com");
+    }
+
+    #[test]
+    fn finds_link_with_scroll_wrapping() {
+        let mut model = test_model();
+        model.sources.push(WidgetSource {
+            id: 1,
+            height: 1,
+            data: WidgetSourceData::Line(
+                Line::from("http://a.com"),
+                vec![LineExtra::Link("http://a.com".into(), 0, 11)],
+            ),
+        });
+        for i in 2..5 {
+            model.sources.push(WidgetSource {
+                id: i,
+                height: 1,
+                data: WidgetSourceData::Line(Line::from("text"), vec![]),
+            });
+        }
+
+        model.scroll = 2;
+        model.cursor_next();
+        assert_cursor_link(&model, "http://a.com");
+    }
+
+    #[test]
     fn finds_multiple_links_per_line_next() {
         let mut model = test_model();
         model.sources.push(WidgetSource {
