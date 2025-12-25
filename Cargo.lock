@@ -1889,7 +1889,7 @@ dependencies = [
 
 [[package]]
 name = "mdfried"
-version = "0.17.3"
+version = "0.17.4"
 dependencies = [
  "clap",
  "color-eyre",
