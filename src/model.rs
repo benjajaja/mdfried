@@ -293,9 +293,11 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
     pub fn cursor_next(&mut self) {
         match &mut self.cursor {
             Cursor::None => {
-                if let Some(pointer) =
-                    WidgetSources::find_first_cursor(self.sources.iter(), FindTarget::Link)
-                {
+                if let Some(pointer) = WidgetSources::find_first_cursor(
+                    self.sources.iter(),
+                    FindTarget::Link,
+                    self.scroll,
+                ) {
                     self.cursor = Cursor::Links(pointer);
                 }
             }
@@ -311,8 +313,11 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
             }
             Cursor::Search(_, pointer) => match pointer {
                 None => {
-                    *pointer =
-                        WidgetSources::find_first_cursor(self.sources.iter(), FindTarget::Search);
+                    *pointer = WidgetSources::find_first_cursor(
+                        self.sources.iter(),
+                        FindTarget::Search,
+                        self.scroll,
+                    );
                 }
                 Some(current) => {
                     *pointer = WidgetSources::find_next_cursor(
@@ -330,9 +335,11 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
     pub fn cursor_prev(&mut self) {
         match &mut self.cursor {
             Cursor::None => {
-                if let Some(pointer) =
-                    WidgetSources::find_first_cursor(self.sources.iter(), FindTarget::Link)
-                {
+                if let Some(pointer) = WidgetSources::find_first_cursor(
+                    self.sources.iter(),
+                    FindTarget::Link,
+                    self.scroll,
+                ) {
                     self.cursor = Cursor::Links(pointer);
                 }
             }
@@ -348,8 +355,11 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
             }
             Cursor::Search(_, pointer) => match pointer {
                 None => {
-                    *pointer =
-                        WidgetSources::find_first_cursor(self.sources.iter(), FindTarget::Search)
+                    *pointer = WidgetSources::find_first_cursor(
+                        self.sources.iter(),
+                        FindTarget::Search,
+                        self.scroll,
+                    )
                 }
                 Some(current) => {
                     *pointer = WidgetSources::find_next_cursor(

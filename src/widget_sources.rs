@@ -160,20 +160,37 @@ impl<'a> WidgetSources<'a> {
     pub fn find_first_cursor<'b, Iter: Iterator<Item = &'b WidgetSource<'b>>>(
         iter: Iter,
         target: FindTarget,
+        scroll: u16,
     ) -> Option<CursorPointer> {
+        let locate = move |source: &WidgetSource| -> Option<CursorPointer> {
+            if let WidgetSourceData::Line(_, extras) = &source.data
+                && let Some(i) = extras.iter().position(|extra| target.matches(extra))
+            {
+                Some(CursorPointer {
+                    id: source.id,
+                    index: i,
+                })
+            } else {
+                None
+            }
+        };
+
+        let mut first = None;
+        let mut offset_acc = 0;
         for source in iter {
-            if let WidgetSourceData::Line(_, extras) = &source.data {
-                for (i, extra) in extras.iter().enumerate() {
-                    if target.matches(extra) {
-                        return Some(CursorPointer {
-                            id: source.id,
-                            index: i,
-                        });
-                    }
+            offset_acc += source.height;
+            if offset_acc < scroll + 1 {
+                if first.is_none() {
+                    first = locate(source);
                 }
+                continue;
+            }
+            match locate(source) {
+                None => {}
+                x => return x,
             }
         }
-        None
+        first
     }
 
     pub fn find_next_cursor<'b, Iter: DoubleEndedIterator<Item = &'b WidgetSource<'b>>>(
