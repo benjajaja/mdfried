@@ -94,37 +94,44 @@
                   ];
                 });
             glibMuslStatic = muslPkgs.glib;
+            staticArgs = {
+              inherit src;
+              strictDeps = true;
+              doCheck = false;
+              cargoExtraArgs = "--no-default-features --features chafa-static";
+              CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
+              CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static -C link-arg=-lgcc";
+              CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "${pkgs.pkgsCross.musl64.stdenv.cc}/bin/x86_64-unknown-linux-musl-cc";
+              nativeBuildInputs = with pkgs; [
+                pkgsCross.musl64.stdenv.cc
+                pkg-config
+                llvmPackages.libclang
+              ];
+              buildInputs = [
+                chafaMuslStatic
+                glibMuslStatic
+                muslPkgs.pcre2
+                muslPkgs.libffi
+                muslPkgs.zlib
+              ];
+              PKG_CONFIG_PATH = lib.makeSearchPath "lib/pkgconfig" [
+                chafaMuslStatic
+                glibMuslStatic
+                muslPkgs.pcre2
+                muslPkgs.libffi
+                muslPkgs.zlib
+              ];
+              LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+              BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.pkgsCross.musl64.musl.dev}/include";
+            };
+            cargoArtifactsStatic = craneLibMusl.buildDepsOnly staticArgs;
           in
-          craneLibMusl.buildPackage {
-            inherit src;
-            strictDeps = true;
-            doCheck = false;
-            cargoExtraArgs = "--no-default-features --features chafa-static";
-            CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
-            CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static -C link-arg=-lgcc";
-            CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "${pkgs.pkgsCross.musl64.stdenv.cc}/bin/x86_64-unknown-linux-musl-cc";
-            nativeBuildInputs = with pkgs; [
-              pkgsCross.musl64.stdenv.cc
-              pkg-config
-              llvmPackages.libclang
-            ];
-            buildInputs = [
-              chafaMuslStatic
-              glibMuslStatic
-              muslPkgs.pcre2
-              muslPkgs.libffi
-              muslPkgs.zlib
-            ];
-            PKG_CONFIG_PATH = lib.makeSearchPath "lib/pkgconfig" [
-              chafaMuslStatic
-              glibMuslStatic
-              muslPkgs.pcre2
-              muslPkgs.libffi
-              muslPkgs.zlib
-            ];
-            LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
-            BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.pkgsCross.musl64.musl.dev}/include";
-          };
+          craneLibMusl.buildPackage (
+            staticArgs
+            // {
+              cargoArtifacts = cargoArtifactsStatic;
+            }
+          );
 
         # Windows cross-compilation (only on Linux)
         mdfriedWindows =
