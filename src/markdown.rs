@@ -4,7 +4,10 @@ use ratatui::text::Line;
 use ratskin::RatSkin;
 use regex::Regex;
 
-use crate::{DocumentId, Event, WidgetSource, widget_sources::WidgetSourceData};
+use crate::{
+    DocumentId, Event, WidgetSource,
+    widget_sources::{BigText, WidgetSourceData},
+};
 
 // Crude "pre-parsing" of markdown by lines.
 // Headers are always on a line of their own.
@@ -113,9 +116,14 @@ pub fn parse<'a>(
             Block::Header(tier, text) => {
                 needs_space = false;
                 if has_text_size_protocol {
+                    let (n, d) = BigText::size_ratio(tier);
+                    let scaled_with = width / 2 * u16::from(d) / u16::from(n);
+
                     // Leverage ratskin/termimad's line-wrapping feature.
+                    // TODO: this is probably inefficient, find something else that simply
+                    // word-wraps.
                     let madtext = RatSkin::parse_text(&text);
-                    for line in skin.parse(madtext, width / 2) {
+                    for line in skin.parse(madtext, scaled_with) {
                         let text = line.to_string();
                         events.push(send_parsed(
                             document_id,
@@ -566,5 +574,83 @@ paragraph
             })
             .collect();
         assert_eq!(vec!["http://a.com", "http://b.com"], urls, "finds all URLs");
+    }
+
+    #[test]
+    fn parse_header_wrapping_tier_1() {
+        let events: Vec<Event> = parse(
+            "# 1234567890",
+            &RatSkin::default(),
+            DocumentId::default(),
+            10,
+            true,
+        )
+        .collect();
+        assert_eq!(2, events.len());
+
+        let Event::Parsed(
+            _,
+            WidgetSource {
+                data: WidgetSourceData::Header(text, tier),
+                ..
+            },
+        ) = &events[0]
+        else {
+            panic!("expected Header");
+        };
+        assert_eq!(1, *tier);
+        assert_eq!("12345", text);
+
+        let Event::Parsed(
+            _,
+            WidgetSource {
+                data: WidgetSourceData::Header(text, tier),
+                ..
+            },
+        ) = &events[1]
+        else {
+            panic!("expected Header");
+        };
+        assert_eq!(1, *tier);
+        assert_eq!("67890", text);
+    }
+
+    #[test]
+    fn parse_header_wrapping_tier_4() {
+        let events: Vec<Event> = parse(
+            "#### 1234567890",
+            &RatSkin::default(),
+            DocumentId::default(),
+            10,
+            true,
+        )
+        .collect();
+        assert_eq!(2, events.len());
+
+        let Event::Parsed(
+            _,
+            WidgetSource {
+                data: WidgetSourceData::Header(text, tier),
+                ..
+            },
+        ) = &events[0]
+        else {
+            panic!("expected Header");
+        };
+        assert_eq!(4, *tier);
+        assert_eq!("1234567", text);
+
+        let Event::Parsed(
+            _,
+            WidgetSource {
+                data: WidgetSourceData::Header(text, tier),
+                ..
+            },
+        ) = &events[1]
+        else {
+            panic!("expected Header");
+        };
+        assert_eq!(4, *tier);
+        assert_eq!("890", text);
     }
 }

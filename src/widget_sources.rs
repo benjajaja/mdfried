@@ -701,20 +701,25 @@ impl<'a> BigText<'a> {
         BigText { text, tier }
     }
 
-    #[expect(clippy::unwrap_used)]
     #[inline]
-    fn text_sizing_sequence(&self, area_width: u16) -> String {
-        let (n, d) = match self.tier {
+    pub fn size_ratio(tier: u8) -> (u8, u8) {
+        match tier {
             1 => (7, 7),
             2 => (5, 6),
             3 => (3, 4),
             4 => (2, 3),
             5 => (3, 5),
             _ => (1, 3),
-        };
+        }
+    }
+
+    #[expect(clippy::unwrap_used)]
+    #[inline]
+    fn text_sizing_sequence(&self, area_width: u16) -> String {
+        let (n, d) = BigText::size_ratio(self.tier);
 
         let chars: Vec<char> = self.text.chars().collect();
-        let chunk_count = chars.len().div_ceil(d);
+        let chunk_count = chars.len().div_ceil(d as usize);
         let width_digits = area_width.checked_ilog10().unwrap_or(0) as usize + 1;
         let capacity = 19 + 2 * width_digits + self.text.len() + chunk_count * 24;
         let mut symbol = String::with_capacity(capacity);
@@ -728,7 +733,7 @@ impl<'a> BigText<'a> {
         write!(symbol, "\x1b[{}X\x1B[?7l", area_width).expect("write to string");
         write!(symbol, "\x1b[1A").expect("write to string");
 
-        for chunk in chars.chunks(d) {
+        for chunk in chars.chunks(d as usize) {
             write!(symbol, "\x1b]66;s=2:n={n}:d={d}:w={n};").unwrap();
             symbol.extend(chunk);
             write!(symbol, "\x1b\\").unwrap(); // Could also use BEL, but this seems safer.
