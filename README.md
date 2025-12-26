@@ -7,6 +7,8 @@ rest.
 
 ![Screenshot](./assets/screenshot_1.png)
 
+[Latest test screenshot array from `master`](https://benjajaja.github.io/mdfried-screenshots/)
+
 ## Video
 
 https://github.com/user-attachments/assets/e69154a7-bea8-4e14-a677-be7ccf0d3cac
