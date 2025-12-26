@@ -168,6 +168,14 @@
             extensions = [ "llvm-tools" ];
           }
         );
+
+        # Screenshot tests (only on Linux)
+        screenshotTests = if pkgs.stdenv.isLinux then
+          import ./screenshot-tests.nix {
+            inherit pkgs src;
+            mdfriedStatic = mdfriedStatic;
+          }
+        else {};
       in
       {
         checks = {
@@ -214,7 +222,8 @@
               inherit cargoArtifacts;
             }
           );
-        };
+        }
+        // screenshotTests;
 
         apps.default = flake-utils.lib.mkApp {
           drv = mdfried;

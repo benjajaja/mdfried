@@ -1,0 +1,289 @@
+name: screenshots
+
+on:
+  workflow_run:
+    workflows: ["Test and Build"]
+    types: [completed]
+
+jobs:
+  deploy-screenshots-branch:
+    name: Deploy screenshots branch
+    runs-on: ubuntu-latest
+    # Only for PRs, and only if CI succeeded
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read  # Needed to download artifacts from another workflow
+    steps:
+      - name: Download all screenshot artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: screenshot-*
+          path: screenshots
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Get terminal list from artifacts
+        id: terminals
+        run: |
+          # List downloaded artifact directories and extract terminal names
+          terminal_list=$(ls screenshots | sed 's/screenshot-//' | tr '\n' ' ')
+          echo "list=$terminal_list" >> $GITHUB_OUTPUT
+
+      - name: Check for terminal changes
+        id: terminal-changes
+        run: |
+          # Get terminals from master (reference screenshots)
+          master_terminals=$(curl -s "https://api.github.com/repos/benjajaja/mdfried-screenshots/contents/images?ref=gh-pages" | jq -r '.[].name' | grep '^screenshot-' | sed 's/screenshot-//;s/\.png//' | sort) || true
+
+          # Get terminals from PR
+          pr_terminals=$(echo "${{ steps.terminals.outputs.list }}" | tr ' ' '\n' | grep -v '^$' | sort)
+
+          # Find missing terminals (in master but not in PR)
+          missing=$(comm -23 <(echo "$master_terminals") <(echo "$pr_terminals") | tr '\n' ' ')
+
+          # Find added terminals (in PR but not in master)
+          added=$(comm -13 <(echo "$master_terminals") <(echo "$pr_terminals") | tr '\n' ' ')
+
+          if [ -n "$missing" ] && [ "$missing" != " " ]; then
+            echo "::warning::Missing terminals compared to master: $missing"
+            echo "missing=$missing" >> $GITHUB_OUTPUT
+          fi
+
+          if [ -n "$added" ] && [ "$added" != " " ]; then
+            echo "::notice::New terminals added: $added"
+            echo "added=$added" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download dify binary
+        run: |
+          curl -L https://github.com/jihchi/dify/releases/download/v0.7.4/dify-x86_64-unknown-linux-gnu-v0.7.4.tar.gz -o dify.tar.gz
+          tar -xzf dify.tar.gz
+          chmod +x dify
+
+      - name: Download reference screenshots from master
+        run: |
+          mkdir -p reference-screenshots
+
+          # Base URL for master branch screenshots
+          BASE_URL="https://raw.githubusercontent.com/benjajaja/mdfried-screenshots/gh-pages/images"
+
+          terminal_list="${{ steps.terminals.outputs.list }}"
+
+          for terminal in $terminal_list; do
+            echo "Downloading reference screenshot for ${terminal}..."
+            curl -f -L "${BASE_URL}/screenshot-${terminal}.png" -o "reference-screenshots/screenshot-${terminal}.png" || echo "No reference screenshot found for ${terminal}"
+          done
+
+      - name: Create image diffs
+        run: |
+          mkdir -p diffs
+
+          terminal_list="${{ steps.terminals.outputs.list }}"
+
+          for terminal in $terminal_list; do
+            if [ -f "screenshots/screenshot-${terminal}/screenshot-${terminal}.png" ] && [ -f "reference-screenshots/screenshot-${terminal}.png" ]; then
+              echo "Creating diff for ${terminal}..."
+
+              # Run dify and capture exit code (which indicates amount of difference)
+              set +e  # Disable exit on error temporarily
+              ./dify "reference-screenshots/screenshot-${terminal}.png" "screenshots/screenshot-${terminal}/screenshot-${terminal}.png"
+              diff_amount=$?
+              set -e  # Re-enable exit on error
+              echo "Difference amount for ${terminal}: ${diff_amount}"
+
+              # Check if diff.png was created and move it
+              if [ -f "diff.png" ]; then
+                mv diff.png "diffs/diff-${terminal}.png"
+                echo "Created diff for ${terminal}"
+              else
+                echo "No diff.png file created for ${terminal}"
+              fi
+            else
+              echo "Missing screenshot files for ${terminal}, skipping diff"
+              if [ ! -f "screenshots/screenshot-${terminal}/screenshot-${terminal}.png" ]; then
+                echo "  Missing current screenshot"
+              fi
+              if [ ! -f "reference-screenshots/screenshot-${terminal}.png" ]; then
+                echo "  Missing reference screenshot"
+              fi
+            fi
+          done
+
+      - name: Organize screenshots for deployment
+        run: |
+          mkdir -p pages
+
+          # Copy screenshots to pages directory
+          terminal_list="${{ steps.terminals.outputs.list }}"
+
+          for terminal in $terminal_list; do
+            if [ -f "screenshots/screenshot-${terminal}/screenshot-${terminal}.png" ]; then
+              cp "screenshots/screenshot-${terminal}/screenshot-${terminal}.png" "pages/screenshot-${terminal}.png"
+              echo "Copied screenshot for ${terminal}"
+            fi
+          done
+
+          # Copy diff images to pages directory
+          for terminal in $terminal_list; do
+            if [ -f "diffs/diff-${terminal}.png" ]; then
+              cp "diffs/diff-${terminal}.png" "pages/diff-${terminal}.png"
+              echo "Copied diff for ${terminal}"
+            fi
+          done
+
+      - name: Get PR number
+        id: pr
+        run: |
+          # Get PR number from the workflow run
+          PR_NUMBER=$(gh api /repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }} --jq '.pull_requests[0].number')
+          echo "number=$PR_NUMBER" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Deploy to external repo
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          personal_token: ${{ secrets.SCREENSHOTS_PAT }}
+          external_repository: benjajaja/mdfried-screenshots
+          publish_dir: ./pages
+          publish_branch: pr-${{ steps.pr.outputs.number }}
+          force_orphan: true
+
+      - name: Create combined comment
+        run: |
+          terminal_list="${{ steps.terminals.outputs.list }}"
+          missing_terminals="${{ steps.terminal-changes.outputs.missing }}"
+          added_terminals="${{ steps.terminal-changes.outputs.added }}"
+
+          # Base URL for raw GitHub content
+          BASE_URL="https://raw.githubusercontent.com/benjajaja/mdfried-screenshots/pr-${{ steps.pr.outputs.number }}"
+
+          # Initialize comment body
+          echo "Merge of ${{ github.event.workflow_run.head_sha }} to \`master\`" > comment_body.txt
+          echo "" >> comment_body.txt
+
+          # Add warning if terminals are missing
+          if [ -n "$missing_terminals" ] && [ "$missing_terminals" != " " ]; then
+            echo "**Warning: Missing terminals compared to master:** $missing_terminals" >> comment_body.txt
+            echo "" >> comment_body.txt
+          fi
+
+          # Add notice if terminals are added
+          if [ -n "$added_terminals" ] && [ "$added_terminals" != " " ]; then
+            echo "**New terminals added:** $added_terminals" >> comment_body.txt
+            echo "" >> comment_body.txt
+          fi
+
+          echo "Screenshots from all terminal emulators:" >> comment_body.txt
+          echo "" >> comment_body.txt
+
+          for terminal in $terminal_list; do
+            echo "### ${terminal}" >> comment_body.txt
+            echo "![${terminal} screenshot](${BASE_URL}/screenshot-${terminal}.png)" >> comment_body.txt
+            echo "" >> comment_body.txt
+
+            # Check if diff image exists by trying to fetch it
+            diff_url="${BASE_URL}/diff-${terminal}.png"
+            if curl -f -s -I "$diff_url" > /dev/null 2>&1; then
+              echo "**Image diff vs master:**" >> comment_body.txt
+              echo "![${terminal} diff]($diff_url)" >> comment_body.txt
+              echo "" >> comment_body.txt
+            else
+              echo "**No diff available** (no changes detected)" >> comment_body.txt
+              echo "" >> comment_body.txt
+            fi
+          done
+
+      - name: Comment on PR with all screenshots
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          number: ${{ steps.pr.outputs.number }}
+          path: comment_body.txt
+
+  deploy-screenshots-master:
+    name: Deploy master screenshots to external repo
+    runs-on: ubuntu-latest
+    # Only for push to master, and only if CI succeeded
+    if: github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'master' && github.event.workflow_run.conclusion == 'success'
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Download all screenshot artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: screenshot-*
+          path: screenshots
+          merge-multiple: false
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Get terminal list from artifacts
+        id: terminals
+        run: |
+          terminal_list=$(ls screenshots | sed 's/screenshot-//' | tr '\n' ' ')
+          echo "list=$terminal_list" >> $GITHUB_OUTPUT
+
+      - name: Organize screenshots for Pages
+        run: |
+          mkdir -p pages/images
+
+          # Move screenshot images to pages/images directory
+          terminal_list="${{ steps.terminals.outputs.list }}"
+
+          for terminal in $terminal_list; do
+            if [ -f "screenshots/screenshot-${terminal}/screenshot-${terminal}.png" ]; then
+              cp "screenshots/screenshot-${terminal}/screenshot-${terminal}.png" "pages/images/screenshot-${terminal}.png"
+              echo "Copied screenshot for ${terminal}"
+            else
+              echo "Warning: Screenshot file not found for ${terminal}"
+            fi
+          done
+
+          # Create an index page with timestamp
+          timestamp=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          cat > pages/index.html << EOF
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <title>Screenshots</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 2rem; }
+              .terminal { margin: 2rem 0; }
+              img { max-width: 100%; border: 1px solid #ddd; border-radius: 8px; }
+              h1 { text-align: center; }
+              .container { max-width: 1200px; margin: 0 auto; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <h1>mdfried Terminal Screenshots</h1>
+              <p style="text-align: center; color: #666;">Screenshots from various terminal emulators</p>
+              <p style="text-align: center; color: #999; font-size: 0.9em;">Last updated: ${timestamp}</p>
+          EOF
+
+          # Add screenshots to index using local images
+          for terminal in $terminal_list; do
+            echo "<div class='terminal'>" >> pages/index.html
+            echo "<h2 id=\"$terminal\">$terminal</h2>" >> pages/index.html
+
+            # Check if image exists and add to HTML
+            if [ -f "pages/images/screenshot-${terminal}.png" ]; then
+              echo "<img src='images/screenshot-${terminal}.png' alt='$terminal screenshot'>" >> pages/index.html
+            else
+              echo "<p>No screenshot available</p>" >> pages/index.html
+            fi
+            echo "</div>" >> pages/index.html
+          done
+
+          echo "</div></body></html>" >> pages/index.html
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          personal_token: ${{ secrets.SCREENSHOTS_PAT }}
+          external_repository: benjajaja/mdfried-screenshots
+          publish_dir: ./pages
+          publish_branch: gh-pages
