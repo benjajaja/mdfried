@@ -24,3 +24,4 @@ jobs:
           # never post a comment.  (In all cases the information is
           # still available in the step's summary.)
           comment: on-error
+          github_token: ${{ secrets.PAT }}
