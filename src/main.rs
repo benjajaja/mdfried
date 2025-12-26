@@ -627,7 +627,8 @@ fn view(model: &Model, frame: &mut Frame) {
             }
         }
         y += source.height as i16;
-        if y >= inner_area.height as i16 {
+        if y >= inner_area.height as i16 - 1 {
+            // Do not render into last line, nor beyond area.
             break;
         }
     }
