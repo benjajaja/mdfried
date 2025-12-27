@@ -65,7 +65,23 @@ pub fn parse<'a>(
                 let event = Event::ParseImage(document_id, id, url, alt, String::new());
                 events.push(send_event(&mut id, event));
             }
-            Block::Markdown(text) => {
+            Block::Paragraph(text) => {
+                needs_space = true;
+                let madtext = RatSkin::parse_text(&text);
+
+                for line in skin.parse(madtext, width) {
+                    let (line, links) = links::capture_line(line, &text, width);
+
+                    events.push(send_parsed(
+                        document_id,
+                        &mut id,
+                        WidgetSourceData::Line(line, links),
+                        1,
+                    ));
+                }
+            }
+            Block::FencedCodeBlock(text) => {
+                // TODO: do something cool, like syntax highlighing
                 needs_space = true;
                 let madtext = RatSkin::parse_text(&text);
 
