@@ -15,7 +15,7 @@ use tokio::{runtime::Builder, sync::RwLock};
 use crate::{
     Cmd, Event,
     error::Error,
-    markdown::parse,
+    markdown::{MdDocument, MdParser, parse},
     setup::{BgColor, FontRenderer},
     widget_sources::{WidgetSource, header_images, header_sources, image_source},
 };
@@ -47,6 +47,7 @@ pub fn worker_thread(
                 renderer.map(|renderer| Arc::new(std::sync::Mutex::new(renderer)));
             let thread_picker = Arc::new(picker);
             let skin = RatSkin { skin };
+            let mut parser = MdParser::default();
 
             for cmd in cmd_rx {
                 log::debug!("Cmd: {cmd}");
@@ -55,7 +56,9 @@ pub fn worker_thread(
                         log::info!("Parse {document_id}");
                         event_tx.send(Event::NewDocument(document_id))?;
                         let mut last_parsed_source_id = None;
-                        for event in parse(&text, &skin, document_id, width, has_text_size_protocol)
+                        let doc = MdDocument::new(document_id, text, &mut parser);
+                        for event in doc.iter()
+                        // for event in parse(text, &skin, document_id, width, has_text_size_protocol)
                         {
                             match &event {
                                 Event::Parsed(_, source) => {

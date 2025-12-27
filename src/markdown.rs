@@ -3,6 +3,7 @@ mod links;
 
 use ratatui::text::Line;
 use ratskin::RatSkin;
+use tree_sitter::{Parser, Tree, TreeCursor};
 
 use crate::{
     DocumentId, Event, WidgetSource,
@@ -10,7 +11,133 @@ use crate::{
     widget_sources::{BigText, WidgetSourceData},
 };
 
+pub struct MdParser(Parser);
+
+impl Default for MdParser {
+    fn default() -> Self {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_md::LANGUAGE.into())
+            .unwrap();
+        Self(parser)
+    }
+}
+
+pub struct MdDocument {
+    document_id: DocumentId,
+    source: String,
+    tree: Tree,
+}
+
+pub struct MdIterator<'a> {
+    document_id: DocumentId,
+    source: &'a str,
+    cursor: TreeCursor<'a>,
+    done: bool,
+    id: u32,
+}
+
+impl MdDocument {
+    pub fn new(document_id: DocumentId, source: String, parser: &mut MdParser) -> Self {
+        let tree = parser.0.parse(&source, None).unwrap();
+        Self {
+            document_id,
+            source,
+            tree,
+        }
+    }
+
+    pub fn iter(&self) -> MdIterator<'_> {
+        MdIterator {
+            document_id: self.document_id,
+            source: &self.source,
+            cursor: self.tree.walk(),
+            done: false,
+            id: 0,
+        }
+    }
+}
+
+impl<'a> Iterator for MdIterator<'a> {
+    type Item = Event;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.done {
+            return None;
+        }
+
+        let node = self.cursor.node();
+
+        if self.cursor.goto_first_child() {
+            return self.parse_node(node);
+        }
+
+        while !self.cursor.goto_next_sibling() {
+            if !self.cursor.goto_parent() {
+                self.done = true;
+                return self.parse_node(node);
+            }
+        }
+
+        self.parse_node(node)
+    }
+}
+
+impl<'a> MdIterator<'a> {
+    fn parsed(&mut self, height: u16, data: WidgetSourceData) -> Event {
+        self.id += 1;
+        let id = self.id;
+        Event::Parsed(
+            self.document_id,
+            WidgetSource {
+                id: id as usize,
+                height,
+                data,
+            },
+        )
+    }
+
+    fn parse_node(&mut self, node: tree_sitter::Node<'a>) -> Option<Event> {
+        match node.kind() {
+            "atx_heading" => {
+                let mut tier = 0;
+                let mut text: &str = "";
+                for child in node.children(&mut node.walk()) {
+                    match child.kind() {
+                        "inline" => text = &self.source[child.byte_range()],
+                        "atx_h1_marker" => tier = 1,
+                        "atx_h2_marker" => tier = 2,
+                        "atx_h3_marker" => tier = 3,
+                        "atx_h4_marker" => tier = 4,
+                        "atx_h5_marker" => tier = 5,
+                        "atx_h6_marker" => tier = 6,
+                        _ => {
+                            debug_assert!(false);
+                        }
+                    }
+                }
+                return Some(self.parsed(2, WidgetSourceData::Header(text.to_owned(), tier)));
+            }
+            _ => {
+                return None;
+            }
+        }
+    }
+}
+
 pub fn parse(
+    text: String,
+    skin: &RatSkin,
+    document_id: DocumentId,
+    width: u16,
+    has_text_size_protocol: bool,
+) -> impl Iterator<Item = Event> {
+    let mut parser = MdParser::default();
+
+    MdDocument::new(document_id, text, &mut parser).iter()
+}
+
+pub fn parse2(
     text: &str,
     skin: &RatSkin,
     document_id: DocumentId,
