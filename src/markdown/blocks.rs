@@ -1,4 +1,4 @@
-use regex::Regex;
+use tree_sitter::Parser;
 
 // Crude "pre-parsing" of markdown by lines.
 // Headers are always on a line of their own.
@@ -8,73 +8,146 @@ use regex::Regex;
 pub enum Block {
     Header(u8, String),
     Image(String, String),
-    Markdown(String),
+    Paragraph(String),
+    FencedCodeBlock(String),
 }
 
 pub fn split_headers_and_images(text: &str) -> Vec<Block> {
-    // Regex to match lines starting with 1-6 `#` characters
-    let header_re = Regex::new(r"^(#+)\s*(.*)").expect("regex");
-    // Regex to match standalone image lines: ![alt](url)
-    let image_re = Regex::new(r"^!\[(.*?)\]\((.*?)\)$").expect("regex");
-    // Regex to match beginning or end of code fence
-    let codefence_re = Regex::new(r"^ {0,3}(`{3,}|~{3,})").expect("regex");
+    let mut parser = Parser::new();
+    parser
+        .set_language(&tree_sitter_md::LANGUAGE.into())
+        .unwrap();
+
+    let mut inline_parser = Parser::new();
+    inline_parser
+        .set_language(&tree_sitter_md::INLINE_LANGUAGE.into())
+        .unwrap();
+
+    let tree = parser.parse(text, None).unwrap();
 
     let mut blocks = Vec::new();
-    let mut current_block = String::new();
-    let mut current_codefence: Option<String> = None;
 
-    for line in text.lines() {
-        if let Some(codefence_str) = &current_codefence {
-            if !current_block.is_empty() {
-                current_block.push('\n');
+    fn walk_dbg(node: tree_sitter::Node, source: &str, inline_parser: &mut Parser, depth: usize) {
+        let text = &source[node.byte_range()];
+        println!(
+            "{:indent$}{} [{}-{}]: {:?}",
+            "",
+            node.kind(),
+            node.start_byte(),
+            node.end_byte(),
+            text,
+            indent = depth * 2
+        );
+        if node.kind() == "inline" {
+            if let Some(inline_tree) = inline_parser.parse(text, None) {
+                println!("{:indent$}  [inline parse]:", "", indent = depth * 2);
+                walk_inline(inline_tree.root_node(), text, depth + 2);
             }
-            current_block.push_str(line);
-            if let Some(captures) = codefence_re.captures(line) {
-                // End of codefence must match start, with at least as many characters
-                if captures[1].starts_with(codefence_str) {
-                    current_codefence = None;
+        }
+        for child in node.children(&mut node.walk()) {
+            walk_dbg(child, source, inline_parser, depth + 1);
+        }
+    }
+    fn walk_inline(node: tree_sitter::Node, source: &str, depth: usize) {
+        let text = &source[node.byte_range()];
+        println!(
+            "{:indent$}{}: {:?}",
+            "",
+            node.kind(),
+            text,
+            indent = depth * 2
+        );
+        for child in node.children(&mut node.walk()) {
+            walk_inline(child, source, depth + 1);
+        }
+    }
+    // walk_dbg(tree.root_node(), text, &mut inline_parser, 0);
+
+    fn walk(
+        node: tree_sitter::Node,
+        source: &str,
+        depth: usize,
+        inline_parser: &mut Parser,
+        blocks: &mut Vec<Block>,
+    ) {
+        match node.kind() {
+            "atx_heading" => {
+                let mut tier = 0;
+                let mut text: &str = "";
+                for child in node.children(&mut node.walk()) {
+                    match child.kind() {
+                        "inline" => text = &source[child.byte_range()],
+                        "atx_h1_marker" => tier = 1,
+                        "atx_h2_marker" => tier = 2,
+                        "atx_h3_marker" => tier = 3,
+                        "atx_h4_marker" => tier = 4,
+                        "atx_h5_marker" => tier = 5,
+                        "atx_h6_marker" => tier = 6,
+                        _ => {
+                            debug_assert!(false);
+                        }
+                    }
+                }
+                blocks.push(Block::Header(tier, text.to_owned()));
+            }
+            "paragraph" => {
+                let cursor = &mut node.walk();
+                let mut children = node.children(cursor);
+                if children.len() == 1 {
+                    // Try to catch paragraphs with only a single image.
+                    // Horrible, yes, rip out later and improve to catch all images.
+                    let node = children.next().unwrap();
+                    if node.kind() == "inline" {
+                        let inline_source = &source[node.byte_range()];
+                        if let Some(inline_tree) = inline_parser.parse(inline_source, None) {
+                            let inline_root = inline_tree.root_node();
+                            if inline_root.kind() == "inline" {
+                                let cursor = &mut inline_root.walk();
+                                let mut children = inline_root.children(cursor);
+                                if children.len() == 1 {
+                                    let inline_node = children.next().unwrap();
+                                    if inline_node.kind() == "image" {
+                                        let mut image_description: &str = "";
+                                        let mut link_destination: &str = "";
+                                        for child in inline_node.children(&mut inline_node.walk()) {
+                                            match child.kind() {
+                                                "image_description" => {
+                                                    image_description =
+                                                        &inline_source[child.byte_range()]
+                                                }
+                                                "link_destination" => {
+                                                    link_destination =
+                                                        &inline_source[child.byte_range()]
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                        blocks.push(Block::Image(
+                                            image_description.to_owned(),
+                                            link_destination.to_owned(),
+                                        ));
+                                        return;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                blocks.push(Block::Paragraph(source[node.byte_range()].to_owned()));
+            }
+            "fenced_code_block" => {
+                blocks.push(Block::FencedCodeBlock(source[node.byte_range()].to_owned()));
+            }
+            _ => {
+                for child in node.children(&mut node.walk()) {
+                    walk(child, source, depth + 1, inline_parser, blocks);
                 }
             }
-        } else if let Some(captures) = header_re.captures(line) {
-            // If there's an ongoing block, push it as a plain text block
-            if !current_block.is_empty() {
-                blocks.push(Block::Markdown(current_block.clone()));
-                current_block.clear();
-            }
-            // Push the header as (level, text)
-            let level = captures[1].len().min(6) as u8;
-            let text = captures[2].to_string();
-            blocks.push(Block::Header(level, text));
-        } else if let Some(captures) = image_re.captures(line) {
-            // If there's an ongoing block, push it as a plain text block
-            if !current_block.is_empty() {
-                blocks.push(Block::Markdown(current_block.clone()));
-                current_block.clear();
-            }
-            // Push the image as (alt_text, url)
-            let alt_text = captures[1].to_string();
-            let url = captures[2].to_string();
-            blocks.push(Block::Image(alt_text, url));
-        } else if let Some(captures) = codefence_re.captures(line) {
-            if !current_block.is_empty() {
-                current_block.push('\n');
-            }
-            current_block.push_str(line);
-            current_codefence = Some(captures[1].to_string());
-        } else {
-            // Accumulate lines that are neither headers nor images
-            if !current_block.is_empty() {
-                current_block.push('\n');
-            }
-            current_block.push_str(line);
         }
     }
 
-    // Push the final block if there's remaining content
-    if !current_block.is_empty() {
-        blocks.push(Block::Markdown(current_block));
-    }
-
+    walk(tree.root_node(), text, 0, &mut inline_parser, &mut blocks);
     blocks
 }
 
@@ -84,7 +157,28 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     #[test]
-    fn split_headers_and_images() {
+    fn new_style() {
+        let blocks = markdown::split_headers_and_images(
+            r#"
+# header *stronk*!
+
+blablagraph
+
+## a baby
+"#,
+        );
+        assert_eq!(
+            blocks,
+            vec![
+                markdown::Block::Header(1, "header *stronk*!".to_owned()),
+                markdown::Block::Paragraph("blablagraph\n".to_owned()),
+                markdown::Block::Header(2, "a baby".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn split_headers_and_paragraphs() {
         let blocks = markdown::split_headers_and_images(
             r#"
 # header
@@ -109,18 +203,19 @@ paragraph
             blocks,
             vec![
                 markdown::Block::Header(1, "header".to_owned()),
-                markdown::Block::Markdown("paragraph\n\nparagraph\n".to_owned()),
+                markdown::Block::Paragraph("paragraph\n".to_owned()),
+                markdown::Block::Paragraph("paragraph\n".to_owned()),
                 markdown::Block::Header(1, "header".to_owned()),
-                markdown::Block::Markdown("paragraph\nparagraph\n".to_owned()),
+                markdown::Block::Paragraph("paragraph\nparagraph\n".to_owned()),
                 markdown::Block::Header(1, "header".to_owned()),
-                markdown::Block::Markdown("paragraph\n".to_owned()),
+                markdown::Block::Paragraph("paragraph\n".to_owned()),
                 markdown::Block::Header(1, "header".to_owned()),
             ]
         );
     }
 
     #[test]
-    fn split_headers_and_images_without_space() {
+    fn split_headers_and_paragraphs_without_space() {
         let blocks = markdown::split_headers_and_images(
             r#"
 # header
@@ -136,10 +231,10 @@ paragraph
             blocks,
             vec![
                 markdown::Block::Header(1, "header".to_owned()),
-                markdown::Block::Markdown("paragraph".to_owned()),
+                markdown::Block::Paragraph("paragraph\n".to_owned()),
                 markdown::Block::Header(1, "header".to_owned()),
                 markdown::Block::Header(1, "header".to_owned()),
-                markdown::Block::Markdown("paragraph".to_owned()),
+                markdown::Block::Paragraph("paragraph\n".to_owned()),
                 markdown::Block::Header(1, "header".to_owned()),
             ]
         );
@@ -178,18 +273,19 @@ paragraph
             blocks,
             vec![
                 markdown::Block::Header(1, "header".to_owned()),
-                markdown::Block::Markdown(
-                    r#"paragraph
-
-```c
+                markdown::Block::Paragraph("paragraph\n".to_owned()),
+                markdown::Block::FencedCodeBlock(
+                    r#"```c
 #ifdef FOO
 bar();
 #endif
 ```
-
-paragraph
-
-  ~~~~
+"#
+                    .to_owned()
+                ),
+                markdown::Block::Paragraph("paragraph\n".to_owned()),
+                markdown::Block::FencedCodeBlock(
+                    r#"  ~~~~
   x("
   ~~~
   ");
@@ -200,7 +296,28 @@ paragraph
                     .to_owned()
                 ),
                 markdown::Block::Header(1, "header".to_owned()),
-                markdown::Block::Markdown("paragraph".to_owned()),
+                markdown::Block::Paragraph("paragraph\n".to_owned()),
+            ]
+        );
+    }
+
+    #[test]
+    fn split_headers_and_images() {
+        let blocks = markdown::split_headers_and_images(
+            r#"
+# header
+
+paragraph
+
+![zherkalo](./mirror.jpg)
+"#,
+        );
+        assert_eq!(
+            blocks,
+            vec![
+                markdown::Block::Header(1, "header".to_owned()),
+                markdown::Block::Paragraph("paragraph\n".to_owned()),
+                markdown::Block::Image("zherkalo".to_owned(), "./mirror.jpg".to_owned()),
             ]
         );
     }
