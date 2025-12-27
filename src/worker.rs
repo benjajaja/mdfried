@@ -8,14 +8,14 @@ use std::{
 };
 
 use ratatui_image::picker::{Picker, ProtocolType};
-use ratskin::{MadSkin, RatSkin};
+use ratskin::MadSkin;
 use reqwest::Client;
 use tokio::{runtime::Builder, sync::RwLock};
 
 use crate::{
     Cmd, Event,
     error::Error,
-    markdown::parse,
+    markdown::{MdDocument, MdParser},
     setup::{BgColor, FontRenderer},
     widget_sources::{WidgetSource, header_images, header_sources, image_source},
 };
@@ -25,7 +25,7 @@ pub fn worker_thread(
     basepath: Option<PathBuf>,
     picker: Picker,
     renderer: Option<Box<FontRenderer>>,
-    skin: MadSkin,
+    _skin: MadSkin,
     bg: Option<BgColor>,
     has_text_size_protocol: bool,
     deep_fry: bool,
@@ -46,7 +46,7 @@ pub fn worker_thread(
             let thread_renderer =
                 renderer.map(|renderer| Arc::new(std::sync::Mutex::new(renderer)));
             let thread_picker = Arc::new(picker);
-            let skin = RatSkin { skin };
+            let mut parser = MdParser::default();
 
             for cmd in cmd_rx {
                 log::debug!("Cmd: {cmd}");
@@ -55,8 +55,8 @@ pub fn worker_thread(
                         log::info!("Parse {document_id}");
                         event_tx.send(Event::NewDocument(document_id))?;
                         let mut last_parsed_source_id = None;
-                        for event in parse(&text, &skin, document_id, width, has_text_size_protocol)
-                        {
+                        let doc = MdDocument::new(text, &mut parser);
+                        for event in doc.parse(document_id, width, has_text_size_protocol) {
                             match &event {
                                 Event::Parsed(_, source) => {
                                     last_parsed_source_id = Some(source.id);

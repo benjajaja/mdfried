@@ -308,7 +308,7 @@ impl Display for Cmd {
 }
 
 #[derive(Debug, PartialEq)]
-enum Event {
+pub enum Event {
     NewDocument(DocumentId),
     ParseDone(DocumentId, Option<SourceID>), // Only signals "parsing done", not "images ready"!
     Parsed(DocumentId, WidgetSource),
@@ -766,7 +766,8 @@ mod tests {
                 screen_size,
                 String::from(
                     r#"# Hello
-This is a test markdown document.
+This is a *test* markdown document.
+Another line of same paragraph.
 ![image](./assets/NixOS.png)
 Goodbye."#,
                 ),
