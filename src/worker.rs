@@ -30,7 +30,7 @@ pub fn worker_thread(
     has_text_size_protocol: bool,
     deep_fry: bool,
     cmd_rx: Receiver<Cmd>,
-    event_tx: Sender<Event<'static>>,
+    event_tx: Sender<Event>,
     config_max_image_height: u16,
 ) -> JoinHandle<Result<(), Error>> {
     thread::spawn(move || {

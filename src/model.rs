@@ -27,9 +27,9 @@ use crate::{
     widget_sources::{WidgetSource, WidgetSourceData},
 };
 
-pub struct Model<'a, 'b> {
+pub struct Model {
     pub bg: Option<BgColor>,
-    sources: WidgetSources<'a>,
+    sources: WidgetSources,
     pub scroll: u16,
     pub cursor: Cursor,
     pub log_snapshot: Option<flexi_logger::Snapshot>,
@@ -37,21 +37,21 @@ pub struct Model<'a, 'b> {
     screen_size: Size,
     config: Config,
     cmd_tx: Sender<Cmd>,
-    event_rx: Receiver<Event<'b>>,
+    event_rx: Receiver<Event>,
     document_id: DocumentId,
     #[cfg(test)]
     pub pending_image_count: usize,
 }
 
-impl<'a, 'b: 'a> Model<'a, 'b> {
+impl Model {
     pub fn new(
         bg: Option<BgColor>,
         original_file_path: Option<PathBuf>,
         cmd_tx: Sender<Cmd>,
-        event_rx: Receiver<Event<'b>>,
+        event_rx: Receiver<Event>,
         screen_size: Size,
         config: Config,
-    ) -> Model<'a, 'b> {
+    ) -> Model {
         Model {
             original_file_path,
             bg,
@@ -400,7 +400,7 @@ impl<'a, 'b: 'a> Model<'a, 'b> {
         }
     }
 
-    pub fn sources(&self) -> impl Iterator<Item = &WidgetSource<'a>> {
+    pub fn sources(&self) -> impl Iterator<Item = &WidgetSource> {
         self.sources.iter()
     }
 }
@@ -457,7 +457,7 @@ mod tests {
         widget_sources::{LineExtra, WidgetSource, WidgetSourceData, WidgetSources},
     };
 
-    fn test_model<'a, 'b>() -> Model<'a, 'b> {
+    fn test_model() -> Model {
         let (cmd_tx, _) = mpsc::channel::<Cmd>();
         let (_, event_rx) = mpsc::channel::<Event>();
         Model {

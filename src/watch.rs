@@ -14,7 +14,7 @@ use crate::{Event, error::Error};
 // Should take `tx: Sender<Event>` but that complains about some weird lifetime stuff.
 pub fn watch(
     path: &PathBuf,
-    tx: Sender<Event<'static>>,
+    tx: Sender<Event>,
     debounce_milliseconds: u64,
 ) -> Result<Debouncer<RecommendedWatcher>, Error> {
     let parent = path

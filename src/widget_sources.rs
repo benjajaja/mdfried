@@ -31,13 +31,13 @@ use crate::{
 };
 
 #[derive(Default)]
-pub struct WidgetSources<'a> {
-    sources: Vec<WidgetSource<'a>>,
+pub struct WidgetSources {
+    sources: Vec<WidgetSource>,
     updated_images: Vec<(u16, String, Protocol)>,
 }
 
-impl<'a> WidgetSources<'a> {
-    pub fn push(&mut self, source: WidgetSource<'a>) {
+impl WidgetSources {
+    pub fn push(&mut self, source: WidgetSource) {
         debug_assert!(
             !self.sources.iter().any(|s| s.id == source.id),
             "WidgetSources::push expects unique ids"
@@ -46,7 +46,7 @@ impl<'a> WidgetSources<'a> {
     }
 
     // Update widgets with a list by id
-    pub fn update(&mut self, updates: Vec<WidgetSource<'a>>) {
+    pub fn update(&mut self, updates: Vec<WidgetSource>) {
         let Some(first_id) = updates.first().map(|s| s.id) else {
             log::error!("ineffective WidgetSources::update with empty list");
             return;
@@ -88,7 +88,7 @@ impl<'a> WidgetSources<'a> {
         }
     }
 
-    pub fn replace(&mut self, id: SourceID, url: &str) -> Option<WidgetSource<'a>> {
+    pub fn replace(&mut self, id: SourceID, url: &str) -> Option<WidgetSource> {
         for source in &mut self.sources {
             if source.id < id {
                 continue;
@@ -157,7 +157,7 @@ impl<'a> WidgetSources<'a> {
         y
     }
 
-    pub fn find_first_cursor<'b, Iter: Iterator<Item = &'b WidgetSource<'b>>>(
+    pub fn find_first_cursor<'b, Iter: Iterator<Item = &'b WidgetSource>>(
         iter: Iter,
         target: FindTarget,
         scroll: u16,
@@ -193,7 +193,7 @@ impl<'a> WidgetSources<'a> {
         first
     }
 
-    pub fn find_next_cursor<'b, Iter: DoubleEndedIterator<Item = &'b WidgetSource<'b>>>(
+    pub fn find_next_cursor<'b, Iter: DoubleEndedIterator<Item = &'b WidgetSource>>(
         iter: Iter,
         current: &CursorPointer,
         mode: FindMode,
@@ -215,8 +215,9 @@ impl<'a> WidgetSources<'a> {
         first
     }
 
-    fn flatten_sources<'b>(
-        iter: impl DoubleEndedIterator<Item = &'b WidgetSource<'b>>,
+    #[expect(single_use_lifetimes)] // error[E0658]: anonymous lifetimes in `impl Trait` are unstable
+    fn flatten_sources<'a>(
+        iter: impl DoubleEndedIterator<Item = &'a WidgetSource>,
         mode: &FindMode,
         target: &FindTarget,
     ) -> Either<impl Iterator<Item = CursorPointer>, impl Iterator<Item = CursorPointer>> {
@@ -231,7 +232,7 @@ impl<'a> WidgetSources<'a> {
     }
 
     fn line_extras_to_cursor_pointers(
-        source: &WidgetSource<'a>,
+        source: &WidgetSource,
         mode: &FindMode,
         target: &FindTarget,
     ) -> Either<
@@ -288,16 +289,16 @@ impl<'a> WidgetSources<'a> {
     }
 }
 
-impl<'a> Deref for WidgetSources<'a> {
-    type Target = Vec<WidgetSource<'a>>;
-    fn deref(&self) -> &Vec<WidgetSource<'a>> {
+impl Deref for WidgetSources {
+    type Target = Vec<WidgetSource>;
+    fn deref(&self) -> &Vec<WidgetSource> {
         &self.sources
     }
 }
 
-impl<'a> DerefMut for WidgetSources<'a> {
+impl DerefMut for WidgetSources {
     // type Target = Vec<WidgetSource<'a>>;
-    fn deref_mut(&mut self) -> &mut Vec<WidgetSource<'a>> {
+    fn deref_mut(&mut self) -> &mut Vec<WidgetSource> {
         &mut self.sources
     }
 }
@@ -325,20 +326,20 @@ impl FindTarget {
 pub type SourceID = usize;
 
 #[derive(Debug, PartialEq)]
-pub struct WidgetSource<'a> {
+pub struct WidgetSource {
     pub id: SourceID,
     pub height: u16,
-    pub data: WidgetSourceData<'a>,
+    pub data: WidgetSourceData,
 }
 
-pub enum WidgetSourceData<'a> {
+pub enum WidgetSourceData {
     Image(String, Protocol),
     BrokenImage(String, String),
-    Line(Line<'a>, Vec<LineExtra>),
+    Line(Line<'static>, Vec<LineExtra>),
     Header(String, u8),
 }
 
-impl WidgetSourceData<'_> {
+impl WidgetSourceData {
     pub fn add_search(&mut self, re: &Option<Regex>) {
         if let WidgetSourceData::Line(line, extras) = self {
             let line_string = line.to_string();
@@ -364,7 +365,7 @@ impl WidgetSourceData<'_> {
     }
 }
 
-impl PartialEq for WidgetSourceData<'_> {
+impl PartialEq for WidgetSourceData {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Image(l0, l1), Self::Image(r0, r1)) => l0 == r0 && l1.type_id() == r1.type_id(),
@@ -376,7 +377,7 @@ impl PartialEq for WidgetSourceData<'_> {
     }
 }
 
-impl Debug for WidgetSourceData<'_> {
+impl Debug for WidgetSourceData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Image(url, _) => f.debug_tuple(format!("Image({url})").as_str()).finish(),
@@ -396,7 +397,7 @@ impl Debug for WidgetSourceData<'_> {
     }
 }
 
-impl Display for WidgetSourceData<'_> {
+impl Display for WidgetSourceData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Image(url, protocol) => write!(f, "Image({url}, {:?})", protocol.type_id()),
@@ -407,8 +408,8 @@ impl Display for WidgetSourceData<'_> {
     }
 }
 
-impl<'a> WidgetSource<'a> {
-    pub fn image_unknown(id: SourceID, url: String, text: String) -> WidgetSource<'a> {
+impl WidgetSource {
+    pub fn image_unknown(id: SourceID, url: String, text: String) -> Self {
         WidgetSource {
             id,
             height: 1,
@@ -422,7 +423,7 @@ impl<'a> WidgetSource<'a> {
 }
 
 #[cfg(test)]
-impl Display for WidgetSource<'_> {
+impl Display for WidgetSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.data {
             WidgetSourceData::Image(_, _) => write!(f, "<image>"),
@@ -541,13 +542,13 @@ pub fn header_images(
 const HEADER_ROW_COUNT: u16 = 2;
 
 /// Render a list of images to [`WidgetSource`]s.
-pub fn header_sources<'a>(
+pub fn header_sources(
     picker: &Picker,
     width: u16,
     id: SourceID,
     dyn_imgs: Vec<(String, DynamicImage)>,
     deep_fry_meme: bool,
-) -> Result<Vec<WidgetSource<'a>>, Error> {
+) -> Result<Vec<WidgetSource>, Error> {
     let mut sources = vec![];
     for (text, mut dyn_img) in dyn_imgs {
         if deep_fry_meme {
@@ -569,7 +570,7 @@ pub fn header_sources<'a>(
 }
 
 #[expect(clippy::too_many_arguments)]
-pub async fn image_source<'a>(
+pub async fn image_source(
     picker: &Arc<Picker>,
     max_height: u16,
     width: u16,
@@ -578,7 +579,7 @@ pub async fn image_source<'a>(
     id: SourceID,
     url: &str,
     deep_fry_meme: bool,
-) -> Result<WidgetSource<'a>, Error> {
+) -> Result<WidgetSource, Error> {
     enum ImageSource {
         Bytes(Vec<u8>, ImageFormat),
         Path(String),
@@ -641,7 +642,7 @@ pub async fn image_source<'a>(
         )?;
 
         let height = proto.area().height;
-        Ok::<WidgetSource<'_>, Error>(WidgetSource {
+        Ok::<WidgetSource, Error>(WidgetSource {
             id,
             height,
             data: WidgetSourceData::Image(url, proto),

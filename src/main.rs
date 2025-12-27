@@ -308,17 +308,17 @@ impl Display for Cmd {
 }
 
 #[derive(Debug, PartialEq)]
-enum Event<'a> {
+enum Event {
     NewDocument(DocumentId),
     ParseDone(DocumentId, Option<SourceID>), // Only signals "parsing done", not "images ready"!
-    Parsed(DocumentId, WidgetSource<'a>),
+    Parsed(DocumentId, WidgetSource),
     ParseImage(DocumentId, SourceID, String, String, String),
     ParseHeader(DocumentId, SourceID, u8, String),
-    Update(DocumentId, Vec<WidgetSource<'a>>),
+    Update(DocumentId, Vec<WidgetSource>),
     FileChanged,
 }
 
-impl Display for Event<'_> {
+impl Display for Event {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Event::NewDocument(document_id) => write!(f, "Event::NewDocument({document_id})"),
@@ -355,9 +355,9 @@ impl Display for Event<'_> {
 // type WidthEvent<'a> = (u16, Event<'a>);
 
 #[expect(clippy::too_many_lines)]
-fn run<'a>(
+fn run(
     terminal: &mut DefaultTerminal,
-    mut model: Model<'a, 'a>,
+    mut model: Model,
     ui_logger: &LoggerHandle,
 ) -> Result<(), Error> {
     terminal.draw(|frame| view(&model, frame))?;
@@ -694,7 +694,7 @@ mod tests {
         worker::worker_thread,
     };
 
-    fn setup(config: Config) -> (Model<'static, 'static>, JoinHandle<Result<(), Error>>, Size) {
+    fn setup(config: Config) -> (Model, JoinHandle<Result<(), Error>>, Size) {
         #[expect(clippy::let_underscore_untyped)]
         let _ = flexi_logger::Logger::try_with_env()
             .unwrap()
@@ -726,13 +726,13 @@ mod tests {
     }
 
     // Drop model so that cmd_rx gets closed and worker exits, then exit/join worker.
-    fn teardown(model: Model<'static, 'static>, worker: JoinHandle<Result<(), Error>>) {
+    fn teardown(model: Model, worker: JoinHandle<Result<(), Error>>) {
         drop(model);
         worker.join().unwrap().unwrap();
     }
 
     // Poll until parsed and no pending images.
-    fn poll_parsed(model: &mut Model<'static, 'static>, screen_size: &Size) {
+    fn poll_parsed(model: &mut Model, screen_size: &Size) {
         loop {
             let (_, parse_done) = model.process_events(screen_size.width).unwrap();
             if parse_done {
@@ -743,7 +743,7 @@ mod tests {
     }
 
     // Poll until parsed and no pending images.
-    fn poll_done(model: &mut Model<'static, 'static>, screen_size: &Size) {
+    fn poll_done(model: &mut Model, screen_size: &Size) {
         while model.pending_image_count > 0 {
             model.process_events(screen_size.width).unwrap();
         }

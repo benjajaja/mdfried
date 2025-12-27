@@ -10,13 +10,13 @@ use crate::{
     widget_sources::{BigText, WidgetSourceData},
 };
 
-pub fn parse<'a>(
+pub fn parse(
     text: &str,
     skin: &RatSkin,
     document_id: DocumentId,
     width: u16,
     has_text_size_protocol: bool,
-) -> impl Iterator<Item = Event<'a>> {
+) -> impl Iterator<Item = Event> {
     let mut id = 0;
 
     let blocks = split_headers_and_images(text);
@@ -85,12 +85,12 @@ pub fn parse<'a>(
     })
 }
 
-fn send_parsed<'a>(
+fn send_parsed(
     document_id: DocumentId,
     id: &mut usize,
-    data: WidgetSourceData<'a>,
+    data: WidgetSourceData,
     height: u16,
-) -> Event<'a> {
+) -> Event {
     send_event(
         id,
         Event::Parsed(
@@ -104,7 +104,7 @@ fn send_parsed<'a>(
     )
 }
 
-fn send_event<'a>(id: &mut usize, ev: Event<'a>) -> Event<'a> {
+fn send_event(id: &mut usize, ev: Event) -> Event {
     *id += 1;
     ev
 }

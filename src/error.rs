@@ -113,8 +113,8 @@ impl From<reqwest::Error> for Error {
     }
 }
 
-impl From<SendError<Event<'_>>> for Error {
-    fn from(err: SendError<Event<'_>>) -> Self {
+impl From<SendError<Event>> for Error {
+    fn from(err: SendError<Event>) -> Self {
         Self::Thread(format!("SendError<Event>: {err}"))
     }
 }
