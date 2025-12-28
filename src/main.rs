@@ -769,6 +769,8 @@ mod tests {
 This is a *test* markdown document.
 Another line of same paragraph.
 ![image](./assets/NixOS.png)
+
+# Last bit
 Goodbye."#,
                 ),
             )
