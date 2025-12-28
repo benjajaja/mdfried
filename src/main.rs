@@ -766,7 +766,8 @@ mod tests {
                 screen_size,
                 String::from(
                     r#"# Hello
-This is a test markdown document.
+This is a *test* markdown document.
+Another line of same paragraph.
 ![image](./assets/NixOS.png)
 Goodbye."#,
                 ),

@@ -2,6 +2,7 @@ mod blocks;
 mod links;
 
 use bitflags::bitflags;
+use color_eyre::SectionExt;
 use ratatui::{
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span},
@@ -60,8 +61,18 @@ impl MdDocument {
         }
     }
 
-    pub fn parse(&self) -> _ {
-        let a = self.iter().collect();
+    pub fn parse(
+        &self,
+        document_id: DocumentId,
+        width: u16,
+        has_text_size_protocol: bool,
+    ) -> Vec<Event> {
+        let mut source_id = 0;
+        self.iter()
+            .flat_map(|section| {
+                section.to_sources(document_id, width, has_text_size_protocol, &mut source_id)
+            })
+            .collect()
     }
 }
 
@@ -74,13 +85,8 @@ pub struct MdIterator<'a> {
     id: i32,
 }
 
-enum MdSection {
-    Header(String, u8),
-    Markdown(Vec<MdSpan>),
-}
-
 impl Iterator for MdIterator<'_> {
-    type Item = Event;
+    type Item = MdSection;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
@@ -133,7 +139,7 @@ impl<'a> MdIterator<'a> {
         Event::ParseImage(self.document_id, id as usize, url, text, title)
     }
 
-    fn parse_node(&mut self, node: tree_sitter::Node<'a>) -> Option<Event> {
+    fn parse_node(&mut self, node: Node<'a>) -> Option<MdSection> {
         match node.kind() {
             "paragraph" => {
                 let text = &self.source[node.byte_range()];
@@ -169,11 +175,15 @@ impl<'a> MdIterator<'a> {
                                                 _ => {}
                                             }
                                         }
-                                        return Some(self.image(
+                                        return Some(MdSection::Image(
                                             image_description.to_owned(),
                                             link_destination.to_owned(),
-                                            String::new(),
                                         ));
+                                        // return Some(self.image(
+                                        // image_description.to_owned(),
+                                        // link_destination.to_owned(),
+                                        // String::new(),
+                                        // ));
                                     }
                                 }
                             }
@@ -182,10 +192,15 @@ impl<'a> MdIterator<'a> {
                 }
 
                 let Some(tree) = self.inline_parser.parse(text, None) else {
-                    return Some(self.parsed(
-                        1,
-                        WidgetSourceData::Line(Line::from(text.to_owned()), Vec::new()),
-                    ));
+                    return Some(MdSection::Markdown(vec![MdSpan::new(
+                        text.to_owned(),
+                        Style::default(),
+                        MdModifier::default(),
+                    )]));
+                    // return Some(self.parsed(
+                    // 1,
+                    // WidgetSourceData::Line(Line::from(text.to_owned()), Vec::new()),
+                    // ));
                 };
 
                 let mdspans = node_to_spans(
@@ -195,24 +210,28 @@ impl<'a> MdIterator<'a> {
                     MdModifier::default(),
                     0,
                 );
-                let mut spans = Vec::new();
-                let mut extras = Vec::new();
-                let mut link_offset = 0; // TODO this sucks
-                for mdspan in mdspans {
-                    if mdspan.extra.contains(MdModifier::LinkURL) {
-                        let url = mdspan.content.clone();
-                        let url_width = url.width();
-                        extras.push(LineExtra::Link(
-                            url,
-                            link_offset,
-                            link_offset + (url_width as u16),
-                        ));
-                    }
-                    link_offset += mdspan.content.width() as u16;
-                    let span = mdspan.into();
-                    spans.push(span);
+                for span in &mdspans {
+                    println!("SPAN: {span:?}");
                 }
-                return Some(self.parsed(1, WidgetSourceData::Line(Line::from(spans), extras)));
+                return Some(MdSection::Markdown(mdspans));
+                // let mut spans = Vec::new();
+                // let mut extras = Vec::new();
+                // let mut link_offset = 0; // TODO this sucks
+                // for mdspan in mdspans {
+                // if mdspan.extra.contains(MdModifier::LinkURL) {
+                // let url = mdspan.content.clone();
+                // let url_width = url.width();
+                // extras.push(LineExtra::Link(
+                // url,
+                // link_offset,
+                // link_offset + (url_width as u16),
+                // ));
+                // }
+                // link_offset += mdspan.content.width() as u16;
+                // let span = mdspan.into();
+                // spans.push(span);
+                // }
+                // return Some(self.parsed(1, WidgetSourceData::Line(Line::from(spans), extras)));
             }
             "atx_heading" => {
                 let mut tier = 0;
@@ -231,7 +250,8 @@ impl<'a> MdIterator<'a> {
                         }
                     }
                 }
-                return Some(self.parsed(2, WidgetSourceData::Header(text.to_owned(), tier)));
+                return Some(MdSection::Header(text.to_owned(), tier));
+                // return Some(self.parsed(2, WidgetSourceData::Header(text.to_owned(), tier)));
             }
             _ => {
                 return None;
@@ -245,10 +265,12 @@ bitflags! {
     struct MdModifier: u32 {
         const Link = 1 << 0;
         const LinkURL = 1 << 1;
+        const Image = 1 << 2;
     }
 }
 
-struct MdSpan {
+#[derive(Debug)]
+pub struct MdSpan {
     content: String,
     style: Style,
     extra: MdModifier,
@@ -270,6 +292,212 @@ impl From<MdSpan> for Span<'static> {
     }
 }
 
+pub enum MdSection {
+    Header(String, u8),
+    Markdown(Vec<MdSpan>),
+    Image(String, String),
+}
+impl MdSection {
+    fn to_sources(
+        self,
+        document_id: DocumentId,
+        width: u16,
+        has_text_size_protocol: bool,
+        source_id: &mut usize,
+    ) -> Vec<Event> {
+        match self {
+            MdSection::Header(text, tier) => {
+                if has_text_size_protocol {
+                    vec![Event::Parsed(
+                        document_id,
+                        WidgetSource {
+                            id: MdSection::incr_source_id(source_id),
+                            height: 2,
+                            data: WidgetSourceData::Header(text, tier),
+                        },
+                    )]
+                } else {
+                    vec![Event::ParseHeader(
+                        document_id,
+                        MdSection::incr_source_id(source_id),
+                        tier,
+                        text,
+                    )]
+                }
+            }
+            MdSection::Image(url, text) => {
+                vec![Event::ParseImage(
+                    document_id,
+                    MdSection::incr_source_id(source_id),
+                    url,
+                    text,
+                    String::new(),
+                )]
+            }
+            MdSection::Markdown(mdspans) => {
+                let mut line_events = Vec::new();
+                fn push_line(
+                    line_events: &mut Vec<Event>,
+                    document_id: DocumentId,
+                    source_id: &mut usize,
+                    spans: &mut Vec<Span<'static>>,
+                    extras: &mut Vec<LineExtra>,
+                    starts_with_newline: bool,
+                    had_image: &mut Option<String>,
+                ) {
+                    // let is_single_span = spans.len() == 1;
+                    if starts_with_newline && let Some(span) = spans.get_mut(0) {
+                        // if had_image {
+                        // had_image = false;
+                        // println!("starts_with_newline: {}", span.content);
+                        // }
+                        span.content = span.content.chars().skip(1).collect();
+                    }
+                    let line = Line::from(std::mem::take(spans));
+                    if let Some(url) = had_image.take() {
+                        // *had_image = None;
+                        println!("image: {url:?}");
+                        line_events.push(Event::ParseImage(
+                            document_id,
+                            MdSection::incr_source_id(source_id),
+                            url,
+                            String::from("Loading..."),
+                            String::from("???"),
+                        ));
+                        return;
+                    }
+                    line_events.push(Event::Parsed(
+                        document_id,
+                        WidgetSource {
+                            id: MdSection::incr_source_id(source_id),
+                            height: 1,
+                            data: WidgetSourceData::Line(line, std::mem::take(extras)),
+                        },
+                    ));
+                }
+
+                let mut line_width = 0;
+                let mut spans = Vec::new();
+                let mut extras = Vec::new();
+                let mut link_offset = 0; // TODO this sucks
+                let mut had_image = None;
+
+                for mdspan in mdspans {
+                    let span_width = mdspan.content.width();
+                    let is_overflow = line_width as u16 + span_width as u16 > width;
+                    let starts_with_newline = mdspan
+                        .content
+                        .chars()
+                        .next()
+                        .map(|c| c == '\n')
+                        .unwrap_or_default();
+                    if is_overflow || starts_with_newline {
+                        line_width = 0;
+                        push_line(
+                            &mut line_events,
+                            document_id,
+                            source_id,
+                            &mut spans,
+                            &mut extras,
+                            starts_with_newline,
+                            &mut had_image,
+                        );
+                        // line_events.push(Event::Parsed(
+                        // document_id,
+                        // WidgetSource {
+                        // id: MdSection::incr_source_id(source_id),
+                        // height: 1,
+                        // data: WidgetSourceData::Line(line, std::mem::take(&mut extras)),
+                        // },
+                        // ));
+                        link_offset = 0;
+                    }
+
+                    if mdspan.extra.contains(MdModifier::LinkURL) {
+                        if mdspan.extra.contains(MdModifier::Image) {
+                            had_image = Some(mdspan.content.clone());
+                        } else {
+                            let url = mdspan.content.clone();
+                            let url_width = url.width();
+                            extras.push(LineExtra::Link(
+                                url,
+                                link_offset,
+                                link_offset + (url_width as u16),
+                            ));
+                        }
+                    }
+                    link_offset += span_width as u16;
+                    line_width += span_width as u16;
+                    let span: Span<'static> = mdspan.into();
+                    spans.push(span);
+                }
+
+                if !spans.is_empty() {
+                    let starts_with_newline = spans
+                        .get(0)
+                        .unwrap()
+                        .content
+                        .chars()
+                        .next()
+                        .map(|c| c == '\n')
+                        .unwrap_or_default();
+                    push_line(
+                        &mut line_events,
+                        document_id,
+                        source_id,
+                        &mut spans,
+                        &mut extras,
+                        starts_with_newline,
+                        &mut had_image,
+                    );
+                }
+
+                line_events
+
+                // let mut line_events = Vec::new();
+                // let mut line_width = 0;
+                // let mut line = Line::default();
+                // for mdspan in mdspans {
+                // let span_width = mdspan.content.width();
+                // let span: Span<'static> = mdspan.into();
+                // line.push_span(span);
+                // }
+                //
+                // line_events
+            }
+        }
+    }
+
+    // Increas source_id but return value before it was increased.
+    fn incr_source_id(source_id: &mut usize) -> usize {
+        let current = *source_id;
+        *source_id += 1;
+        current
+    }
+}
+
+// impl MdSection {
+// type Item = WidgetSourceData;
+// type IntoIter = std::vec::IntoIter<WidgetSourceData>;
+
+// fn to_events(self) -> std::vec::IntoIter<Event> {
+// match self {
+// MdSection::Header(text, tier) => vec![
+// Event::Parsed((), ())
+// WidgetSourceData::Header(text, tier)].into_iter(),
+// MdSection::Image(alt, url) => vec![WidgetSourceData::Image(alt, url)].into_iter(),
+// MdSection::Markdown(spans) => {
+// let mut lines = Vec::new();
+//
+// let mut offset = 0;
+// for span in spans {}
+//
+// lines.into_iter()
+// }
+// }
+// }
+// }
+
 fn node_to_spans(
     node: Node,
     source: &str,
@@ -278,8 +506,8 @@ fn node_to_spans(
     depth: usize,
 ) -> Vec<MdSpan> {
     let kind = node.kind();
-    // print!("{}", String::from("  ").repeat(depth));
-    // println!("{kind} - {}", &source[node.byte_range()]);
+    print!("{}", String::from("  ").repeat(depth));
+    println!("{kind} - `{}`", &source[node.byte_range()]);
 
     if kind.contains("delimiter") {
         return vec![];
@@ -292,6 +520,7 @@ fn node_to_spans(
         "[" | "]" | "(" | ")" => (style.fg(Color::Indexed(237)), extra),
         "link_text" => (style.fg(Color::Indexed(4)), extra),
         "inline_link" => (style, extra.union(MdModifier::Link)),
+        "image" => (style, extra.union(MdModifier::Image)),
         "link_destination" => {
             // don't go deeper, it just has the URL parts
             // although we could highlight the parts
@@ -457,7 +686,7 @@ fn send_event(id: &mut usize, ev: Event) -> Event {
 mod tests {
     use crate::{
         markdown::{
-            MdDocument, MdParser,
+            MdDocument, MdParser, MdSection,
             links::{COLOR_DECOR, COLOR_LINK, COLOR_TEXT},
         },
         *,
@@ -474,8 +703,15 @@ mod tests {
     ) -> Vec<Event> {
         let mut parser = MdParser::default();
 
-        MdDocument::new(document_id, text, &mut parser)
+        let sections: Vec<MdSection> = MdDocument::new(document_id, text, &mut parser)
             .iter()
+            .collect();
+        let mut source_id = 0;
+        sections
+            .into_iter()
+            .flat_map(|section| {
+                section.to_sources(document_id, width, has_text_size_protocol, &mut source_id)
+            })
             .collect()
     }
 
