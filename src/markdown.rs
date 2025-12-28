@@ -5,12 +5,13 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
 };
+use textwrap::{Options, wrap};
 use tree_sitter::{Node, Parser, Tree, TreeCursor};
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     DocumentId, Event, WidgetSource,
-    widget_sources::{LineExtra, WidgetSourceData},
+    widget_sources::{BigText, LineExtra, WidgetSourceData},
 };
 
 pub struct MdParser(Parser);
@@ -59,7 +60,7 @@ impl MdDocument {
         let mut source_id = 0;
         self.iter()
             .flat_map(|section| {
-                section.into_sources(document_id, width, has_text_size_protocol, &mut source_id)
+                section.into_events(document_id, width, has_text_size_protocol, &mut source_id)
             })
             .collect()
     }
@@ -181,9 +182,6 @@ impl<'a> MdIterator<'a> {
                     MdModifier::default(),
                     0,
                 );
-                for span in &mdspans {
-                    println!("SPAN: {span:?}");
-                }
                 Some(MdSection::Markdown(mdspans))
             }
             "atx_heading" => {
@@ -216,6 +214,7 @@ bitflags! {
         const Link = 1 << 0;
         const LinkURL = 1 << 1;
         const Image = 1 << 2;
+        const NewLine = 1 << 3;
     }
 }
 
@@ -245,10 +244,10 @@ impl From<MdSpan> for Span<'static> {
 pub enum MdSection {
     Header(String, u8),
     Markdown(Vec<MdSpan>),
-    Image(String, String),
+    Image(String, String), // TODO used?
 }
 impl MdSection {
-    fn into_sources(
+    fn into_events(
         self,
         document_id: DocumentId,
         width: u16,
@@ -258,14 +257,25 @@ impl MdSection {
         match self {
             MdSection::Header(text, tier) => {
                 if has_text_size_protocol {
-                    vec![Event::Parsed(
-                        document_id,
-                        WidgetSource {
-                            id: MdSection::incr_source_id(source_id),
-                            height: 2,
-                            data: WidgetSourceData::Header(text, tier),
-                        },
-                    )]
+                    let (n, d) = BigText::size_ratio(tier);
+                    let scaled_with = width as usize / 2 * usize::from(d) / usize::from(n);
+                    let options = Options::new(scaled_with)
+                        .break_words(true) // break long words/URLs if they exceed width
+                        .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation); // no hyphens when breaking
+                    let lines = wrap(&text, options);
+                    lines
+                        .iter()
+                        .map(|line| {
+                            Event::Parsed(
+                                document_id,
+                                WidgetSource {
+                                    id: MdSection::incr_source_id(source_id),
+                                    height: 2,
+                                    data: WidgetSourceData::Header(line.to_string(), tier),
+                                },
+                            )
+                        })
+                        .collect()
                 } else {
                     vec![Event::ParseHeader(
                         document_id,
@@ -295,18 +305,21 @@ impl MdSection {
                     starts_with_newline: bool,
                     had_image: &mut Option<String>,
                 ) {
-                    // let is_single_span = spans.len() == 1;
                     if starts_with_newline && let Some(span) = spans.get_mut(0) {
-                        // if had_image {
-                        // had_image = false;
-                        // println!("starts_with_newline: {}", span.content);
-                        // }
                         span.content = span.content.chars().skip(1).collect();
                     }
+                    // println!("push_line");
+                    // for span in spans.iter() {
+                    // println!("  span: {span:?}");
+                    // }
                     let line = Line::from(std::mem::take(spans));
+                    // println!("push_line line");
+                    // for span in &line.spans {
+                    // println!("  span: {span:?}");
+                    // }
                     if let Some(url) = had_image.take() {
                         // *had_image = None;
-                        println!("image: {url:?}");
+                        // println!("image: {url:?}");
                         line_events.push(Event::ParseImage(
                             document_id,
                             MdSection::incr_source_id(source_id),
@@ -334,15 +347,15 @@ impl MdSection {
 
                 for mdspan in mdspans {
                     let span_width = mdspan.content.width();
-                    let is_overflow = line_width + span_width as u16 > width;
-                    let starts_with_newline = mdspan
-                        .content
-                        .chars()
-                        .next()
-                        .map(|c| c == '\n')
-                        .unwrap_or_default();
-                    if is_overflow || starts_with_newline {
+                    let would_overflow = line_width + span_width as u16 > width;
+                    let starts_with_newline = mdspan.extra.contains(MdModifier::NewLine);
+                    if would_overflow || starts_with_newline {
+                        println!(
+                            "is_overflow {would_overflow} / starts_with_newline {starts_with_newline}"
+                        );
+                        // push spans before this one into a line
                         line_width = 0;
+                        println!("push line: {spans:?}");
                         push_line(
                             &mut line_events,
                             document_id,
@@ -352,14 +365,6 @@ impl MdSection {
                             starts_with_newline,
                             &mut had_image,
                         );
-                        // line_events.push(Event::Parsed(
-                        // document_id,
-                        // WidgetSource {
-                        // id: MdSection::incr_source_id(source_id),
-                        // height: 1,
-                        // data: WidgetSourceData::Line(line, std::mem::take(&mut extras)),
-                        // },
-                        // ));
                         link_offset = 0;
                     }
 
@@ -378,6 +383,7 @@ impl MdSection {
                     }
                     link_offset += span_width as u16;
                     line_width += span_width as u16;
+                    println!("next: {mdspan:?}");
                     let span: Span<'static> = mdspan.into();
                     spans.push(span);
                 }
@@ -389,6 +395,7 @@ impl MdSection {
                         .next()
                         .map(|c| c == '\n')
                         .unwrap_or_default();
+                    println!("push remaining: {span}");
                     push_line(
                         &mut line_events,
                         document_id,
@@ -399,6 +406,7 @@ impl MdSection {
                         &mut had_image,
                     );
                 }
+                debug_assert!(spans.len() == 0, "used up all spans");
 
                 line_events
 
@@ -483,11 +491,15 @@ fn node_to_spans(
     };
 
     if node.child_count() == 0 {
-        return vec![MdSpan::new(
-            source[node.byte_range()].to_owned(),
-            style,
-            extra,
-        )];
+        let (extra, content) = if source.as_bytes()[node.start_byte()] == b'\n' {
+            (
+                extra.union(MdModifier::NewLine),
+                source[node.start_byte() + 1..node.end_byte()].to_owned(),
+            )
+        } else {
+            (extra, source[node.byte_range()].to_owned())
+        };
+        return vec![MdSpan::new(content, style, extra)];
     }
 
     let mut spans = Vec::new();
@@ -536,15 +548,8 @@ mod tests {
         has_text_size_protocol: bool,
     ) -> Vec<Event> {
         let mut parser = MdParser::default();
-
-        let sections: Vec<MdSection> = MdDocument::new(text, &mut parser).iter().collect();
-        let mut source_id = 0;
-        sections
-            .into_iter()
-            .flat_map(|section| {
-                section.into_sources(document_id, width, has_text_size_protocol, &mut source_id)
-            })
-            .collect()
+        let doc = MdDocument::new(text, &mut parser);
+        doc.parse(document_id, width, has_text_size_protocol)
     }
 
     #[test]
