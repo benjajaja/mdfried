@@ -15,7 +15,7 @@ use tokio::{runtime::Builder, sync::RwLock};
 use crate::{
     Cmd, Event,
     error::Error,
-    markdown::{MdDocument, MdParser, parse},
+    markdown::{MdDocument, MdParser},
     setup::{BgColor, FontRenderer},
     widget_sources::{WidgetSource, header_images, header_sources, image_source},
 };
@@ -57,7 +57,7 @@ pub fn worker_thread(
                         event_tx.send(Event::NewDocument(document_id))?;
                         let mut last_parsed_source_id = None;
                         let doc = MdDocument::new(document_id, text, &mut parser);
-                        for event in doc.iter()
+                        for event in doc.parse()
                         // for event in parse(text, &skin, document_id, width, has_text_size_protocol)
                         {
                             match &event {

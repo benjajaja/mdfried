@@ -1831,6 +1831,7 @@ dependencies = [
 name = "mdfried"
 version = "0.17.4"
 dependencies = [
+ "bitflags 2.10.0",
  "clap",
  "color-eyre",
  "confy",

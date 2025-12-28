@@ -20,6 +20,7 @@ chafa-dyn = ["ratatui-image/chafa-dyn"] # for distribution
 chafa-static = ["ratatui-image/chafa-static"] # for building a static binary with musl
 
 [dependencies]
+bitflags = "2.10.0"
 color-eyre = "0.6.5"
 clap = { version = "4.5.21", features = ["cargo", "derive"] }
 confy = "0.6.1"
