@@ -1,20 +1,16 @@
-mod blocks;
 mod links;
 
 use bitflags::bitflags;
-use color_eyre::SectionExt;
 use ratatui::{
-    style::{Color, Modifier, Style, Stylize},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
 };
-use ratskin::RatSkin;
 use tree_sitter::{Node, Parser, Tree, TreeCursor};
-use unicode_width::UnicodeWidthStr;
+use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     DocumentId, Event, WidgetSource,
-    markdown::blocks::{Block, split_headers_and_images},
-    widget_sources::{BigText, LineExtra, WidgetSourceData},
+    widget_sources::{LineExtra, WidgetSourceData},
 };
 
 pub struct MdParser(Parser);
@@ -30,19 +26,14 @@ impl Default for MdParser {
 }
 
 pub struct MdDocument {
-    document_id: DocumentId,
     source: String,
     tree: Tree,
 }
 
 impl MdDocument {
-    pub fn new(document_id: DocumentId, source: String, parser: &mut MdParser) -> Self {
+    pub fn new(source: String, parser: &mut MdParser) -> Self {
         let tree = parser.0.parse(&source, None).unwrap();
-        Self {
-            document_id,
-            source,
-            tree,
-        }
+        Self { source, tree }
     }
 
     pub fn iter(&self) -> MdIterator<'_> {
@@ -52,12 +43,10 @@ impl MdDocument {
             .unwrap();
 
         MdIterator {
-            document_id: self.document_id,
             source: &self.source,
             cursor: self.tree.walk(),
             done: false,
             inline_parser,
-            id: -1,
         }
     }
 
@@ -70,19 +59,17 @@ impl MdDocument {
         let mut source_id = 0;
         self.iter()
             .flat_map(|section| {
-                section.to_sources(document_id, width, has_text_size_protocol, &mut source_id)
+                section.into_sources(document_id, width, has_text_size_protocol, &mut source_id)
             })
             .collect()
     }
 }
 
 pub struct MdIterator<'a> {
-    document_id: DocumentId,
     source: &'a str,
     cursor: TreeCursor<'a>,
     done: bool,
     inline_parser: Parser,
-    id: i32,
 }
 
 impl Iterator for MdIterator<'_> {
@@ -120,25 +107,7 @@ impl Iterator for MdIterator<'_> {
 }
 
 impl<'a> MdIterator<'a> {
-    fn parsed(&mut self, height: u16, data: WidgetSourceData) -> Event {
-        self.id += 1;
-        let id = self.id;
-        Event::Parsed(
-            self.document_id,
-            WidgetSource {
-                id: id as usize,
-                height,
-                data,
-            },
-        )
-    }
-
-    fn image(&mut self, url: String, text: String, title: String) -> Event {
-        self.id += 1;
-        let id = self.id;
-        Event::ParseImage(self.document_id, id as usize, url, text, title)
-    }
-
+    #[expect(clippy::string_slice)] // In tree-sitter we trust
     fn parse_node(&mut self, node: Node<'a>) -> Option<MdSection> {
         match node.kind() {
             "paragraph" => {
@@ -149,6 +118,7 @@ impl<'a> MdIterator<'a> {
                 if children.len() == 1 {
                     // Try to catch paragraphs with only a single image.
                     // Horrible, yes, rip out later and improve to catch all images.
+                    #[expect(clippy::unwrap_used)] // len check above
                     let node = children.next().unwrap();
                     if node.kind() == "inline" {
                         let inline_source = &self.source[node.byte_range()];
@@ -158,10 +128,11 @@ impl<'a> MdIterator<'a> {
                                 let cursor = &mut inline_root.walk();
                                 let mut children = inline_root.children(cursor);
                                 if children.len() == 1 {
+                                    #[expect(clippy::unwrap_used)] // len check above
                                     let inline_node = children.next().unwrap();
                                     if inline_node.kind() == "image" {
-                                        let mut image_description: &str = "";
-                                        let mut link_destination: &str = "";
+                                        let mut image_description = "";
+                                        let mut link_destination = "";
                                         for child in inline_node.children(&mut inline_node.walk()) {
                                             match child.kind() {
                                                 "image_description" => {
@@ -213,29 +184,11 @@ impl<'a> MdIterator<'a> {
                 for span in &mdspans {
                     println!("SPAN: {span:?}");
                 }
-                return Some(MdSection::Markdown(mdspans));
-                // let mut spans = Vec::new();
-                // let mut extras = Vec::new();
-                // let mut link_offset = 0; // TODO this sucks
-                // for mdspan in mdspans {
-                // if mdspan.extra.contains(MdModifier::LinkURL) {
-                // let url = mdspan.content.clone();
-                // let url_width = url.width();
-                // extras.push(LineExtra::Link(
-                // url,
-                // link_offset,
-                // link_offset + (url_width as u16),
-                // ));
-                // }
-                // link_offset += mdspan.content.width() as u16;
-                // let span = mdspan.into();
-                // spans.push(span);
-                // }
-                // return Some(self.parsed(1, WidgetSourceData::Line(Line::from(spans), extras)));
+                Some(MdSection::Markdown(mdspans))
             }
             "atx_heading" => {
                 let mut tier = 0;
-                let mut text: &str = "";
+                let mut text = "";
                 for child in node.children(&mut node.walk()) {
                     match child.kind() {
                         "inline" => text = &self.source[child.byte_range()],
@@ -246,16 +199,13 @@ impl<'a> MdIterator<'a> {
                         "atx_h5_marker" => tier = 5,
                         "atx_h6_marker" => tier = 6,
                         _ => {
-                            debug_assert!(false);
+                            debug_assert!(false, "heading greater than 6");
                         }
                     }
                 }
-                return Some(MdSection::Header(text.to_owned(), tier));
-                // return Some(self.parsed(2, WidgetSourceData::Header(text.to_owned(), tier)));
+                Some(MdSection::Header(text.to_owned(), tier))
             }
-            _ => {
-                return None;
-            }
+            _ => None,
         }
     }
 }
@@ -298,7 +248,7 @@ pub enum MdSection {
     Image(String, String),
 }
 impl MdSection {
-    fn to_sources(
+    fn into_sources(
         self,
         document_id: DocumentId,
         width: u16,
@@ -384,7 +334,7 @@ impl MdSection {
 
                 for mdspan in mdspans {
                     let span_width = mdspan.content.width();
-                    let is_overflow = line_width as u16 + span_width as u16 > width;
+                    let is_overflow = line_width + span_width as u16 > width;
                     let starts_with_newline = mdspan
                         .content
                         .chars()
@@ -432,10 +382,8 @@ impl MdSection {
                     spans.push(span);
                 }
 
-                if !spans.is_empty() {
-                    let starts_with_newline = spans
-                        .get(0)
-                        .unwrap()
+                if let Some(span) = spans.first() {
+                    let starts_with_newline = span
                         .content
                         .chars()
                         .next()
@@ -498,6 +446,7 @@ impl MdSection {
 // }
 // }
 
+#[expect(clippy::string_slice)] // Let's hope tree-sitter is right
 fn node_to_spans(
     node: Node,
     source: &str,
@@ -525,7 +474,7 @@ fn node_to_spans(
             // don't go deeper, it just has the URL parts
             // although we could highlight the parts
             return vec![MdSpan::new(
-                source[node.byte_range()].to_string(),
+                source[node.byte_range()].to_owned(),
                 style.fg(Color::Indexed(32)).underlined(),
                 extra.union(MdModifier::LinkURL),
             )];
@@ -535,7 +484,7 @@ fn node_to_spans(
 
     if node.child_count() == 0 {
         return vec![MdSpan::new(
-            source[node.byte_range()].to_string(),
+            source[node.byte_range()].to_owned(),
             style,
             extra,
         )];
@@ -547,7 +496,7 @@ fn node_to_spans(
     for child in node.children(&mut node.walk()) {
         if child.start_byte() > pos {
             spans.push(MdSpan::new(
-                source[pos..child.start_byte()].to_string(),
+                source[pos..child.start_byte()].to_owned(),
                 style,
                 extra,
             ));
@@ -558,128 +507,13 @@ fn node_to_spans(
 
     if pos < node.end_byte() {
         spans.push(MdSpan::new(
-            source[pos..node.end_byte()].to_string(),
+            source[pos..node.end_byte()].to_owned(),
             style,
             extra,
         ));
     }
 
     spans
-}
-
-pub fn parse_old(
-    text: &str,
-    skin: &RatSkin,
-    document_id: DocumentId,
-    width: u16,
-    has_text_size_protocol: bool,
-) -> impl Iterator<Item = Event> {
-    let mut id = 0;
-
-    let blocks = split_headers_and_images(text);
-
-    let mut needs_space = false;
-
-    blocks.into_iter().flat_map(move |block| {
-        let mut events = Vec::new();
-        if needs_space {
-            // Send a newline after things like Markdowns and Images, but not after the last block.
-            events = vec![send_parsed(
-                document_id,
-                &mut id,
-                WidgetSourceData::Line(Line::default(), Vec::new()),
-                1,
-            )];
-        }
-
-        match block {
-            Block::Header(tier, text) => {
-                needs_space = false;
-                if has_text_size_protocol {
-                    let (n, d) = BigText::size_ratio(tier);
-                    let scaled_with = width / 2 * u16::from(d) / u16::from(n);
-
-                    // Leverage ratskin/termimad's line-wrapping feature.
-                    // TODO: this is probably inefficient, find something else that simply
-                    // word-wraps.
-                    let madtext = RatSkin::parse_text(&text);
-                    for line in skin.parse(madtext, scaled_with) {
-                        let text = line.to_string();
-                        events.push(send_parsed(
-                            document_id,
-                            &mut id,
-                            WidgetSourceData::Header(text, tier),
-                            2,
-                        ));
-                    }
-                } else {
-                    let event = Event::ParseHeader(document_id, id, tier, text);
-                    events.push(send_event(&mut id, event));
-                }
-            }
-            Block::Image(alt, url) => {
-                needs_space = true;
-                let event = Event::ParseImage(document_id, id, url, alt, String::new());
-                events.push(send_event(&mut id, event));
-            }
-            Block::Paragraph(text) => {
-                needs_space = true;
-                let madtext = RatSkin::parse_text(&text);
-
-                for line in skin.parse(madtext, width) {
-                    let (line, links) = links::capture_line(line, &text, width);
-
-                    events.push(send_parsed(
-                        document_id,
-                        &mut id,
-                        WidgetSourceData::Line(line, links),
-                        1,
-                    ));
-                }
-            }
-            Block::FencedCodeBlock(text) => {
-                // TODO: do something cool, like syntax highlighing
-                needs_space = true;
-                let madtext = RatSkin::parse_text(&text);
-
-                for line in skin.parse(madtext, width) {
-                    let (line, links) = links::capture_line(line, &text, width);
-
-                    events.push(send_parsed(
-                        document_id,
-                        &mut id,
-                        WidgetSourceData::Line(line, links),
-                        1,
-                    ));
-                }
-            }
-        }
-        events
-    })
-}
-
-fn send_parsed(
-    document_id: DocumentId,
-    id: &mut usize,
-    data: WidgetSourceData,
-    height: u16,
-) -> Event {
-    send_event(
-        id,
-        Event::Parsed(
-            document_id,
-            WidgetSource {
-                id: *id,
-                height,
-                data,
-            },
-        ),
-    )
-}
-
-fn send_event(id: &mut usize, ev: Event) -> Event {
-    *id += 1;
-    ev
 }
 
 #[cfg(test)]
@@ -703,14 +537,12 @@ mod tests {
     ) -> Vec<Event> {
         let mut parser = MdParser::default();
 
-        let sections: Vec<MdSection> = MdDocument::new(document_id, text, &mut parser)
-            .iter()
-            .collect();
+        let sections: Vec<MdSection> = MdDocument::new(text, &mut parser).iter().collect();
         let mut source_id = 0;
         sections
             .into_iter()
             .flat_map(|section| {
-                section.to_sources(document_id, width, has_text_size_protocol, &mut source_id)
+                section.into_sources(document_id, width, has_text_size_protocol, &mut source_id)
             })
             .collect()
     }
@@ -745,7 +577,7 @@ mod tests {
     #[test]
     fn parse_link() {
         let events: Vec<Event> = parse(
-            "[text](http://link.com)".to_string(),
+            "[text](http://link.com)".to_owned(),
             &RatSkin::default(),
             DocumentId::default(),
             80,
@@ -775,7 +607,7 @@ mod tests {
     #[test]
     fn parse_long_link() {
         let events: Vec<Event> = parse(
-            "[text](http://link.com/veeeeeeeeeeeeeeeeery/long/tail)".to_string(),
+            "[text](http://link.com/veeeeeeeeeeeeeeeeery/long/tail)".to_owned(),
             &RatSkin::default(),
             DocumentId::default(),
             30,
@@ -823,7 +655,7 @@ mod tests {
     #[test]
     fn parse_long_linebroken_link() {
         let events: Vec<Event> = parse(
-            "[a b](http://link.com/veeeeeeeeeeeeeeeeery/long/tail)".to_string(),
+            "[a b](http://link.com/veeeeeeeeeeeeeeeeery/long/tail)".to_owned(),
             &RatSkin::default(),
             DocumentId::default(),
             30,
@@ -934,7 +766,7 @@ mod tests {
     #[test]
     fn parse_multiple_links_same_line() {
         let events: Vec<Event> = parse(
-            "http://a.com http://b.com".to_string(),
+            "http://a.com http://b.com".to_owned(),
             &RatSkin::default(),
             DocumentId::default(),
             80,
@@ -973,7 +805,7 @@ mod tests {
     #[test]
     fn parse_header_wrapping_tier_1() {
         let events: Vec<Event> = parse(
-            "# 1234567890".to_string(),
+            "# 1234567890".to_owned(),
             &RatSkin::default(),
             DocumentId::default(),
             10,
@@ -1011,7 +843,7 @@ mod tests {
     #[test]
     fn parse_header_wrapping_tier_4() {
         let events: Vec<Event> = parse(
-            "#### 1234567890".to_string(),
+            "#### 1234567890".to_owned(),
             &RatSkin::default(),
             DocumentId::default(),
             10,
