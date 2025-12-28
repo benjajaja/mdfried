@@ -175,13 +175,33 @@ impl<'a> MdIterator<'a> {
                     // ));
                 };
 
-                let mdspans = node_to_spans(
+                let mdspans = inline_node_to_spans(
                     tree.root_node(),
                     text,
                     Style::default(),
                     MdModifier::default(),
                     0,
                 );
+                let mdspans = mdspans
+                    .iter()
+                    .flat_map(|mdspan| {
+                        let mut first = true;
+                        mdspan
+                            .content
+                            .split('\n')
+                            .map(|part| MdSpan {
+                                content: part.to_owned(),
+                                style: mdspan.style,
+                                extra: if first {
+                                    first = false;
+                                    mdspan.extra
+                                } else {
+                                    mdspan.extra.union(MdModifier::NewLine)
+                                },
+                            })
+                            .collect::<Vec<MdSpan>>()
+                    })
+                    .collect();
                 Some(MdSection::Markdown(mdspans))
             }
             "atx_heading" => {
@@ -305,9 +325,9 @@ impl MdSection {
                     starts_with_newline: bool,
                     had_image: &mut Option<String>,
                 ) {
-                    if starts_with_newline && let Some(span) = spans.get_mut(0) {
-                        span.content = span.content.chars().skip(1).collect();
-                    }
+                    // if starts_with_newline && let Some(span) = spans.get_mut(0) {
+                    // span.content = span.content.chars().skip(1).collect();
+                    // }
                     // println!("push_line");
                     // for span in spans.iter() {
                     // println!("  span: {span:?}");
@@ -349,13 +369,16 @@ impl MdSection {
                     let span_width = mdspan.content.width();
                     let would_overflow = line_width + span_width as u16 > width;
                     let starts_with_newline = mdspan.extra.contains(MdModifier::NewLine);
+                    // if starts_with_newline {
+                    // panic!("yes");
+                    // }
                     if would_overflow || starts_with_newline {
-                        println!(
-                            "is_overflow {would_overflow} / starts_with_newline {starts_with_newline}"
-                        );
+                        // println!(
+                        // "is_overflow {would_overflow} / starts_with_newline {starts_with_newline}"
+                        // );
                         // push spans before this one into a line
                         line_width = 0;
-                        println!("push line: {spans:?}");
+                        // println!("push line: {spans:?}");
                         push_line(
                             &mut line_events,
                             document_id,
@@ -383,7 +406,7 @@ impl MdSection {
                     }
                     link_offset += span_width as u16;
                     line_width += span_width as u16;
-                    println!("next: {mdspan:?}");
+                    // println!("next: {mdspan:?}");
                     let span: Span<'static> = mdspan.into();
                     spans.push(span);
                 }
@@ -395,7 +418,7 @@ impl MdSection {
                         .next()
                         .map(|c| c == '\n')
                         .unwrap_or_default();
-                    println!("push remaining: {span}");
+                    // println!("push remaining: {span}");
                     push_line(
                         &mut line_events,
                         document_id,
@@ -455,7 +478,7 @@ impl MdSection {
 // }
 
 #[expect(clippy::string_slice)] // Let's hope tree-sitter is right
-fn node_to_spans(
+fn inline_node_to_spans(
     node: Node,
     source: &str,
     style: Style,
@@ -463,10 +486,12 @@ fn node_to_spans(
     depth: usize,
 ) -> Vec<MdSpan> {
     let kind = node.kind();
-    print!("{}", String::from("  ").repeat(depth));
-    println!("{kind} - `{}`", &source[node.byte_range()]);
+    // print!("{}", String::from("  ").repeat(depth));
+    // println!("{kind} - `{}`", &source[node.byte_range()]);
 
     if kind.contains("delimiter") {
+        // print!("{}", String::from("  ").repeat(depth));
+        // println!("delimiter - early return");
         return vec![];
     }
 
@@ -482,6 +507,7 @@ fn node_to_spans(
             // don't go deeper, it just has the URL parts
             // although we could highlight the parts
             return vec![MdSpan::new(
+                // this also assumes no newline at beginning here
                 source[node.byte_range()].to_owned(),
                 style.fg(Color::Indexed(32)).underlined(),
                 extra.union(MdModifier::LinkURL),
@@ -490,20 +516,22 @@ fn node_to_spans(
         _ => (style, extra),
     };
 
+    let (extra, newline_offset) = if source.as_bytes()[node.start_byte()] == b'\n' {
+        (extra.union(MdModifier::NewLine), 1)
+    } else {
+        (extra, 0)
+    };
+
     if node.child_count() == 0 {
-        let (extra, content) = if source.as_bytes()[node.start_byte()] == b'\n' {
-            (
-                extra.union(MdModifier::NewLine),
-                source[node.start_byte() + 1..node.end_byte()].to_owned(),
-            )
-        } else {
-            (extra, source[node.byte_range()].to_owned())
-        };
-        return vec![MdSpan::new(content, style, extra)];
+        return vec![MdSpan::new(
+            source[newline_offset + node.start_byte()..node.end_byte()].to_owned(),
+            style,
+            extra,
+        )];
     }
 
     let mut spans = Vec::new();
-    let mut pos = node.start_byte();
+    let mut pos = node.start_byte() + newline_offset;
 
     for child in node.children(&mut node.walk()) {
         if child.start_byte() > pos {
@@ -513,7 +541,8 @@ fn node_to_spans(
                 extra,
             ));
         }
-        spans.extend(node_to_spans(child, source, style, extra, depth + 1));
+        // A node cannot possible start with \n, so we don't need to pass newline_offset down here.
+        spans.extend(inline_node_to_spans(child, source, style, extra, depth + 1));
         pos = child.end_byte();
     }
 
@@ -881,5 +910,71 @@ mod tests {
         };
         assert_eq!(4, *tier);
         assert_eq!("890", text);
+    }
+
+    #[test]
+    fn long_line_break() {
+        let events: Vec<Event> = parse(
+            "longline1\nlongline2".into(),
+            &RatSkin::default(),
+            DocumentId::default(),
+            10,
+            true,
+        );
+        let expected = vec![
+            Event::Parsed(
+                DocumentId::default(),
+                WidgetSource {
+                    id: 0,
+                    height: 1,
+                    data: WidgetSourceData::Line(
+                        Line::from(vec![Span::from("longline1")]),
+                        Vec::new(),
+                    ),
+                },
+            ),
+            Event::Parsed(
+                DocumentId::default(),
+                WidgetSource {
+                    id: 1,
+                    height: 1,
+                    data: WidgetSourceData::Line(
+                        Line::from(vec![Span::from("longline2")]),
+                        Vec::new(),
+                    ),
+                },
+            ),
+        ];
+        assert_eq!(events, expected);
+    }
+
+    #[test]
+    fn line_break() {
+        let events: Vec<Event> = parse(
+            "line1\nline2".into(),
+            &RatSkin::default(),
+            DocumentId::default(),
+            10,
+            true,
+        );
+        let expected = vec![
+            Event::Parsed(
+                DocumentId::default(),
+                WidgetSource {
+                    id: 0,
+                    height: 1,
+                    data: WidgetSourceData::Line(Line::from(vec![Span::from("line1")]), Vec::new()),
+                },
+            ),
+            Event::Parsed(
+                DocumentId::default(),
+                WidgetSource {
+                    id: 1,
+                    height: 1,
+                    data: WidgetSourceData::Line(Line::from(vec![Span::from("line2")]), Vec::new()),
+                },
+            ),
+        ];
+        assert_eq!(events, expected);
     }
 }
