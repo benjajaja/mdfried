@@ -26,7 +26,7 @@ Big Headers™ make text more readable, and rendering images inline is very conv
 
 # How?
 
-By rendering the headers as [images with ratatui](https://sw.kovidgoyal.net/kitty/text-sizing-protocol/),
+By rendering the headers as [images with ratatui](https://github.com/benjajaja/ratatui-image),
 and using one of several terminal graphics protocols: Sixels, Kitty, or iTerm2.
 The Kitty terminal also implements a [Text Sizing Protocol](https://sw.kovidgoyal.net/kitty/text-sizing-protocol/)
 to directly scale text without needing to render as images!
