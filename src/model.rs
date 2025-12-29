@@ -72,6 +72,7 @@ impl Model {
     }
 
     pub fn reload(&mut self, screen_size: Size) -> Result<(), Error> {
+        self.screen_size = screen_size;
         if let Some(original_file_path) = &self.original_file_path {
             let text = fs::read_to_string(original_file_path)?;
             self.reparse(screen_size, text)?;
@@ -146,6 +147,7 @@ impl Model {
                         continue;
                     }
                     self.sources.trim_last_source(last_source_id);
+                    self.reload_search();
                     had_done = true;
                 }
                 Event::Parsed(document_id, source) => {
@@ -277,6 +279,24 @@ impl Model {
         Ok((had_events, had_done))
     }
 
+    fn reload_search(&mut self) {
+        let old_cursor = std::mem::take(&mut self.cursor);
+        match old_cursor {
+            Cursor::None => {}
+            Cursor::Links(_) => {
+                // TODO: Search state is lost on reparse
+                // and can't be reliably restored after resize
+                // due to possibly different line breaks.
+                // Might be fixed after search over line breaks is implemented.
+            }
+            Cursor::Search(state, _) => {
+                // TODO: See above
+                self.add_searches(Some(&state.needle));
+                self.cursor = Cursor::Search(state, None);
+            }
+        }
+    }
+
     pub fn scroll_by(&mut self, lines: i16) {
         let lines = lines.saturating_mul(self.movement_count.max(1));
         self.movement_count = 0;
@@ -363,9 +383,9 @@ impl Model {
         self.jump_to_pointer();
     }
 
-    pub fn add_searches(&mut self, needle: Option<String>) {
+    pub fn add_searches(&mut self, needle: Option<&str>) {
         let re = needle.and_then(|needle| {
-            RegexBuilder::new(&regex::escape(&needle))
+            RegexBuilder::new(&regex::escape(needle))
                 .case_insensitive(true)
                 .build()
                 .inspect_err(|err| log::error!("{err}"))

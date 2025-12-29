@@ -398,14 +398,22 @@ fn run(
                                     model.add_searches(None);
                                 }
                                 KeyCode::Char(c) => {
-                                    mode.needle.push(c);
-                                    let needle = mode.needle.clone();
-                                    model.add_searches(Some(needle));
+                                    let mut needle = std::mem::take(&mut mode.needle);
+                                    needle.push(c);
+                                    model.add_searches(Some(&needle));
+                                    let Cursor::Search(mode, _) = &mut model.cursor else {
+                                        unreachable!("model.add_searches should not modify cursor");
+                                    };
+                                    mode.needle = needle;
                                 }
                                 KeyCode::Backspace => {
-                                    mode.needle.pop();
-                                    let needle = mode.needle.clone();
-                                    model.add_searches(Some(needle));
+                                    let mut needle = std::mem::take(&mut mode.needle);
+                                    needle.pop();
+                                    model.add_searches(Some(&needle));
+                                    let Cursor::Search(mode, _) = &mut model.cursor else {
+                                        unreachable!("model.add_searches should not modify cursor");
+                                    };
+                                    mode.needle = needle;
                                 }
                                 KeyCode::Esc if model.movement_count == 0 => {
                                     model.cursor = Cursor::None;
