@@ -29,6 +29,7 @@ pub enum Error {
     Thread(String),
     UnknownImage(usize, String),
     Notify(notify::Error),
+    MarkdownParse,
     // Do not overuse this one!
     Generic(String),
 }
@@ -58,6 +59,7 @@ impl fmt::Display for Error {
             Error::UnknownImage(_, url) => write!(f, "Unknown image format: {url}"),
             Error::Notify(err) => write!(f, "Watch error: {err}"),
             Error::Generic(msg) => write!(f, "Generic error: {msg}"),
+            Error::MarkdownParse => write!(f, "Markdown parsing failed"),
         }
     }
 }

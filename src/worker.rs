@@ -78,7 +78,7 @@ pub fn worker_thread(
             let thread_renderer =
                 renderer.map(|renderer| Arc::new(std::sync::Mutex::new(renderer)));
             let thread_picker = Arc::new(picker);
-            let mut parser = MdParser::default();
+            let mut parser = MdParser::new()?;
 
             for cmd in cmd_rx {
                 log::debug!("Cmd: {cmd}");
@@ -87,7 +87,7 @@ pub fn worker_thread(
                         log::info!("Parse {document_id}");
 
                         event_tx.send(Event::NewDocument(document_id))?;
-                        let doc = MdDocument::new(text, &mut parser);
+                        let doc = MdDocument::new(text, &mut parser)?;
                         let mut source_id = None;
                         for event in doc.iter().flat_map(|section| {
                             section_into_events(
@@ -179,7 +179,7 @@ pub fn post_incr_source_id(source_id: &mut Option<usize>) -> usize {
         0
     } else {
         *source_id = source_id.map(|id| id + 1);
-        source_id.unwrap()
+        source_id.unwrap_or_default()
     }
 }
 
@@ -302,7 +302,7 @@ fn wrap_md_spans(
             width,
         );
     }
-    debug_assert!(spans.len() == 0, "used up all spans");
+    debug_assert!(spans.is_empty(), "used up all spans");
 
     line_events
 }
@@ -330,7 +330,7 @@ fn carriage_return(
             .iter()
             .map(|part| {
                 let mut part_span = Span::from(part.to_string());
-                part_span.style = span.style.clone();
+                part_span.style = span.style;
                 // println!("part : {}", part);
                 // println!("part width: {}", part.width());
                 part_span
@@ -338,7 +338,7 @@ fn carriage_return(
             .collect();
         // println!("parts: {part_spans:?}");
 
-        let last_index = part_spans.len().checked_sub(1).unwrap_or(0);
+        let last_index = part_spans.len().saturating_sub(1);
         let mut last_line = Line::default();
         for (i, part_span) in part_spans.into_iter().enumerate() {
             if i != last_index {
@@ -393,9 +393,10 @@ mod tests {
     pub const COLOR_TEXT: Color = Color::Indexed(4);
     pub const COLOR_LINK: Color = Color::Indexed(32);
 
+    #[expect(clippy::unwrap_used)]
     fn parse(text: String, width: u16, has_text_size_protocol: bool) -> Vec<Event> {
-        let mut parser = MdParser::default();
-        let doc = MdDocument::new(text, &mut parser);
+        let mut parser = MdParser::new().unwrap();
+        let doc = MdDocument::new(text, &mut parser).unwrap();
         let mut source_id = None;
         let document_id = DocumentId::default();
         doc.iter()
@@ -602,7 +603,7 @@ mod tests {
         };
         assert_eq!(
             *links,
-            vec![LineExtra::Link("http://ratatui.rs".to_string(), 0, 20)]
+            vec![LineExtra::Link("http://ratatui.rs".to_owned(), 0, 20)]
         );
     }
 

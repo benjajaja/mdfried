@@ -3,15 +3,18 @@ use ratatui::style::{Color, Modifier, Style};
 use tree_sitter::{Node, Parser, Tree, TreeCursor};
 use unicode_width::UnicodeWidthStr;
 
+use crate::error::Error;
+
 pub struct MdParser(Parser);
 
-impl Default for MdParser {
-    fn default() -> Self {
+impl MdParser {
+    pub fn new() -> Result<Self, Error> {
         let mut parser = Parser::new();
         parser
             .set_language(&tree_sitter_md::LANGUAGE.into())
-            .unwrap();
-        Self(parser)
+            .ok()
+            .ok_or(Error::MarkdownParse)?;
+        Ok(Self(parser))
     }
 }
 
@@ -21,13 +24,15 @@ pub struct MdDocument {
 }
 
 impl MdDocument {
-    pub fn new(source: String, parser: &mut MdParser) -> Self {
-        let tree = parser.0.parse(&source, None).unwrap();
-        Self { source, tree }
+    pub fn new(source: String, parser: &mut MdParser) -> Result<Self, Error> {
+        let tree = parser.0.parse(&source, None).ok_or(Error::MarkdownParse)?;
+        Ok(Self { source, tree })
     }
 
     pub fn iter(&self) -> MdIterator<'_> {
         let mut inline_parser = Parser::new();
+
+        #[expect(clippy::unwrap_used)]
         inline_parser
             .set_language(&tree_sitter_md::INLINE_LANGUAGE.into())
             .unwrap();
@@ -239,7 +244,7 @@ fn inline_node_to_spans(
     source: &str,
     style: Style,
     extra: MdModifier,
-    depth: usize,
+    _depth: usize,
 ) -> Vec<MdSpan> {
     let kind = node.kind();
     // print!("{}", String::from("  ").repeat(depth));
@@ -298,7 +303,13 @@ fn inline_node_to_spans(
             ));
         }
         // A node cannot possible start with \n, so we don't need to pass newline_offset down here.
-        spans.extend(inline_node_to_spans(child, source, style, extra, depth + 1));
+        spans.extend(inline_node_to_spans(
+            child,
+            source,
+            style,
+            extra,
+            _depth + 1,
+        ));
         pos = child.end_byte();
     }
 
