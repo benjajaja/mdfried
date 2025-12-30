@@ -1,3 +1,26 @@
+//! Worker
+//!
+//! # Worker pipeline
+//!
+//! # Worker process `Cmd`s
+//!
+//! ## Markdown parse
+//! The markdown module produces a list of `Event`s.
+//!
+//! ## Model `process_events`
+//! From event, either insert line-widget, or send `Cmd` to worker to process an image.
+//!
+//! ## View
+//! Renders line-widgets.
+//!
+//!     Parse
+//!      ↓
+//!     Event → Image
+//!      ↓
+//!     WidgetSource
+//!      ↓
+//!     View
+//!
 use std::{
     path::PathBuf,
     sync::{
