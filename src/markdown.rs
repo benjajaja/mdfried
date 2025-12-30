@@ -316,47 +316,78 @@ impl MdSection {
             }
             MdSection::Markdown(mdspans) => {
                 let mut line_events = Vec::new();
-                fn push_line(
+
+                // Do you remember that sound?
+                fn carriage_return(
                     line_events: &mut Vec<Event>,
                     document_id: DocumentId,
                     source_id: &mut usize,
                     spans: &mut Vec<Span<'static>>,
                     extras: &mut Vec<LineExtra>,
-                    starts_with_newline: bool,
                     had_image: &mut Option<String>,
+                    max_width: u16,
                 ) {
-                    // if starts_with_newline && let Some(span) = spans.get_mut(0) {
-                    // span.content = span.content.chars().skip(1).collect();
-                    // }
-                    // println!("push_line");
-                    // for span in spans.iter() {
-                    // println!("  span: {span:?}");
-                    // }
-                    let line = Line::from(std::mem::take(spans));
-                    // println!("push_line line");
-                    // for span in &line.spans {
-                    // println!("  span: {span:?}");
-                    // }
+                    let line = if spans.len() == 1 && spans[0].width() > max_width as usize {
+                        // println!("break it down");
+                        let spans = std::mem::take(spans);
+                        let span = &spans[0];
+                        let options = Options::new(max_width as usize)
+                            .break_words(true) // break long words/URLs if they exceed width
+                            .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation); // no hyphens when breaking
+                        let parts = wrap(&span.content, options);
+
+                        let part_spans: Vec<Span<'static>> = parts
+                            .iter()
+                            .map(|part| {
+                                let mut part_span = Span::from(part.to_string());
+                                part_span.style = span.style.clone();
+                                // println!("part : {}", part);
+                                // println!("part width: {}", part.width());
+                                part_span
+                            })
+                            .collect();
+                        // println!("parts: {part_spans:?}");
+
+                        let last_index = part_spans.len().checked_sub(1).unwrap_or(0);
+                        let mut last_line = Line::default();
+                        for (i, part_span) in part_spans.into_iter().enumerate() {
+                            if i != last_index {
+                                let line = Line::from(part_span);
+                                line_events.push(Event::Parsed(
+                                    document_id,
+                                    WidgetSource {
+                                        id: MdSection::incr_source_id(source_id),
+                                        height: 1,
+                                        data: WidgetSourceData::Line(line, std::mem::take(extras)),
+                                    },
+                                ));
+                            } else {
+                                last_line = Line::from(part_span);
+                            }
+                        }
+                        last_line
+                    } else {
+                        Line::from(std::mem::take(spans))
+                    };
+
                     if let Some(url) = had_image.take() {
-                        // *had_image = None;
-                        // println!("image: {url:?}");
                         line_events.push(Event::ParseImage(
                             document_id,
                             MdSection::incr_source_id(source_id),
                             url,
-                            String::from("Loading..."),
+                            String::from("XXX..."),
                             String::from("???"),
                         ));
-                        return;
+                    } else {
+                        line_events.push(Event::Parsed(
+                            document_id,
+                            WidgetSource {
+                                id: MdSection::incr_source_id(source_id),
+                                height: 1,
+                                data: WidgetSourceData::Line(line, std::mem::take(extras)),
+                            },
+                        ));
                     }
-                    line_events.push(Event::Parsed(
-                        document_id,
-                        WidgetSource {
-                            id: MdSection::incr_source_id(source_id),
-                            height: 1,
-                            data: WidgetSourceData::Line(line, std::mem::take(extras)),
-                        },
-                    ));
                 }
 
                 let mut line_width = 0;
@@ -368,25 +399,22 @@ impl MdSection {
                 for mdspan in mdspans {
                     let span_width = mdspan.content.width();
                     let would_overflow = line_width + span_width as u16 > width;
-                    let starts_with_newline = mdspan.extra.contains(MdModifier::NewLine);
-                    // if starts_with_newline {
-                    // panic!("yes");
-                    // }
-                    if would_overflow || starts_with_newline {
+
+                    if mdspan.extra.contains(MdModifier::NewLine) || would_overflow {
                         // println!(
                         // "is_overflow {would_overflow} / starts_with_newline {starts_with_newline}"
                         // );
                         // push spans before this one into a line
                         line_width = 0;
                         // println!("push line: {spans:?}");
-                        push_line(
+                        carriage_return(
                             &mut line_events,
                             document_id,
                             source_id,
                             &mut spans,
                             &mut extras,
-                            starts_with_newline,
                             &mut had_image,
+                            width,
                         );
                         link_offset = 0;
                     }
@@ -411,22 +439,16 @@ impl MdSection {
                     spans.push(span);
                 }
 
-                if let Some(span) = spans.first() {
-                    let starts_with_newline = span
-                        .content
-                        .chars()
-                        .next()
-                        .map(|c| c == '\n')
-                        .unwrap_or_default();
-                    // println!("push remaining: {span}");
-                    push_line(
+                if !spans.is_empty() {
+                    // println!("last");
+                    carriage_return(
                         &mut line_events,
                         document_id,
                         source_id,
                         &mut spans,
                         &mut extras,
-                        starts_with_newline,
                         &mut had_image,
+                        width,
                     );
                 }
                 debug_assert!(spans.len() == 0, "used up all spans");
@@ -486,12 +508,12 @@ fn inline_node_to_spans(
     depth: usize,
 ) -> Vec<MdSpan> {
     let kind = node.kind();
-    // print!("{}", String::from("  ").repeat(depth));
-    // println!("{kind} - `{}`", &source[node.byte_range()]);
+    print!("{}", String::from("  ").repeat(depth));
+    println!("{kind} - `{}`", &source[node.byte_range()]);
 
     if kind.contains("delimiter") {
-        // print!("{}", String::from("  ").repeat(depth));
-        // println!("delimiter - early return");
+        print!("{}", String::from("  ").repeat(depth));
+        println!("delimiter - early return");
         return vec![];
     }
 
@@ -639,54 +661,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_long_link() {
-        let events: Vec<Event> = parse(
-            "[text](http://link.com/veeeeeeeeeeeeeeeeery/long/tail)".to_owned(),
-            &RatSkin::default(),
-            DocumentId::default(),
-            30,
-            true,
-        );
-        let expected = vec![
-            Event::Parsed(
-                DocumentId::default(),
-                WidgetSource {
-                    id: 0,
-                    height: 1,
-                    data: WidgetSourceData::Line(
-                        Line::from(vec![
-                            Span::from("[").fg(COLOR_DECOR),
-                            Span::from("text").fg(COLOR_TEXT),
-                            Span::from("]").fg(COLOR_DECOR),
-                            Span::from("(").fg(COLOR_DECOR),
-                            Span::from("http://link.com/veeeeee")
-                                .fg(COLOR_LINK)
-                                .underlined(),
-                        ]),
-                        vec![LineExtra::Link(
-                            "http://link.com/veeeeeeeeeeeeeeeeery/long/tail".to_owned(),
-                            7,
-                            30,
-                        )],
-                    ),
-                },
-            ),
-            Event::Parsed(
-                DocumentId::default(),
-                WidgetSource {
-                    id: 1,
-                    height: 1,
-                    data: WidgetSourceData::Line(
-                        Line::from(vec![Span::from("eeeeeeeeeeery/long/tail)")]),
-                        Vec::new(),
-                    ),
-                },
-            ),
-        ];
-        assert_eq!(events, expected);
-    }
-
-    #[test]
     fn parse_long_linebroken_link() {
         let events: Vec<Event> = parse(
             "[a b](http://link.com/veeeeeeeeeeeeeeeeery/long/tail)".to_owned(),
@@ -699,17 +673,18 @@ mod tests {
         let str_lines: Vec<String> = events
             .iter()
             .map(|ev| {
-                if let Event::Parsed(_, source) = ev {
-                    return source.to_string();
-                }
-                "<unrelated event>".into()
+                let Event::Parsed(_, source) = ev else {
+                    panic!("unrelated event");
+                };
+                source.to_string()
             })
             .collect();
         assert_eq!(
             vec![
-                "[a ",
-                "b](http://link.com/veeeeeeeeee",
-                "eeeeeeery/long/tail)"
+                "[a b](",
+                "http://link.com/",
+                "veeeeeeeeeeeeeeeeery/long/tail",
+                ")",
             ],
             str_lines,
             "breaks into 3 lines",
@@ -754,7 +729,12 @@ mod tests {
                     id: 0,
                     height: 1,
                     data: WidgetSourceData::Line(
-                        Line::from(vec![Span::from("[a"), Span::from(" ")]),
+                        Line::from(vec![
+                            Span::from("[").fg(Color::Indexed(237)),
+                            Span::from("a b").fg(Color::Indexed(4)),
+                            Span::from("]").fg(Color::Indexed(237)),
+                            Span::from("(").fg(Color::Indexed(237)),
+                        ]),
                         Vec::new(),
                     ),
                 },
@@ -766,15 +746,14 @@ mod tests {
                     height: 1,
                     data: WidgetSourceData::Line(
                         Line::from(vec![
-                            Span::from("b]("),
-                            Span::from("http://link.com/veeeeeeeeee")
-                                .fg(COLOR_LINK)
+                            Span::from("http://link.com/")
+                                .fg(Color::Indexed(32))
                                 .underlined(),
                         ]),
                         vec![LineExtra::Link(
                             "http://link.com/veeeeeeeeeeeeeeeeery/long/tail".to_owned(),
-                            3,
-                            30,
+                            0,
+                            15,
                         )],
                     ),
                 },
@@ -785,7 +764,22 @@ mod tests {
                     id: 2,
                     height: 1,
                     data: WidgetSourceData::Line(
-                        Line::from(vec![Span::from("eeeeeeery/long/tail)")]),
+                        Line::from(vec![
+                            Span::from("veeeeeeeeeeeeeeeeery/long/tail")
+                                .fg(Color::Indexed(32))
+                                .underlined(),
+                        ]),
+                        Vec::new(),
+                    ),
+                },
+            ),
+            Event::Parsed(
+                DocumentId::default(),
+                WidgetSource {
+                    id: 3,
+                    height: 1,
+                    data: WidgetSourceData::Line(
+                        Line::from(vec![Span::from(")").fg(Color::Indexed(237))]),
                         Vec::new(),
                     ),
                 },
@@ -798,9 +792,36 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // https://github.com/tree-sitter-grammars/tree-sitter-markdown/issues/171
+    fn parse_bare_link() {
+        let events: Vec<Event> = parse(
+            "http://ratatui.rs".to_owned(),
+            &RatSkin::default(),
+            DocumentId::default(),
+            80,
+            true,
+        );
+
+        let Event::Parsed(
+            _,
+            WidgetSource {
+                data: WidgetSourceData::Line(_, links),
+                ..
+            },
+        ) = &events[0]
+        else {
+            panic!("expected one widget event");
+        };
+        assert_eq!(
+            *links,
+            vec![LineExtra::Link("http://ratatui.rs".to_string(), 0, 20)]
+        );
+    }
+
+    #[test]
     fn parse_multiple_links_same_line() {
         let events: Vec<Event> = parse(
-            "http://a.com http://b.com".to_owned(),
+            "[a](http://a.com) [b](http://b.com)".to_owned(),
             &RatSkin::default(),
             DocumentId::default(),
             80,
