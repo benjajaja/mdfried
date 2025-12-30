@@ -133,7 +133,6 @@ impl WidgetSources {
         if let Some(last) = self.sources.last()
             && last.id == last_source_id
         {
-            log::debug!("no trim needed");
             return;
         }
         if let Some(idx) = self

@@ -1,5 +1,4 @@
 use bitflags::bitflags;
-use ratatui::style::{Color, Modifier, Style};
 use tree_sitter::{Node, Parser, Tree, TreeCursor};
 use unicode_width::UnicodeWidthStr;
 
@@ -30,19 +29,21 @@ impl MdDocument {
     }
 
     pub fn iter(&self) -> MdIterator<'_> {
-        let mut inline_parser = Parser::new();
-
-        #[expect(clippy::unwrap_used)]
-        inline_parser
-            .set_language(&tree_sitter_md::INLINE_LANGUAGE.into())
-            .unwrap();
-
         MdIterator {
             source: &self.source,
             cursor: self.tree.walk(),
             done: false,
-            inline_parser,
+            inline_parser: MdDocument::inline_parser(),
         }
+    }
+
+    pub fn inline_parser() -> Parser {
+        let mut inline_parser = Parser::new();
+        #[expect(clippy::unwrap_used)]
+        inline_parser
+            .set_language(&tree_sitter_md::INLINE_LANGUAGE.into())
+            .unwrap();
+        inline_parser
     }
 }
 
@@ -89,85 +90,17 @@ impl<'a> MdIterator<'a> {
             "paragraph" => {
                 let text = &self.source[node.byte_range()];
 
-                let cursor = &mut node.walk();
-                let mut children = node.children(cursor);
-                if children.len() == 1 {
-                    // Try to catch paragraphs with only a single image.
-                    // Horrible, yes, rip out later and improve to catch all images.
-                    #[expect(clippy::unwrap_used)] // len check above
-                    let node = children.next().unwrap();
-                    if node.kind() == "inline" {
-                        let inline_source = &self.source[node.byte_range()];
-                        if let Some(inline_tree) = self.inline_parser.parse(inline_source, None) {
-                            let inline_root = inline_tree.root_node();
-                            if inline_root.kind() == "inline" {
-                                let cursor = &mut inline_root.walk();
-                                let mut children = inline_root.children(cursor);
-                                if children.len() == 1 {
-                                    #[expect(clippy::unwrap_used)] // len check above
-                                    let inline_node = children.next().unwrap();
-                                    if inline_node.kind() == "image" {
-                                        let mut image_description = "";
-                                        let mut link_destination = "";
-                                        for child in inline_node.children(&mut inline_node.walk()) {
-                                            match child.kind() {
-                                                "image_description" => {
-                                                    image_description =
-                                                        &inline_source[child.byte_range()]
-                                                }
-                                                "link_destination" => {
-                                                    link_destination =
-                                                        &inline_source[child.byte_range()]
-                                                }
-                                                _ => {}
-                                            }
-                                        }
-                                        return Some(MdSection::Image(
-                                            image_description.to_owned(),
-                                            link_destination.to_owned(),
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 let Some(tree) = self.inline_parser.parse(text, None) else {
                     return Some(MdSection::Markdown(vec![MdSpan::new(
                         text.to_owned(),
-                        Style::default(),
                         MdModifier::default(),
                     )]));
                 };
 
-                let mdspans = inline_node_to_spans(
-                    tree.root_node(),
-                    text,
-                    Style::default(),
-                    MdModifier::default(),
-                    0,
-                );
-                let mdspans = mdspans
-                    .iter()
-                    .flat_map(|mdspan| {
-                        let mut first = true;
-                        mdspan
-                            .content
-                            .split('\n')
-                            .map(|part| MdSpan {
-                                content: part.to_owned(),
-                                style: mdspan.style,
-                                extra: if first {
-                                    first = false;
-                                    mdspan.extra
-                                } else {
-                                    mdspan.extra.union(MdModifier::NewLine)
-                                },
-                            })
-                            .collect::<Vec<MdSpan>>()
-                    })
-                    .collect();
+                let mdspans =
+                    inline_node_to_spans(tree.root_node(), text, MdModifier::default(), 0);
+                let mdspans = split_newlines(mdspans);
+                // mdspans.push(MdSpan::new("".to_owned(), MdModifier::NewLine));
                 Some(MdSection::Markdown(mdspans))
             }
             "atx_heading" => {
@@ -196,28 +129,54 @@ impl<'a> MdIterator<'a> {
 
 bitflags! {
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-    pub struct MdModifier: u32 {
-        const Link = 1 << 0;
-        const LinkURL = 1 << 1;
-        const Image = 1 << 2;
-        const NewLine = 1 << 3;
+    pub struct MdModifier: u16 {
+        const Emphasis = 1 << 0;
+        const StrongEmphasis = 1 << 1;
+        const Code = 1 << 2;
+        const Link = 1 << 3;
+        const LinkDescription = 1 << 4;
+        const LinkDescriptionWrapper = 1 << 5;
+        const LinkURL = 1 << 6;
+        const LinkURLWrapper = 1 << 7;
+        const Image = 1 << 8;
+        const NewLine = 1 << 9;
     }
 }
 
 #[derive(Debug, PartialEq)]
 pub struct MdSpan {
     pub content: String,
-    pub style: Style,
     pub extra: MdModifier,
 }
 
 impl MdSpan {
-    fn new(content: String, style: Style, extra: MdModifier) -> Self {
-        MdSpan {
-            content,
-            style,
-            extra,
-        }
+    pub fn new(content: String, extra: MdModifier) -> Self {
+        MdSpan { content, extra }
+    }
+
+    #[cfg(test)]
+    pub fn link(description: &str, url: &str) -> Vec<Self> {
+        vec![
+            Self::new("[".to_owned(), MdModifier::Link),
+            Self::new(description.to_owned(), MdModifier::Link),
+            Self::new("]".to_owned(), MdModifier::Link),
+            Self::new("(".to_owned(), MdModifier::Link),
+            Self::new(url.to_owned(), MdModifier::Link | MdModifier::LinkURL),
+            Self::new(")".to_owned(), MdModifier::Link),
+        ]
+    }
+}
+
+impl From<String> for MdSpan {
+    fn from(value: String) -> Self {
+        Self::new(value, MdModifier::default())
+    }
+}
+
+#[cfg(test)]
+impl From<&str> for MdSpan {
+    fn from(value: &str) -> Self {
+        Self::from(value.to_owned())
     }
 }
 
@@ -235,20 +194,13 @@ impl UnicodeWidthStr for MdSpan {
 pub enum MdSection {
     Header(String, u8),
     Markdown(Vec<MdSpan>),
-    Image(String, String), // TODO used?
 }
 
 #[expect(clippy::string_slice)] // Let's hope tree-sitter is right
-fn inline_node_to_spans(
-    node: Node,
-    source: &str,
-    style: Style,
-    extra: MdModifier,
-    _depth: usize,
-) -> Vec<MdSpan> {
+fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usize) -> Vec<MdSpan> {
     let kind = node.kind();
-    // print!("{}", String::from("  ").repeat(depth));
-    // println!("{kind} - `{}`", &source[node.byte_range()]);
+    // print!(">{}", String::from("  ").repeat(_depth));
+    // println!(" {kind} - `{}`", &source[node.byte_range()]);
 
     if kind.contains("delimiter") {
         // print!("{}", String::from("  ").repeat(depth));
@@ -256,26 +208,28 @@ fn inline_node_to_spans(
         return vec![];
     }
 
-    let (style, extra) = match kind {
-        "emphasis" => (style.add_modifier(Modifier::ITALIC), extra),
-        "strong_emphasis" => (style.add_modifier(Modifier::BOLD), extra),
-        "code_span" => (style.add_modifier(Modifier::DIM), extra),
-        "[" | "]" | "(" | ")" => (style.fg(Color::Indexed(237)), extra),
-        "link_text" => (style.fg(Color::Indexed(4)), extra),
-        "inline_link" => (style, extra.union(MdModifier::Link)),
-        "image" => (style, extra.union(MdModifier::Image)),
+    let current_extra = match kind {
+        "emphasis" => MdModifier::Emphasis,
+        "strong_emphasis" => MdModifier::StrongEmphasis,
+        "code_span" => MdModifier::Code,
+        "[" | "]" => MdModifier::LinkDescriptionWrapper,
+        "(" | ")" => MdModifier::LinkURLWrapper,
+        "link_text" => MdModifier::LinkDescription,
+        "inline_link" => MdModifier::Link,
+        "image" => MdModifier::Image,
         "link_destination" => {
+            // TODO: can we go deeper like usual, now that we skip punctuation?
             // don't go deeper, it just has the URL parts
             // although we could highlight the parts
             return vec![MdSpan::new(
                 // this also assumes no newline at beginning here
                 source[node.byte_range()].to_owned(),
-                style.fg(Color::Indexed(32)).underlined(),
                 extra.union(MdModifier::LinkURL),
             )];
         }
-        _ => (style, extra),
+        _ => MdModifier::default(),
     };
+    let extra = extra.union(current_extra);
 
     let (extra, newline_offset) = if source.as_bytes()[node.start_byte()] == b'\n' {
         (extra.union(MdModifier::NewLine), 1)
@@ -286,7 +240,6 @@ fn inline_node_to_spans(
     if node.child_count() == 0 {
         return vec![MdSpan::new(
             source[newline_offset + node.start_byte()..node.end_byte()].to_owned(),
-            style,
             extra,
         )];
     }
@@ -295,31 +248,195 @@ fn inline_node_to_spans(
     let mut pos = node.start_byte() + newline_offset;
 
     for child in node.children(&mut node.walk()) {
+        if is_punctuation(child.kind(), current_extra) {
+            continue;
+        }
+        let mut ended_with_newline = false;
         if child.start_byte() > pos {
             spans.push(MdSpan::new(
                 source[pos..child.start_byte()].to_owned(),
-                style,
                 extra,
             ));
+            if source.as_bytes()[child.start_byte() - 1] == b'\n' {
+                ended_with_newline = true;
+            }
         }
+        let extra = if ended_with_newline {
+            extra.union(MdModifier::NewLine)
+        } else {
+            extra
+        };
         // A node cannot possible start with \n, so we don't need to pass newline_offset down here.
-        spans.extend(inline_node_to_spans(
-            child,
-            source,
-            style,
-            extra,
-            _depth + 1,
-        ));
+        spans.extend(inline_node_to_spans(child, source, extra, _depth + 1));
         pos = child.end_byte();
     }
 
     if pos < node.end_byte() {
-        spans.push(MdSpan::new(
-            source[pos..node.end_byte()].to_owned(),
-            style,
-            extra,
-        ));
+        spans.push(MdSpan::new(source[pos..node.end_byte()].to_owned(), extra));
     }
 
     spans
+}
+
+#[inline]
+fn is_punctuation(kind: &str, parent_modifier: MdModifier) -> bool {
+    match kind {
+        // ()[], only if *direct* children of Link, should become separate spans.
+        "(" | ")" | "[" | "]" if parent_modifier == MdModifier::Link => false,
+        // Single character punctuation
+        "!" | "\"" | "#" | "$" | "%" | "&" | "'" | "(" | ")" | "*" | "+" | "," | "-" | "."
+        | "/" | ":" | ";" | "<" | "=" | ">" | "?" | "@" | "[" | "\\" | "]" | "^" | "_" | "`"
+        | "{" | "|" | "}" | "~" => true,
+        // Multi-character tokens
+        // "-->" | "<!--" | "<![CDATA[" | "<?" | "?>" | "]]>" => ???
+        // Named delimiter nodes
+        // "code_span_delimiter" | "emphasis_delimiter" | "latex_span_delimiter" => ???
+        _ => false,
+    }
+}
+
+fn split_newlines(mdspans: Vec<MdSpan>) -> Vec<MdSpan> {
+    mdspans
+        .iter()
+        .flat_map(|mdspan| {
+            let mut first = true;
+            mdspan
+                .content
+                .split('\n')
+                .filter_map(|part| {
+                    if part.is_empty() {
+                        first = false;
+                        None
+                    } else {
+                        Some(MdSpan {
+                            content: part.to_owned(),
+                            extra: if first {
+                                first = false;
+                                mdspan.extra
+                            } else {
+                                mdspan.extra.union(MdModifier::NewLine)
+                            },
+                        })
+                    }
+                })
+                .collect::<Vec<MdSpan>>()
+        })
+        .collect()
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn split_no_empty_spans() {
+        let mdspans = split_newlines(vec![
+            MdSpan::new("one line".to_owned(), MdModifier::default()),
+            MdSpan::new(".".to_owned(), MdModifier::default()),
+            MdSpan::new("\nanother line".to_owned(), MdModifier::NewLine),
+            MdSpan::new(".".to_owned(), MdModifier::default()),
+        ]);
+        assert_eq!(
+            mdspans,
+            vec![
+                MdSpan::new("one line".to_owned(), MdModifier::default()),
+                MdSpan::new(".".to_owned(), MdModifier::default()),
+                MdSpan::new("another line".to_owned(), MdModifier::NewLine),
+                MdSpan::new(".".to_owned(), MdModifier::default()),
+            ]
+        );
+
+        let mdspans = split_newlines(vec![
+            MdSpan::new("one line".to_owned(), MdModifier::default()),
+            MdSpan::new("\nanother line".to_owned(), MdModifier::NewLine),
+        ]);
+        assert_eq!(
+            mdspans,
+            vec![
+                MdSpan::new("one line".to_owned(), MdModifier::default()),
+                MdSpan::new("another line".to_owned(), MdModifier::NewLine),
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_node_to_spans_then_split_newlines_simple() {
+        // let mut parser = MdParser::new().unwrap();
+        // let doc =
+        // MdDocument::new("this *is* a test.\nAnother line.".to_owned(), &mut parser).unwrap();
+        let source = "one\ntwo\nthree\n";
+        let tree = MdDocument::inline_parser().parse(source, None).unwrap();
+        let mdspans = inline_node_to_spans(tree.root_node(), source, MdModifier::default(), 0);
+        let mdspans = split_newlines(mdspans);
+        assert_eq!(
+            mdspans,
+            vec![
+                MdSpan::new("one".to_owned(), MdModifier::default()),
+                MdSpan::new("two".to_owned(), MdModifier::NewLine),
+                MdSpan::new("three".to_owned(), MdModifier::NewLine),
+            ]
+        )
+    }
+
+    #[test]
+    fn inline_node_to_spans_then_split_newlines() {
+        let source = "This *is* a test.\nAnother line.";
+        let tree = MdDocument::inline_parser().parse(source, None).unwrap();
+        let mdspans = inline_node_to_spans(tree.root_node(), source, MdModifier::default(), 0);
+        let mdspans = split_newlines(mdspans);
+        assert_eq!(
+            mdspans,
+            vec![
+                MdSpan::new("This ".to_owned(), MdModifier::default()),
+                MdSpan::new("is".to_owned(), MdModifier::Emphasis),
+                MdSpan::new(" a test.".to_owned(), MdModifier::default()),
+                MdSpan::new("Another line.".to_owned(), MdModifier::NewLine),
+            ]
+        )
+    }
+
+    #[test]
+    fn split_newlines_at_styled() {
+        let source = "This\n*is* a test.";
+        let tree = MdDocument::inline_parser().parse(source, None).unwrap();
+        let mdspans = inline_node_to_spans(tree.root_node(), source, MdModifier::default(), 0);
+        let mdspans = split_newlines(mdspans);
+        assert_eq!(
+            mdspans,
+            vec![
+                MdSpan::new("This".to_owned(), MdModifier::default()),
+                MdSpan::new("is".to_owned(), MdModifier::Emphasis | MdModifier::NewLine),
+                MdSpan::new(" a test.".to_owned(), MdModifier::default()),
+            ]
+        )
+    }
+
+    #[test]
+    fn split_newlines_middle() {
+        let source = "hello\nworld";
+        let tree = MdDocument::inline_parser().parse(source, None).unwrap();
+        let mdspans = inline_node_to_spans(tree.root_node(), source, MdModifier::default(), 0);
+        let mdspans = split_newlines(mdspans);
+        assert_eq!(
+            mdspans,
+            vec![
+                MdSpan::new("hello".to_owned(), MdModifier::default()),
+                MdSpan::new("world".to_owned(), MdModifier::NewLine),
+            ]
+        )
+    }
+
+    #[test]
+    fn merges_punctuation() {
+        let source = "one, two.";
+        let tree = MdDocument::inline_parser().parse(source, None).unwrap();
+        let mdspans = inline_node_to_spans(tree.root_node(), source, MdModifier::default(), 0);
+        let mdspans = split_newlines(mdspans);
+        assert_eq!(
+            mdspans,
+            vec![MdSpan::new("one, two.".to_owned(), MdModifier::default()),]
+        )
+    }
 }

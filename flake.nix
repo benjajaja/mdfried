@@ -123,6 +123,9 @@
               ];
               LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
               BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.pkgsCross.musl64.musl.dev}/include";
+              # Disable fortify source to avoid __snprintf_chk (glibc-specific) in tree-sitter
+              CC_x86_64_unknown_linux_musl = "${pkgs.pkgsCross.musl64.stdenv.cc}/bin/x86_64-unknown-linux-musl-cc";
+              CFLAGS_x86_64_unknown_linux_musl = "-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0";
             };
             cargoArtifactsStatic = craneLibMusl.buildDepsOnly staticArgs;
           in
