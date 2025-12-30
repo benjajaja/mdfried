@@ -59,10 +59,39 @@ impl MdDocument {
     ) -> Vec<Event> {
         let mut source_id = 0;
         self.iter()
-            .flat_map(|section| {
-                section.into_events(document_id, width, has_text_size_protocol, &mut source_id)
+            .flat_map(|section| section.into_events(width, has_text_size_protocol))
+            .map(|md_event| match md_event {
+                MdEvent::Widget(widget_source_data) => Event::Parsed(
+                    document_id,
+                    WidgetSource {
+                        id: MdDocument::post_incr_source_id(&mut source_id),
+                        height: match widget_source_data {
+                            WidgetSourceData::Header(_, _) => 2,
+                            _ => 1,
+                        },
+                        data: widget_source_data,
+                    },
+                ),
+                MdEvent::ImagePending(image_pending) => match image_pending {
+                    ImagePending::Header(tier, text) => {
+                        Event::ParseHeader(document_id, source_id, tier, text)
+                    }
+                    ImagePending::Image(url, text) => Event::ParseImage(
+                        document_id,
+                        source_id,
+                        url,
+                        text,
+                        String::from("remove me"),
+                    ),
+                },
             })
             .collect()
+    }
+
+    pub fn post_incr_source_id(source_id: &mut usize) -> usize {
+        let current = *source_id;
+        *source_id += 1;
+        current
     }
 }
 
@@ -151,11 +180,6 @@ impl<'a> MdIterator<'a> {
                                             image_description.to_owned(),
                                             link_destination.to_owned(),
                                         ));
-                                        // return Some(self.image(
-                                        // image_description.to_owned(),
-                                        // link_destination.to_owned(),
-                                        // String::new(),
-                                        // ));
                                     }
                                 }
                             }
@@ -169,10 +193,6 @@ impl<'a> MdIterator<'a> {
                         Style::default(),
                         MdModifier::default(),
                     )]));
-                    // return Some(self.parsed(
-                    // 1,
-                    // WidgetSourceData::Line(Line::from(text.to_owned()), Vec::new()),
-                    // ));
                 };
 
                 let mdspans = inline_node_to_spans(
@@ -261,19 +281,25 @@ impl From<MdSpan> for Span<'static> {
     }
 }
 
+pub enum MdEvent {
+    Widget(WidgetSourceData),
+    ImagePending(ImagePending),
+}
+
+pub enum ImagePending {
+    /// tier, text
+    Header(u8, String),
+    /// url, text
+    Image(String, String),
+}
+
 pub enum MdSection {
     Header(String, u8),
     Markdown(Vec<MdSpan>),
     Image(String, String), // TODO used?
 }
 impl MdSection {
-    fn into_events(
-        self,
-        document_id: DocumentId,
-        width: u16,
-        has_text_size_protocol: bool,
-        source_id: &mut usize,
-    ) -> Vec<Event> {
+    pub fn into_events(self, width: u16, has_text_size_protocol: bool) -> Vec<MdEvent> {
         match self {
             MdSection::Header(text, tier) => {
                 if has_text_size_protocol {
@@ -286,49 +312,28 @@ impl MdSection {
                     lines
                         .iter()
                         .map(|line| {
-                            Event::Parsed(
-                                document_id,
-                                WidgetSource {
-                                    id: MdSection::incr_source_id(source_id),
-                                    height: 2,
-                                    data: WidgetSourceData::Header(line.to_string(), tier),
-                                },
-                            )
+                            MdEvent::Widget(WidgetSourceData::Header(line.to_string(), tier))
                         })
                         .collect()
                 } else {
-                    vec![Event::ParseHeader(
-                        document_id,
-                        MdSection::incr_source_id(source_id),
-                        tier,
-                        text,
-                    )]
+                    vec![MdEvent::ImagePending(ImagePending::Header(tier, text))]
                 }
             }
             MdSection::Image(url, text) => {
-                vec![Event::ParseImage(
-                    document_id,
-                    MdSection::incr_source_id(source_id),
-                    url,
-                    text,
-                    String::new(),
-                )]
+                vec![MdEvent::ImagePending(ImagePending::Image(url, text))]
             }
             MdSection::Markdown(mdspans) => {
                 let mut line_events = Vec::new();
 
                 // Do you remember that sound?
                 fn carriage_return(
-                    line_events: &mut Vec<Event>,
-                    document_id: DocumentId,
-                    source_id: &mut usize,
+                    line_events: &mut Vec<MdEvent>,
                     spans: &mut Vec<Span<'static>>,
                     extras: &mut Vec<LineExtra>,
                     had_image: &mut Option<String>,
                     max_width: u16,
                 ) {
                     let line = if spans.len() == 1 && spans[0].width() > max_width as usize {
-                        // println!("break it down");
                         let spans = std::mem::take(spans);
                         let span = &spans[0];
                         let options = Options::new(max_width as usize)
@@ -341,26 +346,19 @@ impl MdSection {
                             .map(|part| {
                                 let mut part_span = Span::from(part.to_string());
                                 part_span.style = span.style.clone();
-                                // println!("part : {}", part);
-                                // println!("part width: {}", part.width());
                                 part_span
                             })
                             .collect();
-                        // println!("parts: {part_spans:?}");
 
                         let last_index = part_spans.len().checked_sub(1).unwrap_or(0);
                         let mut last_line = Line::default();
                         for (i, part_span) in part_spans.into_iter().enumerate() {
                             if i != last_index {
                                 let line = Line::from(part_span);
-                                line_events.push(Event::Parsed(
-                                    document_id,
-                                    WidgetSource {
-                                        id: MdSection::incr_source_id(source_id),
-                                        height: 1,
-                                        data: WidgetSourceData::Line(line, std::mem::take(extras)),
-                                    },
-                                ));
+                                line_events.push(MdEvent::Widget(WidgetSourceData::Line(
+                                    line,
+                                    std::mem::take(extras),
+                                )));
                             } else {
                                 last_line = Line::from(part_span);
                             }
@@ -371,22 +369,15 @@ impl MdSection {
                     };
 
                     if let Some(url) = had_image.take() {
-                        line_events.push(Event::ParseImage(
-                            document_id,
-                            MdSection::incr_source_id(source_id),
+                        line_events.push(MdEvent::ImagePending(ImagePending::Image(
                             url,
-                            String::from("XXX..."),
-                            String::from("???"),
-                        ));
+                            String::from("<IMAGETEXT>"),
+                        )));
                     } else {
-                        line_events.push(Event::Parsed(
-                            document_id,
-                            WidgetSource {
-                                id: MdSection::incr_source_id(source_id),
-                                height: 1,
-                                data: WidgetSourceData::Line(line, std::mem::take(extras)),
-                            },
-                        ));
+                        line_events.push(MdEvent::Widget(WidgetSourceData::Line(
+                            line,
+                            std::mem::take(extras),
+                        )));
                     }
                 }
 
@@ -401,16 +392,10 @@ impl MdSection {
                     let would_overflow = line_width + span_width as u16 > width;
 
                     if mdspan.extra.contains(MdModifier::NewLine) || would_overflow {
-                        // println!(
-                        // "is_overflow {would_overflow} / starts_with_newline {starts_with_newline}"
-                        // );
                         // push spans before this one into a line
                         line_width = 0;
-                        // println!("push line: {spans:?}");
                         carriage_return(
                             &mut line_events,
-                            document_id,
-                            source_id,
                             &mut spans,
                             &mut extras,
                             &mut had_image,
@@ -434,17 +419,13 @@ impl MdSection {
                     }
                     link_offset += span_width as u16;
                     line_width += span_width as u16;
-                    // println!("next: {mdspan:?}");
                     let span: Span<'static> = mdspan.into();
                     spans.push(span);
                 }
 
                 if !spans.is_empty() {
-                    // println!("last");
                     carriage_return(
                         &mut line_events,
-                        document_id,
-                        source_id,
                         &mut spans,
                         &mut extras,
                         &mut had_image,
@@ -508,12 +489,12 @@ fn inline_node_to_spans(
     depth: usize,
 ) -> Vec<MdSpan> {
     let kind = node.kind();
-    print!("{}", String::from("  ").repeat(depth));
-    println!("{kind} - `{}`", &source[node.byte_range()]);
+    // print!("{}", String::from("  ").repeat(depth));
+    // println!("{kind} - `{}`", &source[node.byte_range()]);
 
     if kind.contains("delimiter") {
-        print!("{}", String::from("  ").repeat(depth));
-        println!("delimiter - early return");
+        // print!("{}", String::from("  ").repeat(depth));
+        // println!("delimiter - early return");
         return vec![];
     }
 
@@ -583,7 +564,7 @@ fn inline_node_to_spans(
 mod tests {
     use crate::{
         markdown::{
-            MdDocument, MdParser, MdSection,
+            MdDocument, MdParser,
             links::{COLOR_DECOR, COLOR_LINK, COLOR_TEXT},
         },
         *,

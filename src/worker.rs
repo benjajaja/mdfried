@@ -5,7 +5,7 @@
 //! # Worker process `Cmd`s
 //!
 //! ## Markdown parse
-//! The markdown module produces a list of `Event`s.
+//! The markdown module produces a list of `MdEvent`s.
 //!
 //! ## Model `process_events`
 //! From event, either insert line-widget, or send `Cmd` to worker to process an image.
@@ -38,9 +38,9 @@ use tokio::{runtime::Builder, sync::RwLock};
 use crate::{
     Cmd, Event,
     error::Error,
-    markdown::{MdDocument, MdParser},
+    markdown::{ImagePending, MdDocument, MdEvent, MdParser},
     setup::{BgColor, FontRenderer},
-    widget_sources::{WidgetSource, header_images, header_sources, image_source},
+    widget_sources::{WidgetSource, WidgetSourceData, header_images, header_sources, image_source},
 };
 
 #[expect(clippy::too_many_arguments)]
@@ -77,25 +77,65 @@ pub fn worker_thread(
                     Cmd::Parse(document_id, width, text) => {
                         log::info!("Parse {document_id}");
                         event_tx.send(Event::NewDocument(document_id))?;
-                        let mut last_parsed_source_id = None;
                         let doc = MdDocument::new(text, &mut parser);
-                        for event in doc.parse(document_id, width, has_text_size_protocol) {
-                            match &event {
-                                Event::Parsed(_, source) => {
-                                    last_parsed_source_id = Some(source.id);
-                                }
-                                Event::ParseImage(_, source_id, _, _, _) => {
-                                    last_parsed_source_id = Some(*source_id);
-                                }
-                                Event::ParseHeader(_, source_id, _, _) => {
-                                    last_parsed_source_id = Some(*source_id);
-                                }
-                                _ => {}
+
+                        let mut source_id = None;
+                        for section in doc.iter() {
+                            for md_event in section.into_events(width, has_text_size_protocol) {
+                                let event = match md_event {
+                                    MdEvent::Widget(widget_source_data) => Event::Parsed(
+                                        document_id,
+                                        WidgetSource {
+                                            id: post_incr_source_id(&mut source_id),
+                                            height: match widget_source_data {
+                                                WidgetSourceData::Header(_, _) => 2,
+                                                WidgetSourceData::Image(_, _) => {
+                                                    unreachable!("Image")
+                                                }
+                                                _ => 1,
+                                            },
+                                            data: widget_source_data,
+                                        },
+                                    ),
+                                    MdEvent::ImagePending(image_pending) => match image_pending {
+                                        ImagePending::Header(tier, text) => Event::ParseHeader(
+                                            document_id,
+                                            post_incr_source_id(&mut source_id),
+                                            tier,
+                                            text,
+                                        ),
+                                        ImagePending::Image(url, text) => Event::ParseImage(
+                                            document_id,
+                                            post_incr_source_id(&mut source_id),
+                                            url,
+                                            text,
+                                            String::from("remove me"),
+                                        ),
+                                    },
+                                };
+                                event_tx.send(event)?;
                             }
-                            event_tx.send(event)?;
                         }
-                        log::debug!("Cmd::Parse finished");
-                        event_tx.send(Event::ParseDone(document_id, last_parsed_source_id))?;
+                        // TODO: there could have been zero events and source_id would be zero -
+                        // fix this
+                        event_tx.send(Event::ParseDone(document_id, source_id))?;
+                        // for event in doc.parse(document_id, width, has_text_size_protocol) {
+                        // match &event {
+                        // Event::Parsed(_, source) => {
+                        // last_parsed_source_id = Some(source.id);
+                        // }
+                        // Event::ParseImage(_, source_id, _, _, _) => {
+                        // last_parsed_source_id = Some(*source_id);
+                        // }
+                        // Event::ParseHeader(_, source_id, _, _) => {
+                        // last_parsed_source_id = Some(*source_id);
+                        // }
+                        // _ => {}
+                        // }
+                        // event_tx.send(event)?;
+                        // }
+                        // log::debug!("Cmd::Parse finished");
+                        // event_tx.send(Event::ParseDone(document_id, last_parsed_source_id))?;
                     }
                     Cmd::Header(document_id, source_id, width, tier, text) => {
                         debug_assert!(
@@ -166,4 +206,14 @@ pub fn worker_thread(
         })?;
         Ok::<(), Error>(())
     })
+}
+
+pub fn post_incr_source_id(source_id: &mut Option<usize>) -> usize {
+    if source_id.is_none() {
+        *source_id = Some(0);
+        0
+    } else {
+        *source_id = source_id.map(|id| id + 1);
+        source_id.unwrap()
+    }
 }
