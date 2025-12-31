@@ -90,11 +90,14 @@ Key | Description
 `b` or `PageUp` | Scroll up a page
 `g` | Go to start of file
 `G` | Go to end of file
+`<number>G` or `<number>g` | Go to the string #\<number>
 `/` | Search text
 `n` | Jump to next match or link
 `N` | Jump to previous match or link
 `Enter` | Open selected link with `xdg-open`
 `Esc` | Leave search or link modes
+
+Entering a number before motion applies the motion that many times.
 
 Mouse scroll only works if enabled in settings as `enable_mouse_capture = true`, but then you can't
 select text.
