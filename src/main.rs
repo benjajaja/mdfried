@@ -466,6 +466,7 @@ fn run(
                                     KeyCode::Char('g' | 'G') => {
                                         model.scroll = model.movement_count.max(1) as u16 - 1;
                                         model.movement_count = 0;
+                                        model.scroll_by(0);
                                     }
                                     KeyCode::Char('/') => {
                                         model.cursor = Cursor::Search(SearchState::default(), None);
