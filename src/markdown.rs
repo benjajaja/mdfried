@@ -93,7 +93,8 @@ impl<'a> MdIterator<'a> {
                 let mut children = node.children(cursor);
                 if children.len() == 1 {
                     // Try to catch paragraphs with only a single image.
-                    // Horrible, yes, rip out later and improve to catch all images.
+                    // Horrible, yes, rip out later and improve to catch all images,
+                    // including linewrapped stuff. To be done in worker.rs wrap_md_spans().
                     #[expect(clippy::unwrap_used)] // len check above
                     let node = children.next().unwrap();
                     if node.kind() == "inline" {
@@ -123,8 +124,8 @@ impl<'a> MdIterator<'a> {
                                             }
                                         }
                                         return Some(MdSection::Image(
-                                            image_description.to_owned(),
                                             link_destination.to_owned(),
+                                            image_description.to_owned(),
                                         ));
                                     }
                                 }

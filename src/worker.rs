@@ -41,7 +41,7 @@ use tokio::{runtime::Builder, sync::RwLock};
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
-    Cmd, Event,
+    Cmd, Event, MarkdownImage,
     error::Error,
     markdown::{MdDocument, MdModifier, MdParser, MdSection, MdSpan},
     model::DocumentId,
@@ -129,7 +129,7 @@ pub fn worker_thread(
                             }
                         }
                     }
-                    Cmd::UrlImage(document_id, source_id, width, url, text, _title) => {
+                    Cmd::UrlImage(document_id, source_id, width, url, text) => {
                         let task_tx = event_tx.clone();
                         let basepath = basepath.clone();
                         let client = client.clone();
@@ -152,15 +152,19 @@ pub fn worker_thread(
                                     task_tx.send(Event::Update(document_id, vec![source]))?
                                 }
                                 Err(Error::UnknownImage(id, link)) => {
+                                    log::error!("image_source UnknownImage");
                                     task_tx.send(Event::Update(
                                         document_id,
                                         vec![WidgetSource::image_unknown(id, link, text)],
                                     ))?
                                 }
-                                Err(_) => task_tx.send(Event::Update(
-                                    document_id,
-                                    vec![WidgetSource::image_unknown(source_id, url, text)],
-                                ))?,
+                                Err(err) => {
+                                    log::error!("image_source error: {err}");
+                                    task_tx.send(Event::Update(
+                                        document_id,
+                                        vec![WidgetSource::image_unknown(source_id, url, text)],
+                                    ))?
+                                }
                             }
                             Ok::<(), Error>(())
                         });
@@ -221,12 +225,13 @@ fn section_into_events(
             }
         }
         MdSection::Image(url, text) => {
-            vec![Event::ParseImage(
+            vec![Event::ParsedImage(
                 document_id,
                 post_incr_source_id(source_id),
-                url,
-                text,
-                String::from("remove me"),
+                MarkdownImage {
+                    destination: url,
+                    description: text,
+                },
             )]
         }
         MdSection::Markdown(mdspans) => wrap_md_spans(document_id, source_id, width, mdspans),
@@ -361,12 +366,16 @@ fn carriage_return(
     };
 
     if let Some(url) = had_image.take() {
-        line_events.push(Event::ParseImage(
+        // Once this works, stop the "parse only lines with an image on their own" thing, drop
+        // MdSection::Image entirely.
+        log::debug!("had_image");
+        line_events.push(Event::ParsedImage(
             document_id,
             post_incr_source_id(source_id),
-            url,
-            String::from("XXX..."),
-            String::from("???"),
+            MarkdownImage {
+                destination: url,
+                description: String::from("TODO: image_description"),
+            },
         ));
     } else {
         line_events.push(Event::Parsed(
