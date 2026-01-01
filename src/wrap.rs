@@ -1,4 +1,7 @@
-use ratatui::text::{Line, Span};
+use ratatui::{
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+};
 use textwrap::{Options, wrap};
 use unicode_width::UnicodeWidthStr;
 
@@ -38,7 +41,7 @@ pub fn wrap_md_spans(
                     }
                 }
 
-                let span = Span::styled(mdspan.content, mdspan.style);
+                let span = span_from_mdspan(mdspan);
                 line.spans.push(span);
             }
             events.push(Event::Parsed(
@@ -52,6 +55,40 @@ pub fn wrap_md_spans(
             events
         })
         .collect()
+}
+
+fn span_from_mdspan(mdspan: MdSpan) -> Span<'static> {
+    let mut style = Style::default();
+    if mdspan.extra.contains(MdModifier::Emphasis) {
+        style = style.add_modifier(Modifier::ITALIC).fg(Color::Indexed(220));
+    }
+    if mdspan.extra.contains(MdModifier::StrongEmphasis) {
+        style = style.add_modifier(Modifier::BOLD).fg(Color::Indexed(220));
+    }
+    if mdspan.extra.contains(MdModifier::Code) {
+        style = style.fg(Color::Indexed(203)).bg(Color::Indexed(236));
+    }
+
+    if mdspan.extra.contains(MdModifier::LinkURLWrapper) {
+        let bracket = if mdspan.content == "(" { "◖" } else { "◗" };
+        return Span::styled(bracket, style.fg(Color::Indexed(237)));
+    }
+    if mdspan.extra.contains(MdModifier::LinkURL) {
+        style = style
+            .fg(Color::Indexed(4))
+            .bg(Color::Indexed(237))
+            .underlined();
+    }
+
+    if mdspan.extra.contains(MdModifier::LinkDescriptionWrapper) {
+        let bracket = if mdspan.content == "[" { "▐" } else { "▌" };
+        return Span::styled(bracket, style.fg(Color::Indexed(237)));
+    }
+    if mdspan.extra.contains(MdModifier::LinkDescription) {
+        style = style.fg(Color::Indexed(4)).bg(Color::Indexed(237));
+    }
+
+    Span::styled(mdspan.content, style)
 }
 
 pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdSpan>) -> Vec<Vec<MdSpan>> {
@@ -87,13 +124,13 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdSpan>) -> Vec<Vec<MdSpan>>
                         lines.push(std::mem::take(&mut line));
                         line_width = 0;
                     }
-                    let mut extra = mdspan.extra.clone();
+                    let mut extra = mdspan.extra;
                     if !copied_newline {
                         copied_newline = true;
                     } else {
                         extra.remove(MdModifier::NewLine); // We don't want to carry over the newlines.
                     }
-                    line.push(MdSpan::new(part.to_string(), mdspan.style.clone(), extra));
+                    line.push(MdSpan::new(part.to_string(), extra));
                     line_width += part_width;
                 }
             }
@@ -112,7 +149,6 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdSpan>) -> Vec<Vec<MdSpan>>
 #[cfg(test)]
 mod tests {
     use pretty_assertions::assert_eq;
-    use ratatui::style::Style;
 
     use crate::{
         markdown::{MdModifier, MdSpan},
@@ -179,18 +215,14 @@ mod tests {
     fn newline() {
         let mdspans = vec![
             MdSpan::from("one "),
-            MdSpan::new("two".into(), Style::default(), MdModifier::NewLine),
+            MdSpan::new("two".into(), MdModifier::NewLine),
         ];
         let lines = wrap_md_spans_lines(10, mdspans);
         assert_eq!(
             lines,
             vec![
                 vec![MdSpan::from("one")],
-                vec![MdSpan::new(
-                    "two".into(),
-                    Style::default(),
-                    MdModifier::NewLine
-                ),]
+                vec![MdSpan::new("two".into(), MdModifier::NewLine),]
             ],
         );
     }
@@ -199,18 +231,14 @@ mod tests {
     fn newline_wordbreak() {
         let mdspans = vec![
             MdSpan::from("one "),
-            MdSpan::new("twoooo".into(), Style::default(), MdModifier::NewLine),
+            MdSpan::new("twoooo".into(), MdModifier::NewLine),
         ];
         let lines = wrap_md_spans_lines(4, mdspans);
         assert_eq!(
             lines,
             vec![
                 vec![MdSpan::from("one")],
-                vec![MdSpan::new(
-                    "twoo".into(),
-                    Style::default(),
-                    MdModifier::NewLine
-                )],
+                vec![MdSpan::new("twoo".into(), MdModifier::NewLine)],
                 vec![MdSpan::from("oo")],
             ],
         );
@@ -244,11 +272,7 @@ mod tests {
             lines,
             vec![
                 vec![MdSpan::from("one")],
-                vec![MdSpan::new(
-                    "twoo".into(),
-                    Style::default(),
-                    MdModifier::NewLine
-                )],
+                vec![MdSpan::new("twoo".into(), MdModifier::NewLine)],
                 vec![MdSpan::from("oo")],
             ],
         );

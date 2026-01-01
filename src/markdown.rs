@@ -1,5 +1,4 @@
 use bitflags::bitflags;
-use ratatui::style::{Color, Modifier, Style};
 use tree_sitter::{Node, Parser, Tree, TreeCursor};
 use unicode_width::UnicodeWidthStr;
 
@@ -137,18 +136,12 @@ impl<'a> MdIterator<'a> {
                 let Some(tree) = self.inline_parser.parse(text, None) else {
                     return Some(MdSection::Markdown(vec![MdSpan::new(
                         text.to_owned(),
-                        Style::default(),
                         MdModifier::default(),
                     )]));
                 };
 
-                let mdspans = inline_node_to_spans(
-                    tree.root_node(),
-                    text,
-                    Style::default(),
-                    MdModifier::default(),
-                    0,
-                );
+                let mdspans =
+                    inline_node_to_spans(tree.root_node(), text, MdModifier::default(), 0);
                 let mdspans = mdspans
                     .iter()
                     .flat_map(|mdspan| {
@@ -158,7 +151,6 @@ impl<'a> MdIterator<'a> {
                             .split('\n')
                             .map(|part| MdSpan {
                                 content: part.to_owned(),
-                                style: mdspan.style,
                                 extra: if first {
                                     first = false;
                                     mdspan.extra
@@ -197,59 +189,54 @@ impl<'a> MdIterator<'a> {
 
 bitflags! {
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-    pub struct MdModifier: u32 {
-        const Link = 1 << 0;
-        const LinkURL = 1 << 1;
-        const Image = 1 << 2;
-        const NewLine = 1 << 3;
+    pub struct MdModifier: u16 {
+        const Emphasis = 1 << 0;
+        const StrongEmphasis = 1 << 1;
+        const Code = 1 << 2;
+        const Link = 1 << 3;
+        const LinkDescription = 1 << 4;
+        const LinkDescriptionWrapper = 1 << 5;
+        const LinkURL = 1 << 6;
+        const LinkURLWrapper = 1 << 7;
+        const Image = 1 << 8;
+        const NewLine = 1 << 9;
     }
 }
 
 #[derive(Debug, PartialEq)]
 pub struct MdSpan {
     pub content: String,
-    pub style: Style,
     pub extra: MdModifier,
 }
 
 impl MdSpan {
-    pub fn new(content: String, style: Style, extra: MdModifier) -> Self {
-        MdSpan {
-            content,
-            style,
-            extra,
-        }
+    pub fn new(content: String, extra: MdModifier) -> Self {
+        MdSpan { content, extra }
+    }
+
+    #[cfg(test)]
+    pub fn link(description: &str, url: &str) -> Vec<Self> {
+        vec![
+            Self::new("[".to_owned(), MdModifier::Link),
+            Self::new(description.to_owned(), MdModifier::Link),
+            Self::new("]".to_owned(), MdModifier::Link),
+            Self::new("(".to_owned(), MdModifier::Link),
+            Self::new(url.to_owned(), MdModifier::Link | MdModifier::LinkURL),
+            Self::new(")".to_owned(), MdModifier::Link),
+        ]
     }
 }
 
 impl From<String> for MdSpan {
     fn from(value: String) -> Self {
-        Self::new(value, Style::default(), MdModifier::default())
+        Self::new(value, MdModifier::default())
     }
 }
 
 #[cfg(test)]
 impl From<&str> for MdSpan {
     fn from(value: &str) -> Self {
-        Self::from(value.to_string())
-    }
-}
-
-#[cfg(test)]
-impl MdSpan {
-    pub fn link(description: &str, url: &str) -> Vec<Self> {
-        vec![
-            Self::new("[".to_string(), Style::default(), MdModifier::Link),
-            Self::new(description.to_string(), Style::default(), MdModifier::Link),
-            Self::new("]".to_string(), Style::default(), MdModifier::Link),
-            Self::new("(".to_string(), Style::default(), MdModifier::Link),
-            Self::new(
-                url.to_string(),
-                Style::default(),
-                MdModifier::Link | MdModifier::LinkURL,
-            ),
-            Self::new(")".to_string(), Style::default(), MdModifier::Link),
-        ]
+        Self::from(value.to_owned())
     }
 }
 
@@ -271,13 +258,7 @@ pub enum MdSection {
 }
 
 #[expect(clippy::string_slice)] // Let's hope tree-sitter is right
-fn inline_node_to_spans(
-    node: Node,
-    source: &str,
-    style: Style,
-    extra: MdModifier,
-    _depth: usize,
-) -> Vec<MdSpan> {
+fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usize) -> Vec<MdSpan> {
     let kind = node.kind();
     // print!("{}", String::from("  ").repeat(depth));
     // println!("{kind} - `{}`", &source[node.byte_range()]);
@@ -288,25 +269,25 @@ fn inline_node_to_spans(
         return vec![];
     }
 
-    let (style, extra) = match kind {
-        "emphasis" => (style.add_modifier(Modifier::ITALIC), extra),
-        "strong_emphasis" => (style.add_modifier(Modifier::BOLD), extra),
-        "code_span" => (style.add_modifier(Modifier::DIM), extra),
-        "[" | "]" | "(" | ")" => (style.fg(Color::Indexed(237)), extra),
-        "link_text" => (style.fg(Color::Indexed(4)), extra),
-        "inline_link" => (style, extra.union(MdModifier::Link)),
-        "image" => (style, extra.union(MdModifier::Image)),
+    let extra = match kind {
+        "emphasis" => extra.union(MdModifier::Emphasis),
+        "strong_emphasis" => extra.union(MdModifier::StrongEmphasis),
+        "code_span" => extra.union(MdModifier::Code),
+        "[" | "]" => extra.union(MdModifier::LinkDescriptionWrapper),
+        "(" | ")" => extra.union(MdModifier::LinkURLWrapper),
+        "link_text" => extra.union(MdModifier::LinkDescription),
+        "inline_link" => extra.union(MdModifier::Link),
+        "image" => extra.union(MdModifier::Image),
         "link_destination" => {
             // don't go deeper, it just has the URL parts
             // although we could highlight the parts
             return vec![MdSpan::new(
                 // this also assumes no newline at beginning here
                 source[node.byte_range()].to_owned(),
-                style.fg(Color::Indexed(32)).underlined(),
                 extra.union(MdModifier::LinkURL),
             )];
         }
-        _ => (style, extra),
+        _ => extra,
     };
 
     let (extra, newline_offset) = if source.as_bytes()[node.start_byte()] == b'\n' {
@@ -318,7 +299,6 @@ fn inline_node_to_spans(
     if node.child_count() == 0 {
         return vec![MdSpan::new(
             source[newline_offset + node.start_byte()..node.end_byte()].to_owned(),
-            style,
             extra,
         )];
     }
@@ -330,27 +310,16 @@ fn inline_node_to_spans(
         if child.start_byte() > pos {
             spans.push(MdSpan::new(
                 source[pos..child.start_byte()].to_owned(),
-                style,
                 extra,
             ));
         }
         // A node cannot possible start with \n, so we don't need to pass newline_offset down here.
-        spans.extend(inline_node_to_spans(
-            child,
-            source,
-            style,
-            extra,
-            _depth + 1,
-        ));
+        spans.extend(inline_node_to_spans(child, source, extra, _depth + 1));
         pos = child.end_byte();
     }
 
     if pos < node.end_byte() {
-        spans.push(MdSpan::new(
-            source[pos..node.end_byte()].to_owned(),
-            style,
-            extra,
-        ));
+        spans.push(MdSpan::new(source[pos..node.end_byte()].to_owned(), extra));
     }
 
     spans
