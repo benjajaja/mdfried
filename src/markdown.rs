@@ -213,12 +213,43 @@ pub struct MdSpan {
 }
 
 impl MdSpan {
-    fn new(content: String, style: Style, extra: MdModifier) -> Self {
+    pub fn new(content: String, style: Style, extra: MdModifier) -> Self {
         MdSpan {
             content,
             style,
             extra,
         }
+    }
+}
+
+impl From<String> for MdSpan {
+    fn from(value: String) -> Self {
+        Self::new(value, Style::default(), MdModifier::default())
+    }
+}
+
+#[cfg(test)]
+impl From<&str> for MdSpan {
+    fn from(value: &str) -> Self {
+        Self::from(value.to_string())
+    }
+}
+
+#[cfg(test)]
+impl MdSpan {
+    pub fn link(description: &str, url: &str) -> Vec<Self> {
+        vec![
+            Self::new("[".to_string(), Style::default(), MdModifier::Link),
+            Self::new(description.to_string(), Style::default(), MdModifier::Link),
+            Self::new("]".to_string(), Style::default(), MdModifier::Link),
+            Self::new("(".to_string(), Style::default(), MdModifier::Link),
+            Self::new(
+                url.to_string(),
+                Style::default(),
+                MdModifier::Link | MdModifier::LinkURL,
+            ),
+            Self::new(")".to_string(), Style::default(), MdModifier::Link),
+        ]
     }
 }
 
