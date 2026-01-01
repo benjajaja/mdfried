@@ -8,6 +8,7 @@ mod setup;
 mod watch;
 mod widget_sources;
 mod worker;
+mod wrap;
 
 #[cfg(not(windows))]
 use std::os::fd::IntoRawFd as _;
