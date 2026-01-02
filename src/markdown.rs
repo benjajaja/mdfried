@@ -254,16 +254,17 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
         return vec![];
     }
 
-    let extra = match kind {
-        "emphasis" => extra.union(MdModifier::Emphasis),
-        "strong_emphasis" => extra.union(MdModifier::StrongEmphasis),
-        "code_span" => extra.union(MdModifier::Code),
-        "[" | "]" => extra.union(MdModifier::LinkDescriptionWrapper),
-        "(" | ")" => extra.union(MdModifier::LinkURLWrapper),
-        "link_text" => extra.union(MdModifier::LinkDescription),
-        "inline_link" => extra.union(MdModifier::Link),
-        "image" => extra.union(MdModifier::Image),
+    let current_extra = match kind {
+        "emphasis" => MdModifier::Emphasis,
+        "strong_emphasis" => MdModifier::StrongEmphasis,
+        "code_span" => MdModifier::Code,
+        "[" | "]" => MdModifier::LinkDescriptionWrapper,
+        "(" | ")" => MdModifier::LinkURLWrapper,
+        "link_text" => MdModifier::LinkDescription,
+        "inline_link" => MdModifier::Link,
+        "image" => MdModifier::Image,
         "link_destination" => {
+            // TODO: can we go deeper like usual, now that we skip punctuation?
             // don't go deeper, it just has the URL parts
             // although we could highlight the parts
             return vec![MdSpan::new(
@@ -272,8 +273,9 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
                 extra.union(MdModifier::LinkURL),
             )];
         }
-        _ => extra,
+        _ => MdModifier::default(),
     };
+    let extra = extra.union(current_extra);
 
     let (extra, newline_offset) = if source.as_bytes()[node.start_byte()] == b'\n' {
         (extra.union(MdModifier::NewLine), 1)
@@ -292,6 +294,9 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
     let mut pos = node.start_byte() + newline_offset;
 
     for child in node.children(&mut node.walk()) {
+        if is_punctuation(child.kind(), current_extra) {
+            continue;
+        }
         if child.start_byte() > pos {
             spans.push(MdSpan::new(
                 source[pos..child.start_byte()].to_owned(),
@@ -308,6 +313,23 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
     }
 
     spans
+}
+
+#[inline]
+fn is_punctuation(kind: &str, parent_modifier: MdModifier) -> bool {
+    match kind {
+        // ()[], only if *direct* children of Link, should become separate spans.
+        "(" | ")" | "[" | "]" if parent_modifier == MdModifier::Link => false,
+        // Single character punctuation
+        "!" | "\"" | "#" | "$" | "%" | "&" | "'" | "(" | ")" | "*" | "+" | "," | "-" | "."
+        | "/" | ":" | ";" | "<" | "=" | ">" | "?" | "@" | "[" | "\\" | "]" | "^" | "_" | "`"
+        | "{" | "|" | "}" | "~" => true,
+        // Multi-character tokens
+        // "-->" | "<!--" | "<![CDATA[" | "<?" | "?>" | "]]>" => ???
+        // Named delimiter nodes
+        // "code_span_delimiter" | "emphasis_delimiter" | "latex_span_delimiter" => ???
+        _ => false,
+    }
 }
 
 fn split_newlines(mdspans: Vec<MdSpan>) -> Vec<MdSpan> {
@@ -342,7 +364,7 @@ fn split_newlines(mdspans: Vec<MdSpan>) -> Vec<MdSpan> {
 #[cfg(test)]
 #[expect(clippy::unwrap_used)]
 mod tests {
-    use crate::markdown::*;
+    use super::*;
     use pretty_assertions::assert_eq;
 
     #[test]
@@ -406,11 +428,21 @@ mod tests {
             vec![
                 MdSpan::new("This ".to_owned(), MdModifier::default()),
                 MdSpan::new("is".to_owned(), MdModifier::Emphasis),
-                MdSpan::new(" a test".to_owned(), MdModifier::default()),
-                MdSpan::new(".".to_owned(), MdModifier::default()),
-                MdSpan::new("Another line".to_owned(), MdModifier::NewLine),
-                MdSpan::new(".".to_owned(), MdModifier::default()),
+                MdSpan::new(" a test.".to_owned(), MdModifier::default()),
+                MdSpan::new("Another line.".to_owned(), MdModifier::NewLine),
             ]
+        )
+    }
+
+    #[test]
+    fn merges_punctuation() {
+        let source = "one, two.";
+        let tree = MdDocument::inline_parser().parse(source, None).unwrap();
+        let mdspans = inline_node_to_spans(tree.root_node(), source, MdModifier::default(), 0);
+        let mdspans = split_newlines(mdspans);
+        assert_eq!(
+            mdspans,
+            vec![MdSpan::new("one, two.".to_owned(), MdModifier::default()),]
         )
     }
 }

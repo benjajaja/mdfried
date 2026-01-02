@@ -32,6 +32,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+use ratatui::text::Line;
 use ratatui_image::picker::{Picker, ProtocolType};
 use ratskin::MadSkin;
 use reqwest::Client;
@@ -87,14 +88,38 @@ pub fn worker_thread(
                         event_tx.send(Event::NewDocument(document_id))?;
                         let doc = MdDocument::new(text, &mut parser)?;
                         let mut source_id = None;
+                        let mut needs_space = false;
                         for event in doc.iter().flat_map(|section| {
-                            section_into_events(
+                            let mut prefixed = if needs_space {
+                                vec![Event::Parsed(
+                                    document_id,
+                                    WidgetSource {
+                                        id: post_incr_source_id(&mut source_id),
+                                        height: 1,
+                                        data: WidgetSourceData::Line(Line::default(), Vec::new()),
+                                    },
+                                )]
+                            } else {
+                                Vec::new()
+                            };
+
+                            needs_space = match section {
+                                // Counterintuitive, but this looks closer to the source, and (subjectively) more readable.
+                                MdSection::Header(_, _) => false,
+                                // Always add space before the next section (if any).
+                                MdSection::Markdown(_) => true,
+                                MdSection::Image(_, _) => true,
+                            };
+
+                            let events = section_into_events(
                                 document_id,
                                 &mut source_id,
                                 width,
                                 has_text_size_protocol,
                                 section,
-                            )
+                            );
+                            prefixed.extend(events);
+                            prefixed
                         }) {
                             event_tx.send(event)?;
                         }
@@ -202,13 +227,13 @@ fn section_into_events(
                     .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation); // no hyphens when breaking
                 wrap(&text, options)
                     .iter()
-                    .map(|line| {
+                    .map(|part| {
                         Event::Parsed(
                             document_id,
                             WidgetSource {
                                 id: post_incr_source_id(source_id),
                                 height: 2,
-                                data: WidgetSourceData::Header(line.to_string(), tier),
+                                data: WidgetSourceData::Header(part.to_string(), tier),
                             },
                         )
                     })
@@ -612,6 +637,39 @@ mod tests {
                     id: 1,
                     height: 1,
                     data: WidgetSourceData::Line(Line::from(vec![Span::from("line2")]), Vec::new()),
+                },
+            ),
+        ];
+        assert_eq!(events, expected);
+    }
+
+    #[test]
+    fn parse_sections_spacing() {
+        let events: Vec<Event> = parse(
+            "This is a test markdown document.\nAnother line of same paragraph.\n![image](url)"
+                .into(),
+            80,
+            true,
+        );
+        fn line_event(id: usize, line: &str) -> Event {
+            Event::Parsed(
+                DocumentId::default(),
+                WidgetSource {
+                    id,
+                    height: 1,
+                    data: WidgetSourceData::Line(Line::from(line.to_owned()), Vec::new()),
+                },
+            )
+        }
+        let expected = vec![
+            line_event(0, "This is a test markdown document."),
+            line_event(1, "Another line of same paragraph."),
+            Event::ParsedImage(
+                DocumentId::default(),
+                2,
+                MarkdownImage {
+                    destination: "url".to_owned(),
+                    description: "TODO:img_desc".to_owned(), // TODO: fix this
                 },
             ),
         ];

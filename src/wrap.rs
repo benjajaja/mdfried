@@ -127,8 +127,8 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdSpan>) -> Vec<Vec<MdSpan>>
         if mdspan.extra.contains(MdModifier::NewLine) {
             if let Some(last) = line.last_mut() {
                 last.content.truncate(last.content.trim_end().len());
-                lines.push(std::mem::take(&mut line));
             }
+            lines.push(std::mem::take(&mut line));
         }
 
         let span_width = mdspan.content.width() as u16;
