@@ -241,13 +241,13 @@ mod tests {
     use crate::{
         markdown::{MdDocument, MdParser},
         worker::section_into_events,
+        wrap::{
+            COLOR_LINK_BG, COLOR_LINK_FG, LINK_DESC_CLOSE, LINK_DESC_OPEN, LINK_URL_CLOSE,
+            LINK_URL_OPEN,
+        },
         *,
     };
     use pretty_assertions::assert_eq;
-
-    pub const COLOR_DECOR: Color = Color::Indexed(237);
-    pub const COLOR_TEXT: Color = Color::Indexed(4);
-    pub const COLOR_LINK: Color = Color::Indexed(32);
 
     #[expect(clippy::unwrap_used)]
     fn parse(text: String, width: u16, has_text_size_protocol: bool) -> Vec<Event> {
@@ -279,7 +279,7 @@ mod tests {
                 data: WidgetSourceData::Line(
                     Line::from(vec![
                         Span::from("oh "),
-                        Span::from("ah").italic(),
+                        Span::from("ah").fg(Color::Indexed(220)).italic(),
                         Span::from(" ha ha"),
                     ]),
                     Vec::new(),
@@ -299,12 +299,15 @@ mod tests {
                 height: 1,
                 data: WidgetSourceData::Line(
                     Line::from(vec![
-                        Span::from("[").fg(COLOR_DECOR),
-                        Span::from("text").fg(COLOR_TEXT),
-                        Span::from("]").fg(COLOR_DECOR),
-                        Span::from("(").fg(COLOR_DECOR),
-                        Span::from("http://link.com").fg(COLOR_LINK).underlined(),
-                        Span::from(")").fg(COLOR_DECOR),
+                        Span::from(LINK_DESC_OPEN).fg(COLOR_LINK_BG),
+                        Span::from("text").fg(COLOR_LINK_FG).bg(COLOR_LINK_BG),
+                        Span::from(LINK_DESC_CLOSE).fg(COLOR_LINK_BG),
+                        Span::from(LINK_URL_OPEN).fg(COLOR_LINK_BG),
+                        Span::from("http://link.com")
+                            .fg(COLOR_LINK_FG)
+                            .bg(COLOR_LINK_BG)
+                            .underlined(),
+                        Span::from(LINK_URL_CLOSE).fg(COLOR_LINK_BG),
                     ]),
                     vec![LineExtra::Link("http://link.com".to_owned(), 7, 22)],
                 ),

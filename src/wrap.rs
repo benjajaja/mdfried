@@ -25,37 +25,59 @@ pub fn wrap_md_spans(
             let mut events = Vec::new();
             let mut line = Line::default();
             let mut extras = Vec::new();
+            let mut had_images = Vec::new();
             for mdspan in mdspans {
                 if mdspan.extra.contains(MdModifier::LinkURL) {
                     if mdspan.extra.contains(MdModifier::Image) {
-                        events.push(Event::ParsedImage(
-                            document_id,
-                            post_incr_source_id(source_id),
-                            MarkdownImage {
-                                destination: mdspan.content.clone(),
-                                description: String::from("TODO:img_desc"),
-                            },
-                        ));
+                        had_images.push(MarkdownImage {
+                            destination: mdspan.content.clone(),
+                            description: String::from("TODO:img_desc"),
+                        });
                     } else {
-                        extras.push(LineExtra::Link(mdspan.content.clone(), 0, 1));
+                        let offset = line.width() as u16;
+                        extras.push(LineExtra::Link(
+                            mdspan.content.clone(),
+                            offset,
+                            offset + mdspan.content.width() as u16,
+                        ));
                     }
                 }
 
-                let span = span_from_mdspan(mdspan);
-                line.spans.push(span);
+                if !mdspan.extra.contains(MdModifier::Image) {
+                    let span = span_from_mdspan(mdspan);
+                    line.spans.push(span);
+                }
             }
-            events.push(Event::Parsed(
-                document_id,
-                WidgetSource {
-                    id: post_incr_source_id(source_id),
-                    height: 1,
-                    data: WidgetSourceData::Line(line, extras),
-                },
-            ));
+
+            if !line.spans.is_empty() {
+                events.push(Event::Parsed(
+                    document_id,
+                    WidgetSource {
+                        id: post_incr_source_id(source_id),
+                        height: 1,
+                        data: WidgetSourceData::Line(line, extras),
+                    },
+                ));
+            }
+            for image in had_images {
+                events.push(Event::ParsedImage(
+                    document_id,
+                    post_incr_source_id(source_id),
+                    image,
+                ));
+            }
             events
         })
         .collect()
 }
+
+pub const LINK_DESC_OPEN: &str = "▐";
+pub const LINK_DESC_CLOSE: &str = "▌";
+pub const LINK_URL_OPEN: &str = "◖";
+pub const LINK_URL_CLOSE: &str = "◗";
+
+pub const COLOR_LINK_BG: Color = Color::Indexed(237);
+pub const COLOR_LINK_FG: Color = Color::Indexed(4);
 
 fn span_from_mdspan(mdspan: MdSpan) -> Span<'static> {
     let mut style = Style::default();
@@ -70,22 +92,27 @@ fn span_from_mdspan(mdspan: MdSpan) -> Span<'static> {
     }
 
     if mdspan.extra.contains(MdModifier::LinkURLWrapper) {
-        let bracket = if mdspan.content == "(" { "◖" } else { "◗" };
-        return Span::styled(bracket, style.fg(Color::Indexed(237)));
+        let bracket = if mdspan.content == "(" {
+            LINK_URL_OPEN
+        } else {
+            LINK_URL_CLOSE
+        };
+        return Span::styled(bracket, style.fg(COLOR_LINK_BG));
     }
     if mdspan.extra.contains(MdModifier::LinkURL) {
-        style = style
-            .fg(Color::Indexed(4))
-            .bg(Color::Indexed(237))
-            .underlined();
+        style = style.fg(COLOR_LINK_FG).bg(COLOR_LINK_BG).underlined();
     }
 
     if mdspan.extra.contains(MdModifier::LinkDescriptionWrapper) {
-        let bracket = if mdspan.content == "[" { "▐" } else { "▌" };
-        return Span::styled(bracket, style.fg(Color::Indexed(237)));
+        let bracket = if mdspan.content == "[" {
+            LINK_DESC_OPEN
+        } else {
+            LINK_DESC_CLOSE
+        };
+        return Span::styled(bracket, style.fg(COLOR_LINK_BG));
     }
     if mdspan.extra.contains(MdModifier::LinkDescription) {
-        style = style.fg(Color::Indexed(4)).bg(Color::Indexed(237));
+        style = style.fg(COLOR_LINK_FG).bg(COLOR_LINK_BG);
     }
 
     Span::styled(mdspan.content, style)
@@ -133,6 +160,8 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdSpan>) -> Vec<Vec<MdSpan>>
                     line.push(MdSpan::new(part.to_string(), extra));
                     line_width += part_width;
                 }
+            } else {
+                line.push(mdspan);
             }
         } else {
             line.push(mdspan);

@@ -29,19 +29,21 @@ impl MdDocument {
     }
 
     pub fn iter(&self) -> MdIterator<'_> {
-        let mut inline_parser = Parser::new();
-
-        #[expect(clippy::unwrap_used)]
-        inline_parser
-            .set_language(&tree_sitter_md::INLINE_LANGUAGE.into())
-            .unwrap();
-
         MdIterator {
             source: &self.source,
             cursor: self.tree.walk(),
             done: false,
-            inline_parser,
+            inline_parser: MdDocument::inline_parser(),
         }
+    }
+
+    pub fn inline_parser() -> Parser {
+        let mut inline_parser = Parser::new();
+        #[expect(clippy::unwrap_used)]
+        inline_parser
+            .set_language(&tree_sitter_md::INLINE_LANGUAGE.into())
+            .unwrap();
+        inline_parser
     }
 }
 
@@ -142,25 +144,8 @@ impl<'a> MdIterator<'a> {
 
                 let mdspans =
                     inline_node_to_spans(tree.root_node(), text, MdModifier::default(), 0);
-                let mdspans = mdspans
-                    .iter()
-                    .flat_map(|mdspan| {
-                        let mut first = true;
-                        mdspan
-                            .content
-                            .split('\n')
-                            .map(|part| MdSpan {
-                                content: part.to_owned(),
-                                extra: if first {
-                                    first = false;
-                                    mdspan.extra
-                                } else {
-                                    mdspan.extra.union(MdModifier::NewLine)
-                                },
-                            })
-                            .collect::<Vec<MdSpan>>()
-                    })
-                    .collect();
+                let mdspans = split_newlines(mdspans);
+                // mdspans.push(MdSpan::new("".to_owned(), MdModifier::NewLine));
                 Some(MdSection::Markdown(mdspans))
             }
             "atx_heading" => {
@@ -260,8 +245,8 @@ pub enum MdSection {
 #[expect(clippy::string_slice)] // Let's hope tree-sitter is right
 fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usize) -> Vec<MdSpan> {
     let kind = node.kind();
-    // print!("{}", String::from("  ").repeat(depth));
-    // println!("{kind} - `{}`", &source[node.byte_range()]);
+    // print!(">{}", String::from("  ").repeat(_depth));
+    // println!(" {kind} - `{}`", &source[node.byte_range()]);
 
     if kind.contains("delimiter") {
         // print!("{}", String::from("  ").repeat(depth));
@@ -323,4 +308,109 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
     }
 
     spans
+}
+
+fn split_newlines(mdspans: Vec<MdSpan>) -> Vec<MdSpan> {
+    mdspans
+        .iter()
+        .flat_map(|mdspan| {
+            let mut first = true;
+            mdspan
+                .content
+                .split('\n')
+                .filter_map(|part| {
+                    if part.is_empty() {
+                        first = false;
+                        None
+                    } else {
+                        Some(MdSpan {
+                            content: part.to_owned(),
+                            extra: if first {
+                                first = false;
+                                mdspan.extra
+                            } else {
+                                mdspan.extra.union(MdModifier::NewLine)
+                            },
+                        })
+                    }
+                })
+                .collect::<Vec<MdSpan>>()
+        })
+        .collect()
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used)]
+mod tests {
+    use crate::markdown::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn split_no_empty_spans() {
+        let mdspans = split_newlines(vec![
+            MdSpan::new("one line".to_owned(), MdModifier::default()),
+            MdSpan::new(".".to_owned(), MdModifier::default()),
+            MdSpan::new("\nanother line".to_owned(), MdModifier::NewLine),
+            MdSpan::new(".".to_owned(), MdModifier::default()),
+        ]);
+        assert_eq!(
+            mdspans,
+            vec![
+                MdSpan::new("one line".to_owned(), MdModifier::default()),
+                MdSpan::new(".".to_owned(), MdModifier::default()),
+                MdSpan::new("another line".to_owned(), MdModifier::NewLine),
+                MdSpan::new(".".to_owned(), MdModifier::default()),
+            ]
+        );
+
+        let mdspans = split_newlines(vec![
+            MdSpan::new("one line".to_owned(), MdModifier::default()),
+            MdSpan::new("\nanother line".to_owned(), MdModifier::NewLine),
+        ]);
+        assert_eq!(
+            mdspans,
+            vec![
+                MdSpan::new("one line".to_owned(), MdModifier::default()),
+                MdSpan::new("another line".to_owned(), MdModifier::NewLine),
+            ]
+        );
+    }
+
+    #[test]
+    fn inline_node_to_spans_then_split_newlines_simple() {
+        // let mut parser = MdParser::new().unwrap();
+        // let doc =
+        // MdDocument::new("this *is* a test.\nAnother line.".to_owned(), &mut parser).unwrap();
+        let source = "one\ntwo\nthree\n";
+        let tree = MdDocument::inline_parser().parse(source, None).unwrap();
+        let mdspans = inline_node_to_spans(tree.root_node(), source, MdModifier::default(), 0);
+        let mdspans = split_newlines(mdspans);
+        assert_eq!(
+            mdspans,
+            vec![
+                MdSpan::new("one".to_owned(), MdModifier::default()),
+                MdSpan::new("two".to_owned(), MdModifier::NewLine),
+                MdSpan::new("three".to_owned(), MdModifier::NewLine),
+            ]
+        )
+    }
+
+    #[test]
+    fn inline_node_to_spans_then_split_newlines() {
+        let source = "This *is* a test.\nAnother line.";
+        let tree = MdDocument::inline_parser().parse(source, None).unwrap();
+        let mdspans = inline_node_to_spans(tree.root_node(), source, MdModifier::default(), 0);
+        let mdspans = split_newlines(mdspans);
+        assert_eq!(
+            mdspans,
+            vec![
+                MdSpan::new("This ".to_owned(), MdModifier::default()),
+                MdSpan::new("is".to_owned(), MdModifier::Emphasis),
+                MdSpan::new(" a test".to_owned(), MdModifier::default()),
+                MdSpan::new(".".to_owned(), MdModifier::default()),
+                MdSpan::new("Another line".to_owned(), MdModifier::NewLine),
+                MdSpan::new(".".to_owned(), MdModifier::default()),
+            ]
+        )
+    }
 }
