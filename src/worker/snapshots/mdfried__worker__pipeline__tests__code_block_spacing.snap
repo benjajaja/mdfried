@@ -1,0 +1,9 @@
+---
+source: src/worker/pipeline.rs
+expression: output
+---
+Paragraph before.
+
+let x = 1;                                                                      
+
+Paragraph after.

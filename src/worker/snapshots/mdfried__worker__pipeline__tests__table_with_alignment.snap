@@ -1,0 +1,9 @@
+---
+source: src/worker/pipeline.rs
+expression: output
+---
+┌──────┬────────┬───────┐
+│ Left │ Center │ Right │
+├──────┼────────┼───────┤
+│ L    │   C    │     R │
+└──────┴────────┴───────┘

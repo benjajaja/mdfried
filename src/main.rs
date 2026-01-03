@@ -2,13 +2,11 @@ mod config;
 mod cursor;
 mod debug;
 mod error;
-mod markdown;
 mod model;
 mod setup;
 mod watch;
 mod widget_sources;
 mod worker;
-mod wrap;
 
 #[cfg(not(windows))]
 use std::os::fd::IntoRawFd as _;
