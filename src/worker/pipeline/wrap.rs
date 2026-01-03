@@ -10,7 +10,7 @@ use crate::{
     model::DocumentId,
     widget_sources::{LineExtra, WidgetSource, WidgetSourceData},
     worker::pipeline::markdown::{MdModifier, MdNode},
-    worker::post_incr_source_id,
+    worker::pipeline::post_incr_source_id,
 };
 
 pub fn wrap_md_spans(
