@@ -9,7 +9,7 @@ use crate::{
     Event, MarkdownImage,
     model::DocumentId,
     widget_sources::{LineExtra, WidgetSource, WidgetSourceData},
-    worker::pipeline::markdown::{MdModifier, MdSpan},
+    worker::pipeline::markdown::{MdModifier, MdNode},
     worker::post_incr_source_id,
 };
 
@@ -17,7 +17,7 @@ pub fn wrap_md_spans(
     document_id: DocumentId,
     source_id: &mut Option<usize>,
     width: u16,
-    mdspans: Vec<MdSpan>,
+    mdspans: Vec<MdNode>,
 ) -> Vec<Event> {
     wrap_md_spans_lines(width, mdspans)
         .into_iter()
@@ -79,7 +79,7 @@ pub const LINK_URL_CLOSE: &str = "◗";
 pub const COLOR_LINK_BG: Color = Color::Indexed(237);
 pub const COLOR_LINK_FG: Color = Color::Indexed(4);
 
-fn span_from_mdspan(mdspan: MdSpan) -> Span<'static> {
+fn span_from_mdspan(mdspan: MdNode) -> Span<'static> {
     let mut style = Style::default();
     if mdspan.extra.contains(MdModifier::Emphasis) {
         style = style.add_modifier(Modifier::ITALIC).fg(Color::Indexed(220));
@@ -118,10 +118,10 @@ fn span_from_mdspan(mdspan: MdSpan) -> Span<'static> {
     Span::styled(mdspan.content, style)
 }
 
-pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdSpan>) -> Vec<Vec<MdSpan>> {
-    let mut lines: Vec<Vec<MdSpan>> = Vec::new();
+pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>> {
+    let mut lines: Vec<Vec<MdNode>> = Vec::new();
 
-    let mut line: Vec<MdSpan> = Vec::new();
+    let mut line: Vec<MdNode> = Vec::new();
 
     for mdspan in mdspans {
         if mdspan.extra.contains(MdModifier::NewLine) {
@@ -157,7 +157,7 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdSpan>) -> Vec<Vec<MdSpan>>
                     } else {
                         extra.remove(MdModifier::NewLine); // We don't want to carry over the newlines.
                     }
-                    line.push(MdSpan::new(part.to_string(), extra));
+                    line.push(MdNode::new(part.to_string(), extra));
                     line_width += part_width;
                 }
             } else {
@@ -180,60 +180,60 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::wrap_md_spans_lines;
-    use crate::worker::pipeline::markdown::{MdModifier, MdSpan};
+    use crate::worker::pipeline::markdown::{MdModifier, MdNode};
 
     #[test]
     fn simple_wrap() {
-        let mdspans = vec![MdSpan::from("one two")];
+        let mdspans = vec![MdNode::from("one two")];
         let lines = wrap_md_spans_lines(4, mdspans);
         assert_eq!(
             lines,
-            vec![vec![MdSpan::from("one")], vec![MdSpan::from("two")]]
+            vec![vec![MdNode::from("one")], vec![MdNode::from("two")]]
         );
     }
 
     #[test]
     fn no_wrap() {
-        let mdspans = vec![MdSpan::from("one two")];
+        let mdspans = vec![MdNode::from("one two")];
         let lines = wrap_md_spans_lines(10, mdspans);
-        assert_eq!(lines, vec![vec![MdSpan::from("one two")]]);
+        assert_eq!(lines, vec![vec![MdNode::from("one two")]]);
     }
 
     #[test]
     fn word_break() {
-        let mdspans = vec![MdSpan::from("one two")];
+        let mdspans = vec![MdNode::from("one two")];
         let lines = wrap_md_spans_lines(2, mdspans);
         assert_eq!(
             lines,
             vec![
-                vec![MdSpan::from("on")],
-                vec![MdSpan::from("e")],
-                vec![MdSpan::from("tw")],
-                vec![MdSpan::from("o")]
+                vec![MdNode::from("on")],
+                vec![MdNode::from("e")],
+                vec![MdNode::from("tw")],
+                vec![MdNode::from("o")]
             ]
         );
     }
 
     #[test]
     fn trailing_word_break() {
-        let mdspans = vec![MdSpan::from("one twoo")];
+        let mdspans = vec![MdNode::from("one twoo")];
         let lines = wrap_md_spans_lines(4, mdspans);
         assert_eq!(
             lines,
-            vec![vec![MdSpan::from("one")], vec![MdSpan::from("twoo")],]
+            vec![vec![MdNode::from("one")], vec![MdNode::from("twoo")],]
         );
     }
 
     #[test]
     fn multiline_break() {
-        let mdspans = vec![MdSpan::from("onetwo")];
+        let mdspans = vec![MdNode::from("onetwo")];
         let lines = wrap_md_spans_lines(2, mdspans);
         assert_eq!(
             lines,
             vec![
-                vec![MdSpan::from("on")],
-                vec![MdSpan::from("et")],
-                vec![MdSpan::from("wo")],
+                vec![MdNode::from("on")],
+                vec![MdNode::from("et")],
+                vec![MdNode::from("wo")],
             ]
         );
     }
@@ -241,15 +241,15 @@ mod tests {
     #[test]
     fn newline() {
         let mdspans = vec![
-            MdSpan::from("one "),
-            MdSpan::new("two".into(), MdModifier::NewLine),
+            MdNode::from("one "),
+            MdNode::new("two".into(), MdModifier::NewLine),
         ];
         let lines = wrap_md_spans_lines(10, mdspans);
         assert_eq!(
             lines,
             vec![
-                vec![MdSpan::from("one")],
-                vec![MdSpan::new("two".into(), MdModifier::NewLine),]
+                vec![MdNode::from("one")],
+                vec![MdNode::new("two".into(), MdModifier::NewLine),]
             ],
         );
     }
@@ -257,16 +257,16 @@ mod tests {
     #[test]
     fn newline_wordbreak() {
         let mdspans = vec![
-            MdSpan::from("one "),
-            MdSpan::new("twoooo".into(), MdModifier::NewLine),
+            MdNode::from("one "),
+            MdNode::new("twoooo".into(), MdModifier::NewLine),
         ];
         let lines = wrap_md_spans_lines(4, mdspans);
         assert_eq!(
             lines,
             vec![
-                vec![MdSpan::from("one")],
-                vec![MdSpan::new("twoo".into(), MdModifier::NewLine)],
-                vec![MdSpan::from("oo")],
+                vec![MdNode::from("one")],
+                vec![MdNode::new("twoo".into(), MdModifier::NewLine)],
+                vec![MdNode::from("oo")],
             ],
         );
     }
@@ -274,16 +274,16 @@ mod tests {
     #[test]
     #[ignore]
     fn link() {
-        let mut mdspans = vec![MdSpan::from("one ")];
-        mdspans.extend(MdSpan::link("here", "http://googoo"));
-        mdspans.push(MdSpan::from("two"));
+        let mut mdspans = vec![MdNode::from("one ")];
+        mdspans.extend(MdNode::link("here", "http://googoo"));
+        mdspans.push(MdNode::from("two"));
         let lines = wrap_md_spans_lines(15, mdspans);
         assert_eq!(
             lines,
             vec![
-                vec![MdSpan::from("one")],
-                MdSpan::link("here", "http://googoo"),
-                vec![MdSpan::from("two")],
+                vec![MdNode::from("one")],
+                MdNode::link("here", "http://googoo"),
+                vec![MdNode::from("two")],
             ],
         );
     }
@@ -291,16 +291,16 @@ mod tests {
     #[test]
     #[ignore]
     fn link_break() {
-        let mut mdspans = vec![MdSpan::from("one ")];
-        mdspans.extend(MdSpan::link("here", "http://googoo"));
-        mdspans.push(MdSpan::from("two"));
+        let mut mdspans = vec![MdNode::from("one ")];
+        mdspans.extend(MdNode::link("here", "http://googoo"));
+        mdspans.push(MdNode::from("two"));
         let lines = wrap_md_spans_lines(10, mdspans);
         assert_eq!(
             lines,
             vec![
-                vec![MdSpan::from("one")],
-                vec![MdSpan::new("twoo".into(), MdModifier::NewLine)],
-                vec![MdSpan::from("oo")],
+                vec![MdNode::from("one")],
+                vec![MdNode::new("twoo".into(), MdModifier::NewLine)],
+                vec![MdNode::from("oo")],
             ],
         );
     }

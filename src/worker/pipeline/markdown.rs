@@ -91,7 +91,7 @@ impl<'a> MdIterator<'a> {
                 let text = &self.source[node.byte_range()];
 
                 let Some(tree) = self.inline_parser.parse(text, None) else {
-                    return Some(MdSection::Markdown(vec![MdSpan::new(
+                    return Some(MdSection::Markdown(vec![MdNode::new(
                         text.to_owned(),
                         MdModifier::default(),
                     )]));
@@ -144,14 +144,14 @@ bitflags! {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct MdSpan {
+pub struct MdNode {
     pub content: String,
     pub extra: MdModifier,
 }
 
-impl MdSpan {
+impl MdNode {
     pub fn new(content: String, extra: MdModifier) -> Self {
-        MdSpan { content, extra }
+        MdNode { content, extra }
     }
 
     #[cfg(test)]
@@ -167,20 +167,20 @@ impl MdSpan {
     }
 }
 
-impl From<String> for MdSpan {
+impl From<String> for MdNode {
     fn from(value: String) -> Self {
         Self::new(value, MdModifier::default())
     }
 }
 
 #[cfg(test)]
-impl From<&str> for MdSpan {
+impl From<&str> for MdNode {
     fn from(value: &str) -> Self {
         Self::from(value.to_owned())
     }
 }
 
-impl UnicodeWidthStr for MdSpan {
+impl UnicodeWidthStr for MdNode {
     // TODO: could this be deref or something magical?
     fn width(&self) -> usize {
         self.content.width()
@@ -193,11 +193,11 @@ impl UnicodeWidthStr for MdSpan {
 
 pub enum MdSection {
     Header(String, u8),
-    Markdown(Vec<MdSpan>),
+    Markdown(Vec<MdNode>),
 }
 
 #[expect(clippy::string_slice)] // Let's hope tree-sitter is right
-fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usize) -> Vec<MdSpan> {
+fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usize) -> Vec<MdNode> {
     let kind = node.kind();
     // print!(">{}", String::from("  ").repeat(_depth));
     // println!(" {kind} - `{}`", &source[node.byte_range()]);
@@ -221,7 +221,7 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
             // TODO: can we go deeper like usual, now that we skip punctuation?
             // don't go deeper, it just has the URL parts
             // although we could highlight the parts
-            return vec![MdSpan::new(
+            return vec![MdNode::new(
                 // this also assumes no newline at beginning here
                 source[node.byte_range()].to_owned(),
                 extra.union(MdModifier::LinkURL),
@@ -238,7 +238,7 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
     };
 
     if node.child_count() == 0 {
-        return vec![MdSpan::new(
+        return vec![MdNode::new(
             source[newline_offset + node.start_byte()..node.end_byte()].to_owned(),
             extra,
         )];
@@ -253,7 +253,7 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
         }
         let mut ended_with_newline = false;
         if child.start_byte() > pos {
-            spans.push(MdSpan::new(
+            spans.push(MdNode::new(
                 source[pos..child.start_byte()].to_owned(),
                 extra,
             ));
@@ -272,7 +272,7 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
     }
 
     if pos < node.end_byte() {
-        spans.push(MdSpan::new(source[pos..node.end_byte()].to_owned(), extra));
+        spans.push(MdNode::new(source[pos..node.end_byte()].to_owned(), extra));
     }
 
     spans
@@ -295,7 +295,7 @@ fn is_punctuation(kind: &str, parent_modifier: MdModifier) -> bool {
     }
 }
 
-fn split_newlines(mdspans: Vec<MdSpan>) -> Vec<MdSpan> {
+fn split_newlines(mdspans: Vec<MdNode>) -> Vec<MdNode> {
     mdspans
         .iter()
         .flat_map(|mdspan| {
@@ -308,7 +308,7 @@ fn split_newlines(mdspans: Vec<MdSpan>) -> Vec<MdSpan> {
                         first = false;
                         None
                     } else {
-                        Some(MdSpan {
+                        Some(MdNode {
                             content: part.to_owned(),
                             extra: if first {
                                 first = false;
@@ -319,7 +319,7 @@ fn split_newlines(mdspans: Vec<MdSpan>) -> Vec<MdSpan> {
                         })
                     }
                 })
-                .collect::<Vec<MdSpan>>()
+                .collect::<Vec<MdNode>>()
         })
         .collect()
 }
@@ -333,30 +333,30 @@ mod tests {
     #[test]
     fn split_no_empty_spans() {
         let mdspans = split_newlines(vec![
-            MdSpan::new("one line".to_owned(), MdModifier::default()),
-            MdSpan::new(".".to_owned(), MdModifier::default()),
-            MdSpan::new("\nanother line".to_owned(), MdModifier::NewLine),
-            MdSpan::new(".".to_owned(), MdModifier::default()),
+            MdNode::new("one line".to_owned(), MdModifier::default()),
+            MdNode::new(".".to_owned(), MdModifier::default()),
+            MdNode::new("\nanother line".to_owned(), MdModifier::NewLine),
+            MdNode::new(".".to_owned(), MdModifier::default()),
         ]);
         assert_eq!(
             mdspans,
             vec![
-                MdSpan::new("one line".to_owned(), MdModifier::default()),
-                MdSpan::new(".".to_owned(), MdModifier::default()),
-                MdSpan::new("another line".to_owned(), MdModifier::NewLine),
-                MdSpan::new(".".to_owned(), MdModifier::default()),
+                MdNode::new("one line".to_owned(), MdModifier::default()),
+                MdNode::new(".".to_owned(), MdModifier::default()),
+                MdNode::new("another line".to_owned(), MdModifier::NewLine),
+                MdNode::new(".".to_owned(), MdModifier::default()),
             ]
         );
 
         let mdspans = split_newlines(vec![
-            MdSpan::new("one line".to_owned(), MdModifier::default()),
-            MdSpan::new("\nanother line".to_owned(), MdModifier::NewLine),
+            MdNode::new("one line".to_owned(), MdModifier::default()),
+            MdNode::new("\nanother line".to_owned(), MdModifier::NewLine),
         ]);
         assert_eq!(
             mdspans,
             vec![
-                MdSpan::new("one line".to_owned(), MdModifier::default()),
-                MdSpan::new("another line".to_owned(), MdModifier::NewLine),
+                MdNode::new("one line".to_owned(), MdModifier::default()),
+                MdNode::new("another line".to_owned(), MdModifier::NewLine),
             ]
         );
     }
@@ -373,9 +373,9 @@ mod tests {
         assert_eq!(
             mdspans,
             vec![
-                MdSpan::new("one".to_owned(), MdModifier::default()),
-                MdSpan::new("two".to_owned(), MdModifier::NewLine),
-                MdSpan::new("three".to_owned(), MdModifier::NewLine),
+                MdNode::new("one".to_owned(), MdModifier::default()),
+                MdNode::new("two".to_owned(), MdModifier::NewLine),
+                MdNode::new("three".to_owned(), MdModifier::NewLine),
             ]
         )
     }
@@ -389,10 +389,10 @@ mod tests {
         assert_eq!(
             mdspans,
             vec![
-                MdSpan::new("This ".to_owned(), MdModifier::default()),
-                MdSpan::new("is".to_owned(), MdModifier::Emphasis),
-                MdSpan::new(" a test.".to_owned(), MdModifier::default()),
-                MdSpan::new("Another line.".to_owned(), MdModifier::NewLine),
+                MdNode::new("This ".to_owned(), MdModifier::default()),
+                MdNode::new("is".to_owned(), MdModifier::Emphasis),
+                MdNode::new(" a test.".to_owned(), MdModifier::default()),
+                MdNode::new("Another line.".to_owned(), MdModifier::NewLine),
             ]
         )
     }
@@ -406,9 +406,9 @@ mod tests {
         assert_eq!(
             mdspans,
             vec![
-                MdSpan::new("This".to_owned(), MdModifier::default()),
-                MdSpan::new("is".to_owned(), MdModifier::Emphasis | MdModifier::NewLine),
-                MdSpan::new(" a test.".to_owned(), MdModifier::default()),
+                MdNode::new("This".to_owned(), MdModifier::default()),
+                MdNode::new("is".to_owned(), MdModifier::Emphasis | MdModifier::NewLine),
+                MdNode::new(" a test.".to_owned(), MdModifier::default()),
             ]
         )
     }
@@ -422,8 +422,8 @@ mod tests {
         assert_eq!(
             mdspans,
             vec![
-                MdSpan::new("hello".to_owned(), MdModifier::default()),
-                MdSpan::new("world".to_owned(), MdModifier::NewLine),
+                MdNode::new("hello".to_owned(), MdModifier::default()),
+                MdNode::new("world".to_owned(), MdModifier::NewLine),
             ]
         )
     }
@@ -436,7 +436,7 @@ mod tests {
         let mdspans = split_newlines(mdspans);
         assert_eq!(
             mdspans,
-            vec![MdSpan::new("one, two.".to_owned(), MdModifier::default()),]
+            vec![MdNode::new("one, two.".to_owned(), MdModifier::default()),]
         )
     }
 }

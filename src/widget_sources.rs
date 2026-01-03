@@ -334,8 +334,8 @@ pub struct WidgetSource {
 pub enum WidgetSourceData {
     Image(String, Protocol),
     BrokenImage(String, String),
-    Line(Line<'static>, Vec<LineExtra>),
     Header(String, u8),
+    Line(Line<'static>, Vec<LineExtra>),
 }
 
 impl WidgetSourceData {
