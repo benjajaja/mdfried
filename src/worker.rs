@@ -40,7 +40,7 @@ use textwrap::{Options, wrap};
 use tokio::{runtime::Builder, sync::RwLock};
 
 use crate::{
-    Cmd, Event, MarkdownImage,
+    Cmd, Event,
     error::Error,
     markdown::{MdDocument, MdParser, MdSection},
     model::DocumentId,
@@ -108,7 +108,6 @@ pub fn worker_thread(
                                 MdSection::Header(_, _) => false,
                                 // Always add space before the next section (if any).
                                 MdSection::Markdown(_) => true,
-                                MdSection::Image(_, _) => true,
                             };
 
                             let events = section_into_events(
@@ -246,16 +245,6 @@ fn section_into_events(
                     text,
                 )]
             }
-        }
-        MdSection::Image(url, text) => {
-            vec![Event::ParsedImage(
-                document_id,
-                post_incr_source_id(source_id),
-                MarkdownImage {
-                    destination: url,
-                    description: text,
-                },
-            )]
         }
         MdSection::Markdown(mdspans) => wrap_md_spans(document_id, source_id, width, mdspans),
     }

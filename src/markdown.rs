@@ -90,51 +90,6 @@ impl<'a> MdIterator<'a> {
             "paragraph" => {
                 let text = &self.source[node.byte_range()];
 
-                let cursor = &mut node.walk();
-                let mut children = node.children(cursor);
-                if children.len() == 1 {
-                    // Try to catch paragraphs with only a single image.
-                    // Horrible, yes, rip out later and improve to catch all images,
-                    // including linewrapped stuff. To be done in worker.rs wrap_md_spans().
-                    #[expect(clippy::unwrap_used)] // len check above
-                    let node = children.next().unwrap();
-                    if node.kind() == "inline" {
-                        let inline_source = &self.source[node.byte_range()];
-                        if let Some(inline_tree) = self.inline_parser.parse(inline_source, None) {
-                            let inline_root = inline_tree.root_node();
-                            if inline_root.kind() == "inline" {
-                                let cursor = &mut inline_root.walk();
-                                let mut children = inline_root.children(cursor);
-                                if children.len() == 1 {
-                                    #[expect(clippy::unwrap_used)] // len check above
-                                    let inline_node = children.next().unwrap();
-                                    if inline_node.kind() == "image" {
-                                        let mut image_description = "";
-                                        let mut link_destination = "";
-                                        for child in inline_node.children(&mut inline_node.walk()) {
-                                            match child.kind() {
-                                                "image_description" => {
-                                                    image_description =
-                                                        &inline_source[child.byte_range()]
-                                                }
-                                                "link_destination" => {
-                                                    link_destination =
-                                                        &inline_source[child.byte_range()]
-                                                }
-                                                _ => {}
-                                            }
-                                        }
-                                        return Some(MdSection::Image(
-                                            link_destination.to_owned(),
-                                            image_description.to_owned(),
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 let Some(tree) = self.inline_parser.parse(text, None) else {
                     return Some(MdSection::Markdown(vec![MdSpan::new(
                         text.to_owned(),
@@ -239,7 +194,6 @@ impl UnicodeWidthStr for MdSpan {
 pub enum MdSection {
     Header(String, u8),
     Markdown(Vec<MdSpan>),
-    Image(String, String), // TODO used?
 }
 
 #[expect(clippy::string_slice)] // Let's hope tree-sitter is right
