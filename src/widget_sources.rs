@@ -133,7 +133,6 @@ impl WidgetSources {
         if let Some(last) = self.sources.last()
             && last.id == last_source_id
         {
-            log::debug!("no trim needed");
             return;
         }
         if let Some(idx) = self
@@ -335,8 +334,8 @@ pub struct WidgetSource {
 pub enum WidgetSourceData {
     Image(String, Protocol),
     BrokenImage(String, String),
-    Line(Line<'static>, Vec<LineExtra>),
     Header(String, u8),
+    Line(Line<'static>, Vec<LineExtra>),
 }
 
 impl WidgetSourceData {

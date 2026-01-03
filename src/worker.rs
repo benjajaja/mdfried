@@ -1,3 +1,30 @@
+//! Worker
+//!
+//! TODO: wrap up a good explanation!
+//!
+//! # Worker pipeline
+//!
+//! # Worker process `Cmd`s
+//!
+//! ## Markdown parse
+//! The markdown module produces a list of `MdEvent`s.
+//!
+//! ## Model `process_events`
+//! From event, either insert line-widget, or send `Cmd` to worker to process an image.
+//!
+//! ## View
+//! Renders line-widgets.
+//!
+//!     Parse
+//!      ↓
+//!     Event → Image
+//!      ↓
+//!     WidgetSource
+//!      ↓
+//!     View
+//!
+pub mod pipeline;
+
 use std::{
     path::PathBuf,
     sync::{
@@ -8,24 +35,25 @@ use std::{
 };
 
 use ratatui_image::picker::{Picker, ProtocolType};
-use ratskin::{MadSkin, RatSkin};
+use ratskin::MadSkin;
 use reqwest::Client;
 use tokio::{runtime::Builder, sync::RwLock};
 
 use crate::{
     Cmd, Event,
     error::Error,
-    markdown::parse,
     setup::{BgColor, FontRenderer},
     widget_sources::{WidgetSource, header_images, header_sources, image_source},
 };
+
+use pipeline::{markdown::MdParser, pipeline};
 
 #[expect(clippy::too_many_arguments)]
 pub fn worker_thread(
     basepath: Option<PathBuf>,
     picker: Picker,
     renderer: Option<Box<FontRenderer>>,
-    skin: MadSkin,
+    _skin: MadSkin,
     bg: Option<BgColor>,
     has_text_size_protocol: bool,
     deep_fry: bool,
@@ -46,33 +74,27 @@ pub fn worker_thread(
             let thread_renderer =
                 renderer.map(|renderer| Arc::new(std::sync::Mutex::new(renderer)));
             let thread_picker = Arc::new(picker);
-            let skin = RatSkin { skin };
+            let mut parser = MdParser::new()?;
 
             for cmd in cmd_rx {
                 log::debug!("Cmd: {cmd}");
                 match cmd {
                     Cmd::Parse(document_id, width, text) => {
                         log::info!("Parse {document_id}");
+
                         event_tx.send(Event::NewDocument(document_id))?;
-                        let mut last_parsed_source_id = None;
-                        for event in parse(&text, &skin, document_id, width, has_text_size_protocol)
-                        {
-                            match &event {
-                                Event::Parsed(_, source) => {
-                                    last_parsed_source_id = Some(source.id);
-                                }
-                                Event::ParseImage(_, source_id, _, _, _) => {
-                                    last_parsed_source_id = Some(*source_id);
-                                }
-                                Event::ParseHeader(_, source_id, _, _) => {
-                                    last_parsed_source_id = Some(*source_id);
-                                }
-                                _ => {}
-                            }
+
+                        let (events, last_source_id) = pipeline(
+                            &mut parser,
+                            document_id,
+                            width,
+                            has_text_size_protocol,
+                            text,
+                        )?;
+                        for event in events {
                             event_tx.send(event)?;
                         }
-                        log::debug!("Cmd::Parse finished");
-                        event_tx.send(Event::ParseDone(document_id, last_parsed_source_id))?;
+                        event_tx.send(Event::ParseDone(document_id, last_source_id))?;
                     }
                     Cmd::Header(document_id, source_id, width, tier, text) => {
                         debug_assert!(
@@ -101,7 +123,7 @@ pub fn worker_thread(
                             }
                         }
                     }
-                    Cmd::UrlImage(document_id, source_id, width, url, text, _title) => {
+                    Cmd::UrlImage(document_id, source_id, width, url, text) => {
                         let task_tx = event_tx.clone();
                         let basepath = basepath.clone();
                         let client = client.clone();
@@ -124,15 +146,19 @@ pub fn worker_thread(
                                     task_tx.send(Event::Update(document_id, vec![source]))?
                                 }
                                 Err(Error::UnknownImage(id, link)) => {
+                                    log::error!("image_source UnknownImage");
                                     task_tx.send(Event::Update(
                                         document_id,
                                         vec![WidgetSource::image_unknown(id, link, text)],
                                     ))?
                                 }
-                                Err(_) => task_tx.send(Event::Update(
-                                    document_id,
-                                    vec![WidgetSource::image_unknown(source_id, url, text)],
-                                ))?,
+                                Err(err) => {
+                                    log::error!("image_source error: {err}");
+                                    task_tx.send(Event::Update(
+                                        document_id,
+                                        vec![WidgetSource::image_unknown(source_id, url, text)],
+                                    ))?
+                                }
                             }
                             Ok::<(), Error>(())
                         });

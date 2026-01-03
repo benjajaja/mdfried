@@ -2,7 +2,6 @@ mod config;
 mod cursor;
 mod debug;
 mod error;
-mod markdown;
 mod model;
 mod setup;
 mod watch;
@@ -285,7 +284,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 #[derive(Debug)]
 enum Cmd {
     Parse(DocumentId, u16, String),
-    UrlImage(DocumentId, usize, u16, String, String, String),
+    UrlImage(DocumentId, usize, u16, String, String),
     Header(DocumentId, usize, u16, u8, String),
 }
 
@@ -295,7 +294,7 @@ impl Display for Cmd {
             Cmd::Parse(reload_id, width, _) => {
                 write!(f, "Cmd::Parse({reload_id:?}, {width}, <text>)")
             }
-            Cmd::UrlImage(document_id, source_id, width, url, _, _) => write!(
+            Cmd::UrlImage(document_id, source_id, width, url, _) => write!(
                 f,
                 "Cmd::UrlImage({document_id}, {source_id}, {width}, {url}, _, _)"
             ),
@@ -308,11 +307,11 @@ impl Display for Cmd {
 }
 
 #[derive(Debug, PartialEq)]
-enum Event {
+pub enum Event {
     NewDocument(DocumentId),
     ParseDone(DocumentId, Option<SourceID>), // Only signals "parsing done", not "images ready"!
     Parsed(DocumentId, WidgetSource),
-    ParseImage(DocumentId, SourceID, String, String, String),
+    ParsedImage(DocumentId, SourceID, MarkdownImage),
     ParseHeader(DocumentId, SourceID, u8, String),
     Update(DocumentId, Vec<WidgetSource>),
     FileChanged,
@@ -338,8 +337,8 @@ impl Display for Event {
                 write!(f, "Event::Update({document_id}, <{updates:?}>)",)
             }
 
-            Event::ParseImage(document_id, id, url, _, _) => {
-                write!(f, "Event::ParseImage({document_id}, {id}, {url}, _, _)")
+            Event::ParsedImage(document_id, id, args) => {
+                write!(f, "Event::ParseImage({document_id}, {id}, {args})")
             }
 
             Event::ParseHeader(document_id, id, tier, text) => {
@@ -348,6 +347,21 @@ impl Display for Event {
 
             Event::FileChanged => write!(f, "Event::FileChanged"),
         }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct MarkdownImage {
+    pub destination: String,
+    pub description: String,
+}
+impl Display for MarkdownImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ParseImageArgs{{ {}, {} }}",
+            self.destination, self.description
+        )
     }
 }
 
@@ -766,8 +780,11 @@ mod tests {
                 screen_size,
                 String::from(
                     r#"# Hello
-This is a test markdown document.
+This is a *test* markdown document.
+Another line of same paragraph.
 ![image](./assets/NixOS.png)
+
+# Last bit
 Goodbye."#,
                 ),
             )

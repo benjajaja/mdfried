@@ -14,7 +14,6 @@ use ratatui::{
 };
 use regex::RegexBuilder;
 
-use crate::setup::BgColor;
 use crate::{
     Cmd,
     config::{Config, PaddingConfig},
@@ -22,6 +21,7 @@ use crate::{
     widget_sources::{FindMode, FindTarget},
 };
 use crate::{Event, widget_sources::WidgetSources};
+use crate::{MarkdownImage, setup::BgColor};
 use crate::{
     cursor::Cursor,
     widget_sources::{WidgetSource, WidgetSourceData},
@@ -178,38 +178,45 @@ impl Model {
                     }
                     self.sources.update(updates);
                 }
-                Event::ParseImage(document_id, id, url, text, title) => {
+                Event::ParsedImage(
+                    document_id,
+                    id,
+                    MarkdownImage {
+                        destination: link_destination,
+                        description: image_description,
+                    },
+                ) => {
                     if !self.document_id.is_same_document(&document_id) {
                         log::debug!("stale event, ignoring");
                         continue;
                     }
 
-                    if let Some(mut existing_image) = self.sources.replace(id, &url) {
-                        log::debug!("replacing from existing image ({url})");
+                    if let Some(mut existing_image) = self.sources.replace(id, &link_destination) {
+                        log::debug!("replacing from existing image ({link_destination})");
                         existing_image.id = id;
                         self.sources.update(vec![existing_image]);
                     } else {
                         if self.document_id.is_first_load() {
                             log::debug!(
-                                "existing image not found, push placeholder and process image ({url})"
+                                "existing image not found, push placeholder and process image ({link_destination})"
                             );
                             self.sources.push(WidgetSource {
                                 id,
                                 height: 1,
                                 data: WidgetSourceData::Line(
-                                    Line::from(format!("![Loading...]({url})")),
+                                    Line::from(format!("![Loading...]({link_destination})")),
                                     Vec::new(),
                                 ),
                             });
                         } else {
                             log::debug!(
-                                "existing image not found, update placeholder and process image ({url})"
+                                "existing image not found, update placeholder and process image ({link_destination})"
                             );
                             self.sources.update(vec![WidgetSource {
                                 id,
                                 height: 1,
                                 data: WidgetSourceData::Line(
-                                    Line::from(format!("![Loading...]({url})")),
+                                    Line::from(format!("![Loading...]({link_destination})")),
                                     Vec::new(),
                                 ),
                             }]);
@@ -223,9 +230,8 @@ impl Model {
                             document_id,
                             id,
                             inner_width,
-                            url,
-                            text,
-                            title,
+                            link_destination,
+                            image_description,
                         ))?;
                     }
                 }
