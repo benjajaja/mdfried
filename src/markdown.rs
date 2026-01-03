@@ -297,12 +297,21 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
         if is_punctuation(child.kind(), current_extra) {
             continue;
         }
+        let mut ended_with_newline = false;
         if child.start_byte() > pos {
             spans.push(MdSpan::new(
                 source[pos..child.start_byte()].to_owned(),
                 extra,
             ));
+            if source.as_bytes()[child.start_byte() - 1] == b'\n' {
+                ended_with_newline = true;
+            }
         }
+        let extra = if ended_with_newline {
+            extra.union(MdModifier::NewLine)
+        } else {
+            extra
+        };
         // A node cannot possible start with \n, so we don't need to pass newline_offset down here.
         spans.extend(inline_node_to_spans(child, source, extra, _depth + 1));
         pos = child.end_byte();
@@ -430,6 +439,37 @@ mod tests {
                 MdSpan::new("is".to_owned(), MdModifier::Emphasis),
                 MdSpan::new(" a test.".to_owned(), MdModifier::default()),
                 MdSpan::new("Another line.".to_owned(), MdModifier::NewLine),
+            ]
+        )
+    }
+
+    #[test]
+    fn split_newlines_at_styled() {
+        let source = "This\n*is* a test.";
+        let tree = MdDocument::inline_parser().parse(source, None).unwrap();
+        let mdspans = inline_node_to_spans(tree.root_node(), source, MdModifier::default(), 0);
+        let mdspans = split_newlines(mdspans);
+        assert_eq!(
+            mdspans,
+            vec![
+                MdSpan::new("This".to_owned(), MdModifier::default()),
+                MdSpan::new("is".to_owned(), MdModifier::Emphasis | MdModifier::NewLine),
+                MdSpan::new(" a test.".to_owned(), MdModifier::default()),
+            ]
+        )
+    }
+
+    #[test]
+    fn split_newlines_middle() {
+        let source = "hello\nworld";
+        let tree = MdDocument::inline_parser().parse(source, None).unwrap();
+        let mdspans = inline_node_to_spans(tree.root_node(), source, MdModifier::default(), 0);
+        let mdspans = split_newlines(mdspans);
+        assert_eq!(
+            mdspans,
+            vec![
+                MdSpan::new("hello".to_owned(), MdModifier::default()),
+                MdSpan::new("world".to_owned(), MdModifier::NewLine),
             ]
         )
     }

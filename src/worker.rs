@@ -675,4 +675,34 @@ mod tests {
         ];
         assert_eq!(events, expected);
     }
+
+    #[test]
+    fn parse_newlines_at_styled() {
+        let events: Vec<Event> = parse("This \n*is* a test.".into(), 80, true);
+        let expected = vec![
+            Event::Parsed(
+                DocumentId::default(),
+                WidgetSource {
+                    id: 0,
+                    height: 1,
+                    data: WidgetSourceData::Line(Line::from(vec![Span::from("This")]), Vec::new()),
+                },
+            ),
+            Event::Parsed(
+                DocumentId::default(),
+                WidgetSource {
+                    id: 1,
+                    height: 1,
+                    data: WidgetSourceData::Line(
+                        Line::from(vec![
+                            Span::from("is").fg(Color::Indexed(220)).italic(),
+                            Span::from(" a test."),
+                        ]),
+                        Vec::new(),
+                    ),
+                },
+            ),
+        ];
+        assert_eq!(events, expected);
+    }
 }
