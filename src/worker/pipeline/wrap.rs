@@ -7,9 +7,9 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     Event, MarkdownImage,
-    markdown::{MdModifier, MdSpan},
     model::DocumentId,
     widget_sources::{LineExtra, WidgetSource, WidgetSourceData},
+    worker::pipeline::markdown::{MdModifier, MdSpan},
     worker::post_incr_source_id,
 };
 
@@ -179,10 +179,8 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdSpan>) -> Vec<Vec<MdSpan>>
 mod tests {
     use pretty_assertions::assert_eq;
 
-    use crate::{
-        markdown::{MdModifier, MdSpan},
-        wrap::wrap_md_spans_lines,
-    };
+    use super::wrap_md_spans_lines;
+    use crate::worker::pipeline::markdown::{MdModifier, MdSpan};
 
     #[test]
     fn simple_wrap() {

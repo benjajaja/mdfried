@@ -23,6 +23,8 @@
 //!      ↓
 //!     View
 //!
+pub mod pipeline;
+
 use std::{
     path::PathBuf,
     sync::{
@@ -42,12 +44,15 @@ use tokio::{runtime::Builder, sync::RwLock};
 use crate::{
     Cmd, Event,
     error::Error,
-    markdown::{MdDocument, MdParser, MdSection},
     model::DocumentId,
     setup::{BgColor, FontRenderer},
     widget_sources::{
         BigText, WidgetSource, WidgetSourceData, header_images, header_sources, image_source,
     },
+};
+
+use pipeline::{
+    markdown::{MdDocument, MdParser, MdSection},
     wrap::wrap_md_spans,
 };
 
@@ -86,6 +91,7 @@ pub fn worker_thread(
                         log::info!("Parse {document_id}");
 
                         event_tx.send(Event::NewDocument(document_id))?;
+
                         let doc = MdDocument::new(text, &mut parser)?;
                         let mut source_id = None;
                         let mut needs_space = false;
@@ -253,12 +259,14 @@ fn section_into_events(
 #[cfg(test)]
 mod tests {
     use crate::{
-        markdown::{MdDocument, MdParser},
-        worker::section_into_events,
-        wrap::{
-            COLOR_LINK_BG, COLOR_LINK_FG, LINK_DESC_CLOSE, LINK_DESC_OPEN, LINK_URL_CLOSE,
-            LINK_URL_OPEN,
+        worker::pipeline::{
+            markdown::{MdDocument, MdParser},
+            wrap::{
+                COLOR_LINK_BG, COLOR_LINK_FG, LINK_DESC_CLOSE, LINK_DESC_OPEN, LINK_URL_CLOSE,
+                LINK_URL_OPEN,
+            },
         },
+        worker::section_into_events,
         *,
     };
     use pretty_assertions::assert_eq;
