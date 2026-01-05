@@ -10,6 +10,7 @@ use textwrap::{Options, wrap};
 
 use crate::{
     Event, LineExtra, MarkdownImage,
+    config::Theme,
     error::Error,
     model::DocumentId,
     widget_sources::{BigText, WidgetSource, WidgetSourceData},
@@ -21,6 +22,7 @@ pub fn parse_to_events(
     document_id: DocumentId,
     width: u16,
     has_text_size_protocol: bool,
+    theme: &Theme,
     text: String,
 ) -> Result<(Vec<Event>, Option<usize>), Error> {
     let mut source_id: Option<usize> = None;
@@ -32,6 +34,7 @@ pub fn parse_to_events(
             &mut source_id,
             width,
             has_text_size_protocol,
+            theme,
             md_line,
         );
         events.extend(line_events);
@@ -46,6 +49,7 @@ fn md_line_to_events(
     source_id: &mut Option<usize>,
     width: u16,
     has_text_size_protocol: bool,
+    theme: &Theme,
     md_line: MdLine,
 ) -> Vec<Event> {
     // Handle special cases that need application-specific treatment
@@ -95,7 +99,7 @@ fn md_line_to_events(
         }
         // All other lines: render via mdfrier and convert to Event
         _ => {
-            let (line, tags) = render_line(md_line, width);
+            let (line, tags) = render_line(md_line, width, theme);
 
             // Extract link info from tags, using span index to calculate character offsets
             let links: Vec<LineExtra> = tags
@@ -145,7 +149,8 @@ pub fn post_incr_source_id(source_id: &mut Option<usize>) -> usize {
 #[cfg(test)]
 mod tests {
     use crate::{
-        DocumentId, Event, WidgetSource, WidgetSourceData, worker::markdown::parse_to_events,
+        DocumentId, Event, WidgetSource, WidgetSourceData, config::Theme,
+        worker::markdown::parse_to_events,
     };
     use mdfrier::MdFrier;
 
@@ -157,6 +162,7 @@ mod tests {
             DocumentId::default(),
             width,
             has_text_size_protocol,
+            &Theme::default(),
             text,
         )
         .unwrap();

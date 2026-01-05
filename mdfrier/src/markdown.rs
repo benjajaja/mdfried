@@ -1,8 +1,13 @@
+use std::borrow::Cow;
+
 use bitflags::bitflags;
 use tree_sitter::{Node, Parser, Tree, TreeCursor};
 use unicode_width::UnicodeWidthStr;
 
 use crate::Error;
+
+/// Default list marker when none can be determined.
+const DEFAULT_LIST_MARKER: &str = "-";
 
 pub struct MdDocument<'a> {
     source: String,
@@ -168,7 +173,8 @@ impl<'a> MdIterator<'a> {
                     .into_iter()
                     .map(|mut s| {
                         if s.extra.contains(MdModifier::NewLine) {
-                            s.content = strip_blockquote_prefix(&s.content, blockquote_depth);
+                            s.content =
+                                strip_blockquote_prefix(&s.content, blockquote_depth).into_owned();
                         }
                         s
                     })
@@ -338,7 +344,10 @@ impl<'a> MdIterator<'a> {
                         return Some(MdContainer::List(self.extract_list_marker(child)));
                     }
                 }
-                Some(MdContainer::List(ListMarker::new("-".to_owned(), 0)))
+                Some(MdContainer::List(ListMarker::new(
+                    DEFAULT_LIST_MARKER.into(),
+                    0,
+                )))
             }
             "list_item" => Some(MdContainer::ListItem(self.extract_list_marker(node))),
             "block_quote" => Some(MdContainer::Blockquote(BlockquoteMarker)),
@@ -348,7 +357,7 @@ impl<'a> MdIterator<'a> {
 
     #[expect(clippy::string_slice)]
     fn extract_list_marker(&self, list_item: Node<'a>) -> ListMarker {
-        let mut marker_text = "-".to_owned();
+        let mut marker_text: Cow<'_, str> = Cow::Borrowed(DEFAULT_LIST_MARKER);
         let mut indent = 0;
         let mut task: Option<bool> = None;
 
@@ -359,7 +368,7 @@ impl<'a> MdIterator<'a> {
                 | "list_marker_star"
                 | "list_marker_dot"
                 | "list_marker_parenthesis" => {
-                    marker_text = self.source[child.byte_range()].trim().to_owned();
+                    marker_text = Cow::Owned(self.source[child.byte_range()].trim().to_owned());
                     indent = child.start_position().column;
                 }
                 "task_list_marker_checked" => {
@@ -371,7 +380,7 @@ impl<'a> MdIterator<'a> {
                 _ => {}
             }
         }
-        ListMarker::with_task(marker_text, indent, task)
+        ListMarker::with_task(marker_text.into_owned(), indent, task)
     }
 }
 
@@ -520,7 +529,10 @@ pub struct MdSection {
     pub is_list_continuation: bool,
 }
 
-fn strip_blockquote_prefix(s: &str, depth: usize) -> String {
+fn strip_blockquote_prefix(s: &str, depth: usize) -> Cow<'_, str> {
+    if depth == 0 {
+        return Cow::Borrowed(s);
+    }
     let mut remaining = s;
     for _ in 0..depth {
         if let Some(rest) = remaining.strip_prefix("> ") {
@@ -531,7 +543,11 @@ fn strip_blockquote_prefix(s: &str, depth: usize) -> String {
             break;
         }
     }
-    remaining.to_owned()
+    if remaining.len() == s.len() {
+        Cow::Borrowed(s)
+    } else {
+        Cow::Owned(remaining.to_owned())
+    }
 }
 
 fn is_blockquote_marker_only(s: &str) -> bool {
@@ -645,37 +661,38 @@ fn is_punctuation(kind: &str, parent_modifier: MdModifier) -> bool {
 }
 
 fn split_newlines(mdspans: Vec<MdNode>) -> Vec<MdNode> {
-    mdspans
-        .iter()
-        .flat_map(|mdspan| {
-            // Preserve empty spans that have NewLine flag (from hard_line_break)
-            if mdspan.content.is_empty() && mdspan.extra.contains(MdModifier::NewLine) {
-                return vec![mdspan.clone()];
-            }
+    let mut result = Vec::with_capacity(mdspans.len());
+    for mdspan in mdspans {
+        // Preserve empty spans that have NewLine flag (from hard_line_break)
+        if mdspan.content.is_empty() && mdspan.extra.contains(MdModifier::NewLine) {
+            result.push(mdspan);
+            continue;
+        }
 
-            let mut first = true;
-            mdspan
-                .content
-                .split('\n')
-                .filter_map(|part| {
-                    if part.is_empty() {
-                        first = false;
-                        None
-                    } else {
-                        Some(MdNode {
-                            content: part.to_owned(),
-                            extra: if first {
-                                first = false;
-                                mdspan.extra
-                            } else {
-                                mdspan.extra.union(MdModifier::NewLine)
-                            },
-                        })
-                    }
-                })
-                .collect::<Vec<MdNode>>()
-        })
-        .collect()
+        // Check if there are any newlines to split
+        if !mdspan.content.contains('\n') {
+            result.push(mdspan);
+            continue;
+        }
+
+        let mut first = true;
+        for part in mdspan.content.split('\n') {
+            if part.is_empty() {
+                first = false;
+                continue;
+            }
+            result.push(MdNode {
+                content: part.to_owned(),
+                extra: if first {
+                    first = false;
+                    mdspan.extra
+                } else {
+                    mdspan.extra.union(MdModifier::NewLine)
+                },
+            });
+        }
+    }
+    result
 }
 
 #[cfg(test)]
@@ -725,8 +742,7 @@ mod tests {
         let source = r#"> First paragraph
 >
 > Second paragraph"#;
-        let mut doc =
-            MdDocument::new(source.to_owned(), &mut parser, &mut inline_parser).unwrap();
+        let mut doc = MdDocument::new(source.to_owned(), &mut parser, &mut inline_parser).unwrap();
 
         let sections: Vec<_> = doc.sections().collect();
         assert_eq!(sections.len(), 3);
@@ -739,7 +755,8 @@ mod tests {
     fn parse_header() {
         let mut parser = make_parser();
         let mut inline_parser = make_inline_parser();
-        let mut doc = MdDocument::new("# Hello".to_owned(), &mut parser, &mut inline_parser).unwrap();
+        let mut doc =
+            MdDocument::new("# Hello".to_owned(), &mut parser, &mut inline_parser).unwrap();
         let sections: Vec<_> = doc.sections().collect();
         assert_eq!(sections.len(), 1);
         assert!(matches!(

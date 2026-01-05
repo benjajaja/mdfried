@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf};
 
 use confy::ConfyError;
-use ratatui::crossterm::style::Color;
+use ratatui::style::Color;
 use ratatui_image::picker::ProtocolType;
 use serde::{Deserialize, Serialize};
 
@@ -45,24 +45,108 @@ pub struct UserConfig {
     pub theme: Option<Theme>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Theme {
-    pub skin: ratskin::MadSkin,
+    // Symbols
+    pub blockquote_bar: Option<String>,
+    pub link_desc_open: Option<String>,
+    pub link_desc_close: Option<String>,
+    pub link_url_open: Option<String>,
+    pub link_url_close: Option<String>,
+    pub horizontal_rule_char: Option<String>,
+    pub task_checked_mark: Option<String>,
+
+    // Colors
+    pub blockquote_colors: Option<Vec<Color>>,
+    pub link_bg: Option<Color>,
+    pub link_fg: Option<Color>,
+    pub prefix_color: Option<Color>,
+    pub emphasis_color: Option<Color>,
+    pub code_bg: Option<Color>,
+    pub code_fg: Option<Color>,
+    pub hr_color: Option<Color>,
+    pub table_border_color: Option<Color>,
+    pub table_header_color: Option<Color>,
 }
-impl Default for Theme {
-    fn default() -> Self {
-        let mut skin = ratskin::MadSkin::default();
 
-        skin.bold.set_fg(Color::AnsiValue(220));
+impl mdfrier::ratatui::Theme for Theme {
+    fn blockquote_bar(&self) -> &str {
+        self.blockquote_bar.as_deref().unwrap_or("▌")
+    }
 
-        skin.inline_code.set_fg(Color::AnsiValue(203));
-        skin.inline_code.set_bg(Color::AnsiValue(236));
+    fn link_desc_open(&self) -> &str {
+        self.link_desc_open.as_deref().unwrap_or("▐")
+    }
 
-        skin.code_block.set_fg(Color::AnsiValue(203));
+    fn link_desc_close(&self) -> &str {
+        self.link_desc_close.as_deref().unwrap_or("▌")
+    }
 
-        skin.quote_mark.set_fg(Color::AnsiValue(63));
-        skin.bullet.set_fg(Color::AnsiValue(63));
-        Theme { skin }
+    fn link_url_open(&self) -> &str {
+        self.link_url_open.as_deref().unwrap_or("◖")
+    }
+
+    fn link_url_close(&self) -> &str {
+        self.link_url_close.as_deref().unwrap_or("◗")
+    }
+
+    fn horizontal_rule_char(&self) -> &str {
+        self.horizontal_rule_char.as_deref().unwrap_or("─")
+    }
+
+    fn task_checked_mark(&self) -> &str {
+        self.task_checked_mark.as_deref().unwrap_or("✓")
+    }
+
+    fn blockquote_color(&self, depth: usize) -> Color {
+        const DEFAULT_COLORS: [Color; 6] = [
+            Color::Indexed(202),
+            Color::Indexed(203),
+            Color::Indexed(204),
+            Color::Indexed(205),
+            Color::Indexed(206),
+            Color::Indexed(207),
+        ];
+        match &self.blockquote_colors {
+            Some(colors) if !colors.is_empty() => colors[depth % colors.len()],
+            _ => DEFAULT_COLORS[depth % DEFAULT_COLORS.len()],
+        }
+    }
+
+    fn link_bg(&self) -> Color {
+        self.link_bg.unwrap_or(Color::Indexed(237))
+    }
+
+    fn link_fg(&self) -> Color {
+        self.link_fg.unwrap_or(Color::Indexed(4))
+    }
+
+    fn prefix_color(&self) -> Color {
+        self.prefix_color.unwrap_or(Color::Indexed(189))
+    }
+
+    fn emphasis_color(&self) -> Color {
+        self.emphasis_color.unwrap_or(Color::Indexed(220))
+    }
+
+    fn code_bg(&self) -> Color {
+        self.code_bg.unwrap_or(Color::Indexed(236))
+    }
+
+    fn code_fg(&self) -> Color {
+        self.code_fg.unwrap_or(Color::Indexed(203))
+    }
+
+    fn hr_color(&self) -> Color {
+        self.hr_color.unwrap_or(Color::Indexed(240))
+    }
+
+    fn table_border_color(&self) -> Color {
+        self.table_border_color.unwrap_or(Color::Indexed(240))
+    }
+
+    fn table_header_color(&self) -> Color {
+        self.table_header_color.unwrap_or(Color::Indexed(255))
     }
 }
 

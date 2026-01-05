@@ -3,6 +3,16 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::markdown::{MdModifier, MdNode};
 
+/// Trim leading whitespace in place.
+#[inline]
+fn trim_start_inplace(s: &mut String) {
+    let trimmed_len = s.trim_start().len();
+    if trimmed_len < s.len() {
+        let start = s.len() - trimmed_len;
+        s.drain(..start);
+    }
+}
+
 /// Image reference extracted from markdown.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImageRef {
@@ -42,7 +52,7 @@ pub fn wrap_md_spans(width: u16, mdspans: Vec<MdNode>, prefix_width: usize) -> V
                 })
                 .map(|s| ImageRef {
                     url: s.content.clone(),
-                    description: String::from("TODO:img_desc"),
+                    description: String::new(),
                 })
                 .collect();
 
@@ -61,7 +71,7 @@ pub fn wrap_md_spans(width: u16, mdspans: Vec<MdNode>, prefix_width: usize) -> V
         .collect()
 }
 
-fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>> {
+pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>> {
     let mut lines: Vec<Vec<MdNode>> = Vec::new();
     let mut line: Vec<MdNode> = Vec::new();
     let mut after_newline = false;
@@ -78,7 +88,7 @@ fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>> {
         // Strip leading whitespace from content after a hard line break
         let mut mdspan = mdspan;
         if after_newline && !mdspan.content.is_empty() {
-            mdspan.content = mdspan.content.trim_start().to_owned();
+            trim_start_inplace(&mut mdspan.content);
             after_newline = false;
         }
 
@@ -102,14 +112,17 @@ fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>> {
                 for (i, part) in parts.into_iter().enumerate() {
                     let is_last = i == num_parts - 1;
                     let is_first = i == 0;
-                    let mut part_content = if is_last && ends_with_space {
-                        format!("{} ", part)
+                    let mut part_content: String = if is_last && ends_with_space {
+                        let mut s = String::with_capacity(part.len() + 1);
+                        s.push_str(&part);
+                        s.push(' ');
+                        s
                     } else {
-                        part.to_string()
+                        part.into_owned()
                     };
                     if is_first && starting_new_line && !mdspan.extra.contains(MdModifier::NewLine)
                     {
-                        part_content = part_content.trim_start().to_owned();
+                        trim_start_inplace(&mut part_content);
                     }
                     let part_width = part_content.width() as u16;
                     if line_width + part_width > width {
@@ -128,7 +141,7 @@ fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>> {
             } else {
                 let mut mdspan = mdspan;
                 if starting_new_line && !mdspan.extra.contains(MdModifier::NewLine) {
-                    mdspan.content = mdspan.content.trim_start().to_owned();
+                    trim_start_inplace(&mut mdspan.content);
                 }
                 line.push(mdspan);
             }

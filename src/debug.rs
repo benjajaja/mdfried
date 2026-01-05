@@ -2,8 +2,14 @@ use std::io::Write;
 
 use flexi_logger::{DeferredNow, FileSpec, FlexiLoggerError, Logger};
 use log::Record;
-use ratatui::{Frame, crossterm::style::Color, layout::Rect, widgets::Block};
-use ratskin::RatSkin;
+use ratatui::{
+    Frame,
+    layout::Rect,
+    style::{Color, Style},
+    text::{Line, Span},
+    widgets::Block,
+};
+use textwrap::{Options, wrap};
 
 pub fn ui_logger(log_to_file: bool) -> Result<flexi_logger::LoggerHandle, FlexiLoggerError> {
     if log_to_file {
@@ -44,29 +50,33 @@ pub fn render_snapshot(snapshot: &flexi_logger::Snapshot, frame: &mut Frame) -> 
     let inner_area = debug_block.inner(half_area_right);
     frame.render_widget(debug_block, half_area_right);
 
-    // We just leverage ratskin here for the text wrapping.
-    let madtext = RatSkin::parse_text(&snapshot.text);
-    let mut skin = RatSkin::default();
-    skin.skin.bold.set_fg(Color::AnsiValue(220));
-    skin.skin.italic.set_fg(Color::AnsiValue(96));
-    skin.skin.inline_code.set_fg(Color::AnsiValue(203));
-    skin.skin.inline_code.set_bg(Color::AnsiValue(236));
+    let options = Options::new(inner_area.width as usize).break_words(true);
 
-    let lines = skin.parse(madtext, inner_area.width);
-    for (i, mut line) in lines.into_iter().rev().enumerate() {
+    let mut output_lines: Vec<Line> = Vec::new();
+    for log_line in snapshot.text.lines() {
+        let line = parse_log_line(log_line);
+        let plain_text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        let wrapped = wrap(&plain_text, &options);
+
+        if wrapped.len() == 1 {
+            output_lines.push(line);
+        } else {
+            // For wrapped lines, just use plain text with level color on first line
+            let level_color = line.spans.first().map(|s| s.style);
+            for (i, part) in wrapped.iter().enumerate() {
+                let style = if i == 0 {
+                    level_color.unwrap_or_default()
+                } else {
+                    Style::default()
+                };
+                output_lines.push(Line::from(Span::styled(part.to_string(), style)));
+            }
+        }
+    }
+
+    for (i, line) in output_lines.into_iter().rev().enumerate() {
         if i as u16 >= inner_area.height {
             break;
-        }
-        if let Some(span) = line.spans.get_mut(0) {
-            if let Some(color) = match span.content.to_string().as_str() {
-                "DEBUG" => Some(ratatui::prelude::Color::LightBlue),
-                "INFO" => Some(ratatui::prelude::Color::Green),
-                "WARN" => Some(ratatui::prelude::Color::Yellow),
-                "ERROR" => Some(ratatui::prelude::Color::Red),
-                _ => None,
-            } {
-                span.style = span.style.fg(color);
-            }
         }
         let rect = Rect::new(
             inner_area.x,
@@ -77,4 +87,67 @@ pub fn render_snapshot(snapshot: &flexi_logger::Snapshot, frame: &mut Frame) -> 
         frame.render_widget(line, rect);
     }
     half_area_left
+}
+
+/// Parse a log line in format: **LEVEL** *module* `message`
+#[expect(clippy::string_slice)] // Searching for ASCII delimiters guarantees valid UTF-8 boundaries.
+fn parse_log_line(line: &str) -> Line<'static> {
+    let mut spans = Vec::new();
+    let mut remaining = line;
+
+    // Parse **LEVEL**
+    if let Some(rest) = remaining.strip_prefix("**") {
+        if let Some(end) = rest.find("**") {
+            let level = &rest[..end];
+            let color = match level {
+                "DEBUG" => Color::LightBlue,
+                "INFO" => Color::Green,
+                "WARN" => Color::Yellow,
+                "ERROR" => Color::Red,
+                _ => Color::Yellow,
+            };
+            spans.push(Span::styled(level.to_owned(), Style::default().fg(color)));
+            remaining = &rest[end + 2..];
+        }
+    }
+
+    // Parse *module*
+    if let Some(rest) = remaining.strip_prefix(" *") {
+        if let Some(end) = rest.find('*') {
+            let module = &rest[..end];
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                module.to_owned(),
+                Style::default().fg(Color::Indexed(96)),
+            ));
+            remaining = &rest[end + 1..];
+        }
+    }
+
+    // Parse `message`
+    if let Some(rest) = remaining.strip_prefix(" `") {
+        if let Some(end) = rest.find('`') {
+            let message = &rest[..end];
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                message.to_owned(),
+                Style::default()
+                    .fg(Color::Indexed(203))
+                    .bg(Color::Indexed(236)),
+            ));
+            remaining = &rest[end + 1..];
+        }
+    }
+
+    // Any remaining text
+    if !remaining.is_empty() {
+        spans.push(Span::raw(remaining.to_owned()));
+    }
+
+    // Fallback if parsing failed
+    if spans.is_empty() {
+        spans.push(Span::raw(line.to_owned()));
+    }
+
+    Line::from(spans)
 }

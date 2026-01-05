@@ -1,28 +1,12 @@
 //! Worker
 //!
-//! TODO: wrap up a good explanation!
+//! Ideally, any intensive work *must* happen in the worker, to avoid locking up the main/UI thread
+//! as much as possible.
 //!
-//! # Worker pipeline
+//! For now this only happens for markdown parsing, and image loading, resizing, and encoding.
 //!
-//! # Worker process `Cmd`s
-//!
-//! ## Markdown parse
-//! The markdown module produces a list of `MdEvent`s.
-//!
-//! ## Model `process_events`
-//! From event, either insert line-widget, or send `Cmd` to worker to process an image.
-//!
-//! ## View
-//! Renders line-widgets.
-//!
-//!     Parse
-//!      ↓
-//!     Event → Image
-//!      ↓
-//!     WidgetSource
-//!      ↓
-//!     View
-//!
+//! For example, text search could benefit from running in the worker, but it's not clear how the
+//! text should then actually be shared.
 pub mod markdown;
 
 use std::{
@@ -36,12 +20,12 @@ use std::{
 
 use mdfrier::MdFrier;
 use ratatui_image::picker::{Picker, ProtocolType};
-use ratskin::MadSkin;
 use reqwest::Client;
 use tokio::{runtime::Builder, sync::RwLock};
 
 use crate::{
     Cmd, Event,
+    config::Theme,
     error::Error,
     setup::{BgColor, FontRenderer},
     widget_sources::{WidgetSource, header_images, header_sources, image_source},
@@ -54,7 +38,7 @@ pub fn worker_thread(
     basepath: Option<PathBuf>,
     picker: Picker,
     renderer: Option<Box<FontRenderer>>,
-    _skin: MadSkin,
+    theme: Theme,
     bg: Option<BgColor>,
     has_text_size_protocol: bool,
     deep_fry: bool,
@@ -90,6 +74,7 @@ pub fn worker_thread(
                             document_id,
                             width,
                             has_text_size_protocol,
+                            &theme,
                             text,
                         )?;
                         for event in events {

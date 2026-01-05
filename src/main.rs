@@ -221,12 +221,11 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let watch_event_tx = event_tx.clone();
 
     let config_max_image_height = config.max_image_height;
-    let skin = config.theme.skin.clone();
     let cmd_thread = worker_thread(
         basepath,
         picker,
         renderer,
-        skin,
+        config.theme.clone(),
         bg,
         has_text_size_protocol,
         deep_fry,
@@ -724,7 +723,7 @@ mod tests {
             None,
             picker,
             None,
-            config.theme.skin.clone(),
+            config.theme.clone(),
             None,
             true,
             false,

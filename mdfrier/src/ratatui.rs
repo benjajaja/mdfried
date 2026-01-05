@@ -15,49 +15,248 @@ use crate::{
 };
 
 // ============================================================================
-// Styling constants
+// Theme trait - provides all styling options
 // ============================================================================
 
-/// Blockquote bar character.
-pub const BLOCKQUOTE_BAR: &str = "▌";
+/// Theme trait for customizing markdown rendering styles.
+///
+/// All methods have default implementations providing a sensible default theme.
+/// Implement only the methods you want to customize.
+pub trait Theme {
+    // ========================================================================
+    // Symbols
+    // ========================================================================
 
-/// Link description opening bracket replacement.
-pub const LINK_DESC_OPEN: &str = "▐";
-/// Link description closing bracket replacement.
-pub const LINK_DESC_CLOSE: &str = "▌";
-/// Link URL opening paren replacement.
-pub const LINK_URL_OPEN: &str = "◖";
-/// Link URL closing paren replacement.
-pub const LINK_URL_CLOSE: &str = "◗";
+    /// Blockquote bar character (default: "▌").
+    fn blockquote_bar(&self) -> &str {
+        "▌"
+    }
 
-/// Colors for nested blockquotes (cycles through these).
-pub const BLOCKQUOTE_COLORS: [Color; 6] = [
-    Color::Indexed(202),
-    Color::Indexed(203),
-    Color::Indexed(204),
-    Color::Indexed(205),
-    Color::Indexed(206),
-    Color::Indexed(207),
-];
+    /// Link description opening bracket replacement (default: "▐").
+    fn link_desc_open(&self) -> &str {
+        "▐"
+    }
 
-/// Link background color.
-pub const COLOR_LINK_BG: Color = Color::Indexed(237);
-/// Link foreground color.
-pub const COLOR_LINK_FG: Color = Color::Indexed(4);
-/// Prefix color (list markers, etc.).
-pub const COLOR_PREFIX: Color = Color::Indexed(189);
-/// Emphasis/italic color.
-pub const COLOR_EMPHASIS: Color = Color::Indexed(220);
-/// Code background color.
-pub const COLOR_CODE_BG: Color = Color::Indexed(236);
-/// Code foreground color.
-pub const COLOR_CODE_FG: Color = Color::Indexed(203);
-/// Horizontal rule color.
-pub const COLOR_HR: Color = Color::Indexed(240);
-/// Table border color.
-pub const COLOR_TABLE_BORDER: Color = Color::Indexed(240);
-/// Table header color.
-pub const COLOR_TABLE_HEADER: Color = Color::Indexed(255);
+    /// Link description closing bracket replacement (default: "▌").
+    fn link_desc_close(&self) -> &str {
+        "▌"
+    }
+
+    /// Link URL opening paren replacement (default: "◖").
+    fn link_url_open(&self) -> &str {
+        "◖"
+    }
+
+    /// Link URL closing paren replacement (default: "◗").
+    fn link_url_close(&self) -> &str {
+        "◗"
+    }
+
+    /// Horizontal rule character (default: "─").
+    fn horizontal_rule_char(&self) -> &str {
+        "─"
+    }
+
+    /// Task checkbox checked mark (default: "✓").
+    fn task_checked_mark(&self) -> &str {
+        "✓"
+    }
+
+    // ========================================================================
+    // Table border characters
+    // ========================================================================
+
+    /// Table vertical border (default: "│").
+    fn table_vertical(&self) -> &str {
+        "│"
+    }
+
+    /// Table horizontal border (default: "─").
+    fn table_horizontal(&self) -> &str {
+        "─"
+    }
+
+    /// Table top-left corner (default: "┌").
+    fn table_top_left(&self) -> &str {
+        "┌"
+    }
+
+    /// Table top-right corner (default: "┐").
+    fn table_top_right(&self) -> &str {
+        "┐"
+    }
+
+    /// Table bottom-left corner (default: "└").
+    fn table_bottom_left(&self) -> &str {
+        "└"
+    }
+
+    /// Table bottom-right corner (default: "┘").
+    fn table_bottom_right(&self) -> &str {
+        "┘"
+    }
+
+    /// Table top junction (default: "┬").
+    fn table_top_junction(&self) -> &str {
+        "┬"
+    }
+
+    /// Table bottom junction (default: "┴").
+    fn table_bottom_junction(&self) -> &str {
+        "┴"
+    }
+
+    /// Table left junction (default: "├").
+    fn table_left_junction(&self) -> &str {
+        "├"
+    }
+
+    /// Table right junction (default: "┤").
+    fn table_right_junction(&self) -> &str {
+        "┤"
+    }
+
+    /// Table cross junction (default: "┼").
+    fn table_cross(&self) -> &str {
+        "┼"
+    }
+
+    // ========================================================================
+    // Colors
+    // ========================================================================
+
+    /// Blockquote color for given nesting depth (0-indexed, cycles through palette).
+    fn blockquote_color(&self, depth: usize) -> Color {
+        const COLORS: [Color; 6] = [
+            Color::Indexed(202),
+            Color::Indexed(203),
+            Color::Indexed(204),
+            Color::Indexed(205),
+            Color::Indexed(206),
+            Color::Indexed(207),
+        ];
+        COLORS[depth % COLORS.len()]
+    }
+
+    /// Link background color (default: dark gray).
+    fn link_bg(&self) -> Color {
+        Color::Indexed(237)
+    }
+
+    /// Link foreground color (default: blue).
+    fn link_fg(&self) -> Color {
+        Color::Indexed(4)
+    }
+
+    /// Prefix color for list markers, etc. (default: light blue/gray).
+    fn prefix_color(&self) -> Color {
+        Color::Indexed(189)
+    }
+
+    /// Emphasis/italic color (default: yellow/gold).
+    fn emphasis_color(&self) -> Color {
+        Color::Indexed(220)
+    }
+
+    /// Code background color (default: dark gray).
+    fn code_bg(&self) -> Color {
+        Color::Indexed(236)
+    }
+
+    /// Code foreground color (default: salmon/coral).
+    fn code_fg(&self) -> Color {
+        Color::Indexed(203)
+    }
+
+    /// Horizontal rule color (default: gray).
+    fn hr_color(&self) -> Color {
+        Color::Indexed(240)
+    }
+
+    /// Table border color (default: gray).
+    fn table_border_color(&self) -> Color {
+        Color::Indexed(240)
+    }
+
+    /// Table header text color (default: bright white).
+    fn table_header_color(&self) -> Color {
+        Color::Indexed(255)
+    }
+
+    // ========================================================================
+    // Composite styles
+    // ========================================================================
+
+    /// Style for inline code spans.
+    fn code_style(&self) -> Style {
+        Style::default().fg(self.code_fg()).bg(self.code_bg())
+    }
+
+    /// Style for emphasized (italic) text.
+    fn emphasis_style(&self) -> Style {
+        Style::default()
+            .add_modifier(Modifier::ITALIC)
+            .fg(self.emphasis_color())
+    }
+
+    /// Style for strong emphasis (bold) text.
+    fn strong_emphasis_style(&self) -> Style {
+        Style::default()
+            .add_modifier(Modifier::BOLD)
+            .fg(self.emphasis_color())
+    }
+
+    /// Style for link URL text.
+    fn link_url_style(&self) -> Style {
+        Style::default()
+            .fg(self.link_fg())
+            .bg(self.link_bg())
+            .underlined()
+    }
+
+    /// Style for link description text.
+    fn link_description_style(&self) -> Style {
+        Style::default().fg(self.link_fg()).bg(self.link_bg())
+    }
+
+    /// Style for link bracket wrappers.
+    fn link_wrapper_style(&self) -> Style {
+        Style::default().fg(self.link_bg())
+    }
+
+    /// Style for horizontal rules.
+    fn hr_style(&self) -> Style {
+        Style::default().fg(self.hr_color())
+    }
+
+    /// Style for table borders.
+    fn table_border_style(&self) -> Style {
+        Style::default().fg(self.table_border_color())
+    }
+
+    /// Style for table header cells.
+    fn table_header_style(&self) -> Style {
+        Style::default()
+            .add_modifier(Modifier::BOLD)
+            .fg(self.table_header_color())
+    }
+
+    /// Style for list markers and prefixes.
+    fn prefix_style(&self) -> Style {
+        Style::default().fg(self.prefix_color())
+    }
+
+    /// Style for blockquote bar at given depth.
+    fn blockquote_style(&self, depth: usize) -> Style {
+        Style::default().fg(self.blockquote_color(depth))
+    }
+}
+
+/// The default theme with all standard styling.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DefaultTheme;
+
+impl Theme for DefaultTheme {}
 
 // ============================================================================
 // Tag enum - semantic information about lines
@@ -86,42 +285,49 @@ pub enum Tag {
 // Main conversion function
 // ============================================================================
 
-/// Convert an `MdLine` to a styled ratatui `Line` and semantic `Tag`s.
+/// Convert an `MdLine` to a styled ratatui `Line` and semantic `Tag`s using a custom theme.
 ///
 /// # Arguments
 ///
 /// * `md_line` - The markdown line to convert
 /// * `width` - Terminal width (used for horizontal rules)
+/// * `theme` - The theme to use for styling
 ///
 /// # Returns
 ///
 /// A tuple of (styled Line, list of Tags)
-pub fn render_line(md_line: MdLine, width: u16) -> (Line<'static>, Vec<Tag>) {
+pub fn render_line<T: Theme>(md_line: MdLine, width: u16, theme: &T) -> (Line<'static>, Vec<Tag>) {
     let MdLine { spans, meta } = md_line;
 
     match meta.kind {
-        LineKind::Paragraph => render_paragraph(spans, &meta.nesting),
-        LineKind::Header(tier) => render_header(spans, tier, meta.blockquote_depth()),
+        LineKind::Paragraph => render_paragraph(spans, &meta.nesting, theme),
+        LineKind::Header(tier) => render_header(spans, tier, meta.blockquote_depth(), theme),
         LineKind::CodeBlock { ref language } => {
-            render_code_line(spans, language, meta.blockquote_depth(), width)
+            render_code_line(spans, language, meta.blockquote_depth(), width, theme)
         }
-        LineKind::HorizontalRule => render_horizontal_rule(meta.blockquote_depth(), width),
+        LineKind::HorizontalRule => render_horizontal_rule(meta.blockquote_depth(), width, theme),
         LineKind::TableRow {
             ref cells,
             ref column_info,
             is_header,
-        } => render_table_row(cells, column_info, is_header, meta.blockquote_depth()),
+        } => render_table_row(
+            cells,
+            column_info,
+            is_header,
+            meta.blockquote_depth(),
+            theme,
+        ),
         LineKind::TableBorder {
             ref column_info,
             position,
-        } => render_table_border(column_info, position, meta.blockquote_depth()),
+        } => render_table_border(column_info, position, meta.blockquote_depth(), theme),
         LineKind::Image { url, description } => {
             // Images are handled specially by the application
             let line = Line::default();
             let tags = vec![Tag::Image(url, description)];
             (line, tags)
         }
-        LineKind::Blank => render_blank(meta.blockquote_depth()),
+        LineKind::Blank => render_blank(meta.blockquote_depth(), theme),
     }
 }
 
@@ -129,12 +335,16 @@ pub fn render_line(md_line: MdLine, width: u16) -> (Line<'static>, Vec<Tag>) {
 // Render functions for each line kind
 // ============================================================================
 
-fn render_paragraph(spans: Vec<MdNode>, nesting: &[Container]) -> (Line<'static>, Vec<Tag>) {
+fn render_paragraph<T: Theme>(
+    spans: Vec<MdNode>,
+    nesting: &[Container],
+    theme: &T,
+) -> (Line<'static>, Vec<Tag>) {
     let mut line_spans = Vec::new();
     let mut tags = Vec::new();
 
     // Add styled prefix from nesting containers
-    line_spans.extend(render_nesting_prefix(nesting));
+    line_spans.extend(render_nesting_prefix(nesting, theme));
 
     for mdspan in spans {
         // Track links for tags - store span index (URL span position in line_spans)
@@ -143,22 +353,23 @@ fn render_paragraph(spans: Vec<MdNode>, nesting: &[Container]) -> (Line<'static>
         {
             tags.push(Tag::Link(line_spans.len(), mdspan.content.clone()));
         }
-        line_spans.push(span_from_mdnode(mdspan));
+        line_spans.push(span_from_mdnode(mdspan, theme));
     }
 
     (Line::from(line_spans), tags)
 }
 
-fn render_header(
+fn render_header<T: Theme>(
     spans: Vec<MdNode>,
     tier: u8,
     blockquote_depth: usize,
+    theme: &T,
 ) -> (Line<'static>, Vec<Tag>) {
     let mut line_spans = Vec::new();
 
     // Add blockquote prefix if inside blockquote
     if blockquote_depth > 0 {
-        line_spans.extend(build_blockquote_prefix(blockquote_depth));
+        line_spans.extend(build_blockquote_prefix(blockquote_depth, theme));
     }
 
     // Headers are rendered as plain text (application handles big text rendering)
@@ -170,11 +381,12 @@ fn render_header(
     (Line::from(line_spans), tags)
 }
 
-fn render_code_line(
+fn render_code_line<T: Theme>(
     spans: Vec<MdNode>,
     language: &str,
     blockquote_depth: usize,
     width: u16,
+    theme: &T,
 ) -> (Line<'static>, Vec<Tag>) {
     let mut line_spans = Vec::new();
 
@@ -183,16 +395,22 @@ fn render_code_line(
 
     // Add blockquote prefix
     if blockquote_depth > 0 {
-        line_spans.extend(build_blockquote_prefix(blockquote_depth));
+        line_spans.extend(build_blockquote_prefix(blockquote_depth, theme));
     }
 
-    let code_style = Style::default().fg(COLOR_CODE_FG).bg(COLOR_CODE_BG);
+    let code_style = theme.code_style();
 
-    // Get code content
     let content = if spans.is_empty() {
         String::new()
+    } else if spans.len() == 1 {
+        spans.into_iter().next().unwrap().content
     } else {
-        spans.into_iter().map(|s| s.content).collect::<String>()
+        let total_len: usize = spans.iter().map(|s| s.content.len()).sum();
+        let mut result = String::with_capacity(total_len);
+        for span in spans {
+            result.push_str(&span.content);
+        }
+        result
     };
 
     // Pad to fill width with background color
@@ -210,7 +428,11 @@ fn render_code_line(
     (Line::from(line_spans), tags)
 }
 
-fn render_horizontal_rule(blockquote_depth: usize, width: u16) -> (Line<'static>, Vec<Tag>) {
+fn render_horizontal_rule<T: Theme>(
+    blockquote_depth: usize,
+    width: u16,
+    theme: &T,
+) -> (Line<'static>, Vec<Tag>) {
     let mut line_spans = Vec::new();
 
     let prefix_width = blockquote_depth * 2;
@@ -218,46 +440,49 @@ fn render_horizontal_rule(blockquote_depth: usize, width: u16) -> (Line<'static>
 
     // Add blockquote prefix
     if blockquote_depth > 0 {
-        line_spans.extend(build_blockquote_prefix(blockquote_depth));
+        line_spans.extend(build_blockquote_prefix(blockquote_depth, theme));
     }
 
-    let rule_style = Style::default().fg(COLOR_HR);
-    line_spans.push(Span::styled("─".repeat(available_width), rule_style));
+    let rule_char = theme.horizontal_rule_char();
+    line_spans.push(Span::styled(
+        rule_char.repeat(available_width),
+        theme.hr_style(),
+    ));
 
     let tags = vec![Tag::HorizontalRule];
     (Line::from(line_spans), tags)
 }
 
-fn render_blank(blockquote_depth: usize) -> (Line<'static>, Vec<Tag>) {
+fn render_blank<T: Theme>(blockquote_depth: usize, theme: &T) -> (Line<'static>, Vec<Tag>) {
     let mut line_spans = Vec::new();
 
     if blockquote_depth > 0 {
-        line_spans.extend(build_blockquote_prefix(blockquote_depth));
+        line_spans.extend(build_blockquote_prefix(blockquote_depth, theme));
     }
 
     let tags = vec![Tag::Blank];
     (Line::from(line_spans), tags)
 }
 
-fn render_table_row(
+fn render_table_row<T: Theme>(
     cells: &[Vec<MdNode>],
     column_info: &TableColumnInfo,
     is_header: bool,
     blockquote_depth: usize,
+    theme: &T,
 ) -> (Line<'static>, Vec<Tag>) {
     let mut line_spans = Vec::new();
 
     // Add blockquote prefix
     if blockquote_depth > 0 {
-        line_spans.extend(build_blockquote_prefix(blockquote_depth));
+        line_spans.extend(build_blockquote_prefix(blockquote_depth, theme));
     }
 
-    let border_style = Style::default().fg(COLOR_TABLE_BORDER);
-    let header_style = Style::default()
-        .add_modifier(Modifier::BOLD)
-        .fg(COLOR_TABLE_HEADER);
+    let border_style = theme.table_border_style();
+    let header_style = theme.table_header_style();
+    let vertical_border: String = theme.table_vertical().into();
 
-    line_spans.push(Span::styled("│", border_style));
+    line_spans.push(Span::styled(vertical_border.clone(), border_style));
 
     for (i, col_width) in column_info.widths.iter().enumerate() {
         let alignment = column_info
@@ -280,7 +505,12 @@ fn render_table_row(
         };
 
         // Left padding
-        line_spans.push(Span::from(format!(" {}", " ".repeat(left_pad))));
+        let mut left_padding = String::with_capacity(1 + left_pad);
+        left_padding.push(' ');
+        for _ in 0..left_pad {
+            left_padding.push(' ');
+        }
+        line_spans.push(Span::from(left_padding));
 
         // Cell content
         for node in cell_spans {
@@ -291,39 +521,26 @@ fn render_table_row(
             };
 
             if node.extra.contains(MdModifier::Emphasis) {
-                style = style.add_modifier(Modifier::ITALIC).fg(COLOR_EMPHASIS);
+                style = style.patch(theme.emphasis_style());
             }
             if node.extra.contains(MdModifier::StrongEmphasis) {
-                style = style.add_modifier(Modifier::BOLD).fg(COLOR_EMPHASIS);
+                style = style.patch(theme.strong_emphasis_style());
             }
             if node.extra.contains(MdModifier::Code) {
-                style = style.fg(COLOR_CODE_FG).bg(COLOR_CODE_BG);
+                style = style.patch(theme.code_style());
             }
 
-            // Truncate if needed
-            let content = if node.content.width() > inner_width {
-                let mut truncated = String::new();
-                let mut width = 0;
-                for c in node.content.chars() {
-                    let cw = c.to_string().width();
-                    if width + cw > inner_width.saturating_sub(1) {
-                        truncated.push('…');
-                        break;
-                    }
-                    truncated.push(c);
-                    width += cw;
-                }
-                truncated
-            } else {
-                node.content.clone()
-            };
-
-            line_spans.push(Span::styled(content, style));
+            line_spans.push(Span::styled(node.content.clone(), style));
         }
 
         // Right padding
-        line_spans.push(Span::from(format!("{} ", " ".repeat(right_pad))));
-        line_spans.push(Span::styled("│", border_style));
+        let mut right_padding = String::with_capacity(right_pad + 1);
+        for _ in 0..right_pad {
+            right_padding.push(' ');
+        }
+        right_padding.push(' ');
+        line_spans.push(Span::from(right_padding));
+        line_spans.push(Span::styled(vertical_border.clone(), border_style));
     }
 
     // Fill missing columns
@@ -331,42 +548,58 @@ fn render_table_row(
     for i in cells.len()..num_cols {
         let col_width = column_info.widths.get(i).copied().unwrap_or(3);
         line_spans.push(Span::from(" ".repeat(col_width)));
-        line_spans.push(Span::styled("│", border_style));
+        line_spans.push(Span::styled(vertical_border.clone(), border_style));
     }
 
     let tags = vec![Tag::TableRow];
     (Line::from(line_spans), tags)
 }
 
-fn render_table_border(
+fn render_table_border<T: Theme>(
     column_info: &TableColumnInfo,
     position: BorderPosition,
     blockquote_depth: usize,
+    theme: &T,
 ) -> (Line<'static>, Vec<Tag>) {
     let mut line_spans = Vec::new();
 
     // Add blockquote prefix
     if blockquote_depth > 0 {
-        line_spans.extend(build_blockquote_prefix(blockquote_depth));
+        line_spans.extend(build_blockquote_prefix(blockquote_depth, theme));
     }
 
-    let border_style = Style::default().fg(COLOR_TABLE_BORDER);
+    let border_style = theme.table_border_style();
     let num_cols = column_info.widths.len();
 
     let (left, mid, right) = match position {
-        BorderPosition::Top => ("┌", "┬", "┐"),
-        BorderPosition::HeaderSeparator => ("├", "┼", "┤"),
-        BorderPosition::Bottom => ("└", "┴", "┘"),
+        BorderPosition::Top => (
+            theme.table_top_left(),
+            theme.table_top_junction(),
+            theme.table_top_right(),
+        ),
+        BorderPosition::HeaderSeparator => (
+            theme.table_left_junction(),
+            theme.table_cross(),
+            theme.table_right_junction(),
+        ),
+        BorderPosition::Bottom => (
+            theme.table_bottom_left(),
+            theme.table_bottom_junction(),
+            theme.table_bottom_right(),
+        ),
     };
 
-    line_spans.push(Span::styled(left, border_style));
+    let horizontal = theme.table_horizontal();
+    let mid_owned: String = mid.into();
+
+    line_spans.push(Span::styled(String::from(left), border_style));
     for (i, &col_w) in column_info.widths.iter().enumerate() {
-        line_spans.push(Span::styled("─".repeat(col_w), border_style));
+        line_spans.push(Span::styled(horizontal.repeat(col_w), border_style));
         if i < num_cols - 1 {
-            line_spans.push(Span::styled(mid, border_style));
+            line_spans.push(Span::styled(mid_owned.clone(), border_style));
         }
     }
-    line_spans.push(Span::styled(right, border_style));
+    line_spans.push(Span::styled(String::from(right), border_style));
 
     let tags = vec![Tag::TableRow];
     (Line::from(line_spans), tags)
@@ -377,13 +610,12 @@ fn render_table_border(
 // ============================================================================
 
 /// Build blockquote prefix spans.
-fn build_blockquote_prefix(depth: usize) -> Vec<Span<'static>> {
+fn build_blockquote_prefix<T: Theme>(depth: usize, theme: &T) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     for d in 0..depth {
-        let color = BLOCKQUOTE_COLORS[d.min(5)];
         spans.push(Span::styled(
-            BLOCKQUOTE_BAR.to_owned(),
-            Style::default().fg(color),
+            theme.blockquote_bar().to_owned(),
+            theme.blockquote_style(d),
         ));
         spans.push(Span::from(" "));
     }
@@ -391,7 +623,7 @@ fn build_blockquote_prefix(depth: usize) -> Vec<Span<'static>> {
 }
 
 /// Render prefix spans from nesting containers.
-fn render_nesting_prefix(nesting: &[Container]) -> Vec<Span<'static>> {
+fn render_nesting_prefix<T: Theme>(nesting: &[Container], theme: &T) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     let mut blockquote_idx = 0;
 
@@ -403,24 +635,28 @@ fn render_nesting_prefix(nesting: &[Container]) -> Vec<Span<'static>> {
     for (i, container) in nesting.iter().enumerate() {
         match container {
             Container::Blockquote => {
-                let color = BLOCKQUOTE_COLORS[blockquote_idx.min(5)];
                 spans.push(Span::styled(
-                    BLOCKQUOTE_BAR.to_owned(),
-                    Style::default().fg(color),
+                    theme.blockquote_bar().to_owned(),
+                    theme.blockquote_style(blockquote_idx),
                 ));
                 spans.push(Span::from(" "));
                 blockquote_idx += 1;
             }
-            Container::ListItem { marker, continuation } => {
+            Container::ListItem {
+                marker,
+                continuation,
+            } => {
                 // Render marker only for innermost non-continuation list item
                 if Some(i) == last_list_item_idx && !continuation {
                     let marker_text = match marker {
                         ListMarker::Unordered(bullet) => format!("{} ", bullet.char()),
                         ListMarker::Ordered(n) => format!("{}. ", n),
                         ListMarker::TaskUnchecked(bullet) => format!("{} [ ] ", bullet.char()),
-                        ListMarker::TaskChecked(bullet) => format!("{} [✓] ", bullet.char()),
+                        ListMarker::TaskChecked(bullet) => {
+                            format!("{} [{}] ", bullet.char(), theme.task_checked_mark())
+                        }
                     };
-                    spans.push(Span::styled(marker_text, Style::default().fg(COLOR_PREFIX)));
+                    spans.push(Span::styled(marker_text, theme.prefix_style()));
                 } else {
                     // For outer list items or continuations, render indentation only
                     let indent = marker.width();
@@ -434,41 +670,41 @@ fn render_nesting_prefix(nesting: &[Container]) -> Vec<Span<'static>> {
 }
 
 /// Convert an MdNode to a styled ratatui Span.
-fn span_from_mdnode(mdnode: MdNode) -> Span<'static> {
+fn span_from_mdnode<T: Theme>(mdnode: MdNode, theme: &T) -> Span<'static> {
     let mut style = Style::default();
 
     if mdnode.extra.contains(MdModifier::Emphasis) {
-        style = style.add_modifier(Modifier::ITALIC).fg(COLOR_EMPHASIS);
+        style = style.patch(theme.emphasis_style());
     }
     if mdnode.extra.contains(MdModifier::StrongEmphasis) {
-        style = style.add_modifier(Modifier::BOLD).fg(COLOR_EMPHASIS);
+        style = style.patch(theme.strong_emphasis_style());
     }
     if mdnode.extra.contains(MdModifier::Code) {
-        style = style.fg(COLOR_CODE_FG).bg(COLOR_CODE_BG);
+        style = style.patch(theme.code_style());
     }
 
     if mdnode.extra.contains(MdModifier::LinkURLWrapper) {
         let bracket = if mdnode.content == "(" {
-            LINK_URL_OPEN
+            theme.link_url_open()
         } else {
-            LINK_URL_CLOSE
+            theme.link_url_close()
         };
-        return Span::styled(bracket, style.fg(COLOR_LINK_BG));
+        return Span::styled(bracket.to_owned(), style.patch(theme.link_wrapper_style()));
     }
     if mdnode.extra.contains(MdModifier::LinkURL) {
-        style = style.fg(COLOR_LINK_FG).bg(COLOR_LINK_BG).underlined();
+        style = style.patch(theme.link_url_style());
     }
 
     if mdnode.extra.contains(MdModifier::LinkDescriptionWrapper) {
         let bracket = if mdnode.content == "[" {
-            LINK_DESC_OPEN
+            theme.link_desc_open()
         } else {
-            LINK_DESC_CLOSE
+            theme.link_desc_close()
         };
-        return Span::styled(bracket, style.fg(COLOR_LINK_BG));
+        return Span::styled(bracket.to_owned(), style.patch(theme.link_wrapper_style()));
     }
     if mdnode.extra.contains(MdModifier::LinkDescription) {
-        style = style.fg(COLOR_LINK_FG).bg(COLOR_LINK_BG);
+        style = style.patch(theme.link_description_style());
     }
 
     Span::styled(mdnode.content, style)
@@ -492,7 +728,7 @@ mod tests {
         lines
             .into_iter()
             .map(|md_line| {
-                let (rendered, _) = render_line(md_line, width);
+                let (rendered, _) = render_line(md_line, width, &DefaultTheme::default());
                 line_to_string(&rendered)
             })
             .collect::<Vec<_>>()
@@ -509,7 +745,7 @@ mod tests {
             },
         };
 
-        let (rendered, tags) = render_line(line, 80);
+        let (rendered, tags) = render_line(line, 80, &DefaultTheme::default());
         assert_eq!(rendered.spans.len(), 1);
         assert_eq!(rendered.spans[0].content, "Hello world!");
         assert!(tags.is_empty());
@@ -529,7 +765,7 @@ mod tests {
             },
         };
 
-        let (rendered, _tags) = render_line(line, 80);
+        let (rendered, _tags) = render_line(line, 80, &DefaultTheme::default());
         assert_eq!(rendered.spans.len(), 3);
         assert_eq!(rendered.spans[1].content, "world");
         // Check styling is applied
@@ -551,10 +787,10 @@ mod tests {
             },
         };
 
-        let (rendered, _tags) = render_line(line, 80);
+        let (rendered, _tags) = render_line(line, 80, &DefaultTheme::default());
         // Should have blockquote bar + space + text
         assert!(rendered.spans.len() >= 2);
-        assert_eq!(rendered.spans[0].content, BLOCKQUOTE_BAR);
+        assert_eq!(rendered.spans[0].content, DefaultTheme.blockquote_bar());
     }
 
     #[test]
@@ -567,7 +803,7 @@ mod tests {
             },
         };
 
-        let (_rendered, tags) = render_line(line, 80);
+        let (_rendered, tags) = render_line(line, 80, &DefaultTheme::default());
         assert_eq!(tags.len(), 1);
         assert!(matches!(tags[0], Tag::Header(1)));
     }
@@ -577,7 +813,7 @@ mod tests {
         let mut frier = MdFrier::new().unwrap();
         let lines: Vec<_> = frier.parse(80, "Hello *world*!".to_owned()).collect();
 
-        let (rendered, _tags) = render_line(lines[0].clone(), 80);
+        let (rendered, _tags) = render_line(lines[0].clone(), 80, &DefaultTheme::default());
         let content: String = rendered.spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(content, "Hello world!");
     }
@@ -590,7 +826,7 @@ mod tests {
             .collect();
         assert_eq!(lines.len(), 1);
 
-        let (rendered, tags) = render_line(lines[0].clone(), 80);
+        let (rendered, tags) = render_line(lines[0].clone(), 80, &DefaultTheme::default());
 
         // Check rendered content includes link decorations
         let content = line_to_string(&rendered);

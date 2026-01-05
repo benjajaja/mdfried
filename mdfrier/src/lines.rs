@@ -2,7 +2,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     markdown::{MdContainer, MdContent, MdNode, MdSection, TableAlignment},
-    wrap::wrap_md_spans,
+    wrap::{wrap_md_spans, wrap_md_spans_lines},
 };
 
 /// A single output line from the markdown parser.
@@ -217,18 +217,33 @@ pub fn section_to_lines(width: u16, section: &MdSection) -> Vec<MdLine> {
                 },
             }]
         }
-        MdContent::CodeBlock { language, code } => code
-            .lines()
-            .map(|line| MdLine {
-                spans: vec![MdNode::from(line.to_owned())],
-                meta: LineMeta {
-                    kind: LineKind::CodeBlock {
-                        language: language.clone(),
+        MdContent::CodeBlock { language, code } => {
+            let code_lines: Vec<&str> = code.lines().collect();
+            let num_lines = code_lines.len();
+            if num_lines == 0 {
+                return vec![];
+            }
+            let mut result = Vec::with_capacity(num_lines);
+            let last_idx = num_lines - 1;
+            let mut nesting_owned = Some(nesting);
+            for (i, line) in code_lines.into_iter().enumerate() {
+                let is_last = i == last_idx;
+                result.push(MdLine {
+                    spans: vec![MdNode::from(line.to_owned())],
+                    meta: LineMeta {
+                        kind: LineKind::CodeBlock {
+                            language: language.clone(),
+                        },
+                        nesting: if is_last {
+                            nesting_owned.take().unwrap()
+                        } else {
+                            nesting_owned.as_ref().unwrap().clone()
+                        },
                     },
-                    nesting: nesting.clone(),
-                },
-            })
-            .collect(),
+                });
+            }
+            result
+        }
         MdContent::HorizontalRule => {
             vec![MdLine {
                 spans: Vec::new(),
@@ -271,15 +286,15 @@ fn convert_nesting(md_nesting: &[MdContainer], is_list_continuation: bool) -> Ve
                         ListMarker::TaskUnchecked(bullet)
                     }
                 } else if first_char.is_ascii_digit() {
-                    // Parse ordered list number
                     let num: u32 = marker
                         .original
                         .chars()
                         .take_while(|c| c.is_ascii_digit())
-                        .collect::<String>()
-                        .parse()
-                        .unwrap_or(1);
-                    ListMarker::Ordered(num)
+                        .fold(0u32, |acc, c| {
+                            acc.saturating_mul(10)
+                                .saturating_add(c.to_digit(10).unwrap_or(0))
+                        });
+                    ListMarker::Ordered(if num == 0 { 1 } else { num })
                 } else {
                     ListMarker::Unordered(bullet)
                 };
@@ -415,8 +430,54 @@ fn table_to_mdlines(
     };
 
     let column_info = TableColumnInfo {
-        widths: col_widths,
+        widths: col_widths.clone(),
         alignments: alignments.to_vec(),
+    };
+
+    // Wrap cells to fit column widths and emit rows
+    let wrap_and_emit_row = |lines: &mut Vec<MdLine>,
+                             row: &[Vec<MdNode>],
+                             is_header: bool,
+                             column_info: &TableColumnInfo,
+                             nesting: &Vec<Container>| {
+        // Wrap each cell's content to fit its column's inner width
+        let wrapped_cells: Vec<Vec<Vec<MdNode>>> = row
+            .iter()
+            .enumerate()
+            .map(|(i, cell)| {
+                let col_width = col_widths.get(i).copied().unwrap_or(3);
+                let inner_width = col_width.saturating_sub(2).max(1) as u16;
+                let wrapped = wrap_md_spans_lines(inner_width, cell.clone());
+                if wrapped.is_empty() {
+                    vec![Vec::new()]
+                } else {
+                    wrapped
+                }
+            })
+            .collect();
+
+        // Find max lines in this row
+        let max_lines = wrapped_cells.iter().map(|c| c.len()).max().unwrap_or(1);
+
+        // Emit one TableRow per wrapped line
+        for line_idx in 0..max_lines {
+            let cells_for_line: Vec<Vec<MdNode>> = wrapped_cells
+                .iter()
+                .map(|cell_lines| cell_lines.get(line_idx).cloned().unwrap_or_default())
+                .collect();
+
+            lines.push(MdLine {
+                spans: Vec::new(),
+                meta: LineMeta {
+                    kind: LineKind::TableRow {
+                        cells: cells_for_line,
+                        column_info: column_info.clone(),
+                        is_header,
+                    },
+                    nesting: nesting.clone(),
+                },
+            });
+        }
     };
 
     // Top border
@@ -431,18 +492,8 @@ fn table_to_mdlines(
         },
     });
 
-    // Header row
-    lines.push(MdLine {
-        spans: Vec::new(),
-        meta: LineMeta {
-            kind: LineKind::TableRow {
-                cells: header.to_vec(),
-                column_info: column_info.clone(),
-                is_header: true,
-            },
-            nesting: nesting.clone(),
-        },
-    });
+    // Header row (wrapped)
+    wrap_and_emit_row(&mut lines, header, true, &column_info, &nesting);
 
     // Header separator
     lines.push(MdLine {
@@ -456,19 +507,9 @@ fn table_to_mdlines(
         },
     });
 
-    // Data rows
+    // Data rows (wrapped)
     for row in rows {
-        lines.push(MdLine {
-            spans: Vec::new(),
-            meta: LineMeta {
-                kind: LineKind::TableRow {
-                    cells: row.clone(),
-                    column_info: column_info.clone(),
-                    is_header: false,
-                },
-                nesting: nesting.clone(),
-            },
-        });
+        wrap_and_emit_row(&mut lines, row, false, &column_info, &nesting);
     }
 
     // Bottom border

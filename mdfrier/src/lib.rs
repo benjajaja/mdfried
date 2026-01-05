@@ -20,13 +20,14 @@ mod wrap;
 #[cfg(feature = "ratatui")]
 pub mod ratatui;
 
+use std::collections::VecDeque;
+
 use tree_sitter::Parser;
 
 use markdown::{MdContainer, MdContent, MdDocument, MdSection};
 
 pub use lines::{
-    BorderPosition, BulletStyle, Container, LineKind, LineMeta, ListMarker, MdLine,
-    TableColumnInfo,
+    BorderPosition, BulletStyle, Container, LineKind, LineMeta, ListMarker, MdLine, TableColumnInfo,
 };
 pub use markdown::{MdModifier, MdNode, TableAlignment};
 
@@ -97,7 +98,7 @@ struct MdLineIterator {
     sections: Vec<MdSection>,
     section_idx: usize,
     width: u16,
-    pending_lines: Vec<MdLine>,
+    pending_lines: VecDeque<MdLine>,
     needs_blank: bool,
     prev_nesting: Vec<MdContainer>,
     prev_was_blank: bool,
@@ -111,7 +112,7 @@ impl MdLineIterator {
             sections,
             section_idx: 0,
             width,
-            pending_lines: Vec::new(),
+            pending_lines: VecDeque::new(),
             needs_blank: false,
             prev_nesting: Vec::new(),
             prev_was_blank: false,
@@ -124,7 +125,7 @@ impl MdLineIterator {
             sections: Vec::new(),
             section_idx: 0,
             width: 80,
-            pending_lines: Vec::new(),
+            pending_lines: VecDeque::new(),
             needs_blank: false,
             prev_nesting: Vec::new(),
             prev_was_blank: false,
@@ -178,28 +179,37 @@ impl MdLineIterator {
         let prev_list_depth = list_depth(&self.prev_nesting);
 
         // Check if both sections are at the same top-level list (depth 1) with same List container
-        let same_top_level_list = if in_list && self.prev_in_list && curr_list_depth == 1 && prev_list_depth == 1 {
-            // Compare first List container only for top-level items
-            let curr_list = section.nesting.iter().find(|c| matches!(c, MdContainer::List(_)));
-            let prev_list = self.prev_nesting.iter().find(|c| matches!(c, MdContainer::List(_)));
-            curr_list == prev_list
-        } else {
-            false
-        };
+        let same_top_level_list =
+            if in_list && self.prev_in_list && curr_list_depth == 1 && prev_list_depth == 1 {
+                // Compare first List container only for top-level items
+                let curr_list = section
+                    .nesting
+                    .iter()
+                    .find(|c| matches!(c, MdContainer::List(_)));
+                let prev_list = self
+                    .prev_nesting
+                    .iter()
+                    .find(|c| matches!(c, MdContainer::List(_)));
+                curr_list == prev_list
+            } else {
+                false
+            };
 
         // For nested lists (depth > 1), treat all items at same depth as same context
         // to avoid blanks between items with different markers
-        let same_nested_context = in_list && self.prev_in_list && curr_list_depth > 1 && prev_list_depth > 1;
+        let same_nested_context =
+            in_list && self.prev_in_list && curr_list_depth > 1 && prev_list_depth > 1;
 
         let same_list_context = same_top_level_list || same_nested_context;
 
         // Check if we're exiting to a new top-level list (not part of previous ancestry)
-        let exiting_to_new_top_level = nesting_change
-            && curr_list_depth == 1
-            && prev_list_depth > 1
-            && {
+        let exiting_to_new_top_level =
+            nesting_change && curr_list_depth == 1 && prev_list_depth > 1 && {
                 // Check if the current top-level List was in the previous nesting
-                let curr_list = section.nesting.iter().find(|c| matches!(c, MdContainer::List(_)));
+                let curr_list = section
+                    .nesting
+                    .iter()
+                    .find(|c| matches!(c, MdContainer::List(_)));
                 let was_in_prev = curr_list.is_none_or(|cl| self.prev_nesting.contains(cl));
                 !was_in_prev
             };
@@ -213,12 +223,13 @@ impl MdLineIterator {
             && (!nesting_change || exiting_to_new_top_level);
 
         if should_emit_blank {
-            self.pending_lines.push(MdLine::blank());
+            self.pending_lines.push_back(MdLine::blank());
         }
 
         // Only headers don't need space after
         self.needs_blank = !matches!(section.content, MdContent::Header { .. });
-        self.prev_nesting = section.nesting.clone();
+        // Clone nesting for comparison in next iteration
+        self.prev_nesting.clone_from(&section.nesting);
         self.prev_was_blank = is_blank_line;
         self.prev_in_list = in_list;
 
@@ -234,17 +245,13 @@ impl Iterator for MdLineIterator {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some(line) = self.pending_lines.pop() {
-                // We pop from end, but want FIFO order, so reverse insertion
+            if let Some(line) = self.pending_lines.pop_front() {
                 return Some(line);
             }
 
             if !self.process_next_section() {
                 return None;
             }
-
-            // Reverse to get correct order when popping
-            self.pending_lines.reverse();
         }
     }
 }
@@ -281,7 +288,10 @@ mod tests {
         for (i, c) in nesting.iter().enumerate() {
             match c {
                 Container::Blockquote => prefix.push_str("> "),
-                Container::ListItem { marker, continuation } => {
+                Container::ListItem {
+                    marker,
+                    continuation,
+                } => {
                     // Only render marker for innermost non-continuation list item
                     if Some(i) == last_list_idx && !continuation {
                         match marker {
