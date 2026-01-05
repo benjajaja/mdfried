@@ -1842,6 +1842,7 @@ dependencies = [
  "itertools 0.14.0",
  "libc",
  "log",
+ "mdfrier",
  "notify",
  "notify-debouncer-mini",
  "pretty_assertions",
@@ -1853,6 +1854,20 @@ dependencies = [
  "serde",
  "textwrap",
  "tokio",
+ "tree-sitter",
+ "tree-sitter-md",
+ "unicode-width 0.2.2",
+]
+
+[[package]]
+name = "mdfrier"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.10.0",
+ "insta",
+ "pretty_assertions",
+ "ratatui",
+ "textwrap",
  "tree-sitter",
  "tree-sitter-md",
  "unicode-width 0.2.2",

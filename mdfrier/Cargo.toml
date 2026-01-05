@@ -1,0 +1,27 @@
+[package]
+name = "mdfrier"
+version = "0.1.0"
+edition = "2024"
+authors = ["Benjamin Große <ste3ls@gmail.com>"]
+description = "A markdown parser that produces styled terminal lines"
+repository = "https://github.com/benjajaja/mdfried"
+license = "GPL-3.0-or-later"
+rust-version = "1.86.0"
+
+[features]
+default = []
+ratatui = ["dep:ratatui"]
+
+[dependencies]
+bitflags = "2.10.0"
+textwrap = "0.16.2"
+tree-sitter = "0.26"
+tree-sitter-md = "0.5"
+unicode-width = "0.2.2"
+
+# Optional ratatui dependency for styled output
+ratatui = { version = "^0.30.0-beta.0", optional = true }
+
+[dev-dependencies]
+insta = "1.45"
+pretty_assertions = "1.4"

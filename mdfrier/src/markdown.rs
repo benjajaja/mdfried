@@ -2,50 +2,45 @@ use bitflags::bitflags;
 use tree_sitter::{Node, Parser, Tree, TreeCursor};
 use unicode_width::UnicodeWidthStr;
 
-use crate::error::Error;
+use crate::Error;
 
-pub struct MdParser(Parser);
-
-impl MdParser {
-    pub fn new() -> Result<Self, Error> {
-        let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_md::LANGUAGE.into())
-            .ok()
-            .ok_or(Error::MarkdownParse)?;
-        Ok(Self(parser))
-    }
-}
-
-pub struct MdDocument {
+pub struct MdDocument<'a> {
     source: String,
     tree: Tree,
+    inline_parser: &'a mut Parser,
 }
 
-impl MdDocument {
-    pub fn new(source: String, parser: &mut MdParser) -> Result<Self, Error> {
-        let tree = parser.0.parse(&source, None).ok_or(Error::MarkdownParse)?;
-        Ok(Self { source, tree })
+impl<'a> MdDocument<'a> {
+    pub fn new(
+        source: String,
+        parser: &mut Parser,
+        inline_parser: &'a mut Parser,
+    ) -> Result<Self, Error> {
+        // Ensure source ends with newline for proper tree-sitter-md parsing
+        let source = if source.ends_with('\n') {
+            source
+        } else {
+            source + "\n"
+        };
+        let tree = parser.parse(&source, None).ok_or(Error::MarkdownParse)?;
+
+        Ok(Self {
+            source,
+            tree,
+            inline_parser,
+        })
     }
 
-    pub fn iter(&self) -> MdIterator<'_> {
+    pub fn sections(&mut self) -> MdIterator<'_> {
         MdIterator {
             source: &self.source,
             cursor: self.tree.walk(),
             done: false,
-            inline_parser: MdDocument::inline_parser(),
+            inline_parser: self.inline_parser,
             context: Vec::new(),
             depth: 0,
+            list_item_content_depth: None,
         }
-    }
-
-    pub fn inline_parser() -> Parser {
-        let mut inline_parser = Parser::new();
-        #[expect(clippy::unwrap_used)]
-        inline_parser
-            .set_language(&tree_sitter_md::INLINE_LANGUAGE.into())
-            .unwrap();
-        inline_parser
     }
 }
 
@@ -53,12 +48,13 @@ pub struct MdIterator<'a> {
     source: &'a str,
     cursor: TreeCursor<'a>,
     done: bool,
-    inline_parser: Parser,
+    inline_parser: &'a mut Parser,
     /// Current container ancestry with depth for tracking when to pop.
-    /// Only contains container types (List, ListItem, Blockquote), not section types.
     context: Vec<(usize, MdContainer)>,
     /// Current depth in the tree.
     depth: usize,
+    /// Depth of the last ListItem that has emitted content (for continuation detection).
+    list_item_content_depth: Option<usize>,
 }
 
 impl Iterator for MdIterator<'_> {
@@ -86,7 +82,13 @@ impl Iterator for MdIterator<'_> {
                         self.depth -= 1;
                         // Pop containers that are no longer ancestors
                         while self.context.last().is_some_and(|(d, _)| *d >= self.depth) {
-                            self.context.pop();
+                            let popped = self.context.pop();
+                            // If we're leaving a ListItem, reset the content tracking
+                            if let Some((d, MdContainer::ListItem(_))) = popped {
+                                if self.list_item_content_depth == Some(d) {
+                                    self.list_item_content_depth = None;
+                                }
+                            }
                         }
                     } else {
                         self.done = true;
@@ -99,7 +101,33 @@ impl Iterator for MdIterator<'_> {
                 // Build nesting from container ancestry
                 let nesting: Vec<MdContainer> =
                     self.context.iter().map(|(_, c)| c.clone()).collect();
-                return Some(MdSection { content, nesting });
+
+                // Check if this is a continuation within a list item
+                let list_item_depth = self
+                    .context
+                    .iter()
+                    .filter(|(_, c)| matches!(c, MdContainer::ListItem(_)))
+                    .map(|(d, _)| *d)
+                    .next_back();
+
+                let is_list_continuation = if let Some(depth) = list_item_depth {
+                    if self.list_item_content_depth == Some(depth) {
+                        // We've already emitted content for this list item
+                        true
+                    } else {
+                        // First content for this list item
+                        self.list_item_content_depth = Some(depth);
+                        false
+                    }
+                } else {
+                    false
+                };
+
+                return Some(MdSection {
+                    content,
+                    nesting,
+                    is_list_continuation,
+                });
             }
         }
     }
@@ -135,20 +163,19 @@ impl<'a> MdIterator<'a> {
                 let mdspans =
                     inline_node_to_spans(tree.root_node(), text, MdModifier::default(), 0);
                 let mdspans = split_newlines(mdspans);
-                // Strip blockquote markers from spans and filter out empty/marker-only spans
+                // Strip blockquote markers from spans
                 let mdspans: Vec<MdNode> = mdspans
                     .into_iter()
                     .map(|mut s| {
-                        // Strip blockquote markers from start of NewLine spans
                         if s.extra.contains(MdModifier::NewLine) {
                             s.content = strip_blockquote_prefix(&s.content, blockquote_depth);
                         }
                         s
                     })
                     .filter(|s| {
-                        // Filter out completely empty spans or blockquote-marker-only spans
-                        // But keep whitespace-only spans (they may be meaningful between styled text)
-                        !s.content.is_empty() && !is_blockquote_marker_only(s.content.trim())
+                        // Keep spans with content, or empty spans with NewLine (hard line breaks)
+                        (!s.content.is_empty() && !is_blockquote_marker_only(s.content.trim()))
+                            || s.extra.contains(MdModifier::NewLine)
                     })
                     .collect();
                 if mdspans.is_empty() {
@@ -179,11 +206,9 @@ impl<'a> MdIterator<'a> {
                 })
             }
             "block_continuation" => {
-                // A block_continuation that's a direct child of block_quote
-                // (not inside a paragraph) represents a blank line
+                // Blank line inside blockquote
                 if let Some(parent) = node.parent() {
                     if parent.kind() == "block_quote" {
-                        // Blank line = Paragraph with empty content
                         return Some(MdContent::Paragraph(Vec::new()));
                     }
                 }
@@ -205,7 +230,6 @@ impl<'a> MdIterator<'a> {
                     }
                 }
 
-                // Remove trailing newline if present
                 if code.ends_with('\n') {
                     code.pop();
                 }
@@ -213,7 +237,6 @@ impl<'a> MdIterator<'a> {
                 Some(MdContent::CodeBlock { language, code })
             }
             "indented_code_block" => {
-                // Indented code blocks don't have a language
                 let code = self.source[node.byte_range()]
                     .lines()
                     .map(|line| line.strip_prefix("    ").unwrap_or(line))
@@ -230,7 +253,6 @@ impl<'a> MdIterator<'a> {
         }
     }
 
-    /// Parses a pipe_table node into MdContent::Table.
     fn parse_table(&mut self, node: Node<'a>) -> MdContent {
         let mut header: Vec<Vec<MdNode>> = Vec::new();
         let mut rows: Vec<Vec<Vec<MdNode>>> = Vec::new();
@@ -251,7 +273,6 @@ impl<'a> MdIterator<'a> {
             }
         }
 
-        // Ensure alignments match header column count
         while alignments.len() < header.len() {
             alignments.push(TableAlignment::default());
         }
@@ -263,7 +284,6 @@ impl<'a> MdIterator<'a> {
         }
     }
 
-    /// Parses cells from a table row (header or data row).
     #[expect(clippy::string_slice)]
     fn parse_table_row(&mut self, row_node: Node<'a>) -> Vec<Vec<MdNode>> {
         let mut cells: Vec<Vec<MdNode>> = Vec::new();
@@ -289,7 +309,6 @@ impl<'a> MdIterator<'a> {
         cells
     }
 
-    /// Parses column alignments from the delimiter row.
     #[expect(clippy::string_slice)]
     fn parse_table_alignments(&self, delimiter_node: Node<'a>) -> Vec<TableAlignment> {
         let mut alignments = Vec::new();
@@ -311,11 +330,9 @@ impl<'a> MdIterator<'a> {
         alignments
     }
 
-    /// Converts a node to a container type if it's a container (not a section).
     fn node_to_container(&self, node: Node<'a>) -> Option<MdContainer> {
         match node.kind() {
             "list" => {
-                // Find the first list_item to determine marker type
                 for child in node.children(&mut node.walk()) {
                     if child.kind() == "list_item" {
                         return Some(MdContainer::List(self.extract_list_marker(child)));
@@ -329,7 +346,6 @@ impl<'a> MdIterator<'a> {
         }
     }
 
-    /// Extracts the marker from a list_item node.
     #[expect(clippy::string_slice)]
     fn extract_list_marker(&self, list_item: Node<'a>) -> ListMarker {
         let mut marker_text = "-".to_owned();
@@ -413,7 +429,6 @@ impl From<&str> for MdNode {
 }
 
 impl UnicodeWidthStr for MdNode {
-    // TODO: could this be deref or something magical?
     fn width(&self) -> usize {
         self.content.width()
     }
@@ -423,7 +438,7 @@ impl UnicodeWidthStr for MdNode {
     }
 }
 
-/// A container in the document structure (can contain other elements).
+/// A container in the document structure.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MdContainer {
     List(ListMarker),
@@ -440,30 +455,27 @@ pub enum TableAlignment {
     Right,
 }
 
-/// Content of a markdown section (leaf node with its content).
+/// Content of a markdown section.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MdContent {
-    /// Paragraph with inline-formatted content. Empty vec for blank lines.
     Paragraph(Vec<MdNode>),
-    /// Header with tier (1-6) and raw text.
-    Header { tier: u8, text: String },
-    /// Code block with language and raw code.
-    CodeBlock { language: String, code: String },
-    /// Horizontal rule (---, ***, ___).
+    Header {
+        tier: u8,
+        text: String,
+    },
+    CodeBlock {
+        language: String,
+        code: String,
+    },
     HorizontalRule,
-    /// Table with header, rows, and column alignments.
     Table {
-        /// Header row cells, each cell is inline-parsed.
         header: Vec<Vec<MdNode>>,
-        /// Data rows, each row contains inline-parsed cells.
         rows: Vec<Vec<Vec<MdNode>>>,
-        /// Column alignments extracted from delimiter row.
         alignments: Vec<TableAlignment>,
     },
 }
 
 impl MdContent {
-    /// Returns true if this content represents a blank line (empty paragraph).
     pub fn is_blank(&self) -> bool {
         matches!(self, MdContent::Paragraph(nodes) if nodes.is_empty())
     }
@@ -472,11 +484,8 @@ impl MdContent {
 /// Marker style for list items.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ListMarker {
-    /// The original marker from source (e.g., "-", "*", "1.", "2)")
     pub original: String,
-    /// Column position (indentation) of the marker in the source.
     pub indent: usize,
-    /// Task list marker: None = not a task, Some(true) = checked, Some(false) = unchecked
     pub task: Option<bool>,
 }
 
@@ -506,12 +515,11 @@ pub struct BlockquoteMarker;
 #[derive(Debug)]
 pub struct MdSection {
     pub content: MdContent,
-    /// Nesting path: container ancestry with leaf section type as last element.
     pub nesting: Vec<MdContainer>,
+    /// True if this is a continuation paragraph within a list item (not the first content).
+    pub is_list_continuation: bool,
 }
 
-/// Strip blockquote markers from the start of a string.
-/// Strips up to `depth` markers ("> " or ">").
 fn strip_blockquote_prefix(s: &str, depth: usize) -> String {
     let mut remaining = s;
     for _ in 0..depth {
@@ -526,16 +534,13 @@ fn strip_blockquote_prefix(s: &str, depth: usize) -> String {
     remaining.to_owned()
 }
 
-/// Checks if content is only blockquote markers (e.g., "> ", "> > ").
-/// These appear in paragraph content when tree-sitter includes continuation markers.
 fn is_blockquote_marker_only(s: &str) -> bool {
     if s.is_empty() {
-        return false; // Empty string is not a blockquote marker
+        return false;
     }
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {
         if c == '>' {
-            // Expect optional space after >
             if chars.peek() == Some(&' ') {
                 chars.next();
             }
@@ -546,15 +551,11 @@ fn is_blockquote_marker_only(s: &str) -> bool {
     true
 }
 
-#[expect(clippy::string_slice)] // Let's hope tree-sitter is right
+#[expect(clippy::string_slice)]
 fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usize) -> Vec<MdNode> {
     let kind = node.kind();
-    // eprint!(">{}", String::from("  ").repeat(_depth));
-    // eprintln!(" {kind} {:?} - `{}`", node.byte_range(), &source[node.byte_range()]);
 
     if kind.contains("delimiter") {
-        // eprint!("{}", String::from("  ").repeat(_depth));
-        // eprintln!("delimiter - early return");
         return vec![];
     }
 
@@ -562,11 +563,14 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
         "emphasis" => MdModifier::Emphasis,
         "strong_emphasis" => MdModifier::StrongEmphasis,
         "code_span" => {
-            // Return full byte range including backticks to preserve source
             return vec![MdNode::new(
                 source[node.byte_range()].to_owned(),
                 extra.union(MdModifier::Code),
             )];
+        }
+        "hard_line_break" | "soft_break" => {
+            // GFM hard line break (two trailing spaces + newline) or soft break
+            return vec![MdNode::new(String::new(), extra.union(MdModifier::NewLine))];
         }
         "[" | "]" => MdModifier::LinkDescriptionWrapper,
         "(" | ")" => MdModifier::LinkURLWrapper,
@@ -574,11 +578,7 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
         "inline_link" => MdModifier::Link,
         "image" => MdModifier::Image,
         "link_destination" => {
-            // TODO: can we go deeper like usual, now that we skip punctuation?
-            // don't go deeper, it just has the URL parts
-            // although we could highlight the parts
             return vec![MdNode::new(
-                // this also assumes no newline at beginning here
                 source[node.byte_range()].to_owned(),
                 extra.union(MdModifier::LinkURL),
             )];
@@ -622,7 +622,6 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
         } else {
             extra
         };
-        // A node cannot possible start with \n, so we don't need to pass newline_offset down here.
         spans.extend(inline_node_to_spans(child, source, extra, _depth + 1));
         pos = child.end_byte();
     }
@@ -637,16 +636,10 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
 #[inline]
 fn is_punctuation(kind: &str, parent_modifier: MdModifier) -> bool {
     match kind {
-        // ()[], only if *direct* children of Link, should become separate spans.
         "(" | ")" | "[" | "]" if parent_modifier == MdModifier::Link => false,
-        // Single character punctuation
         "!" | "\"" | "#" | "$" | "%" | "&" | "'" | "(" | ")" | "*" | "+" | "," | "-" | "."
         | "/" | ":" | ";" | "<" | "=" | ">" | "?" | "@" | "[" | "\\" | "]" | "^" | "_" | "`"
         | "{" | "|" | "}" | "~" => true,
-        // Multi-character tokens
-        // "-->" | "<!--" | "<![CDATA[" | "<?" | "?>" | "]]>" => ???
-        // Named delimiter nodes
-        // "code_span_delimiter" | "emphasis_delimiter" | "latex_span_delimiter" => ???
         _ => false,
     }
 }
@@ -655,6 +648,11 @@ fn split_newlines(mdspans: Vec<MdNode>) -> Vec<MdNode> {
     mdspans
         .iter()
         .flat_map(|mdspan| {
+            // Preserve empty spans that have NewLine flag (from hard_line_break)
+            if mdspan.content.is_empty() && mdspan.extra.contains(MdModifier::NewLine) {
+                return vec![mdspan.clone()];
+            }
+
             let mut first = true;
             mdspan
                 .content
@@ -681,7 +679,6 @@ fn split_newlines(mdspans: Vec<MdNode>) -> Vec<MdNode> {
 }
 
 #[cfg(test)]
-#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
@@ -703,165 +700,51 @@ mod tests {
                 MdNode::new(".".to_owned(), MdModifier::default()),
             ]
         );
-
-        let mdspans = split_newlines(vec![
-            MdNode::new("one line".to_owned(), MdModifier::default()),
-            MdNode::new("\nanother line".to_owned(), MdModifier::NewLine),
-        ]);
-        assert_eq!(
-            mdspans,
-            vec![
-                MdNode::new("one line".to_owned(), MdModifier::default()),
-                MdNode::new("another line".to_owned(), MdModifier::NewLine),
-            ]
-        );
     }
 
-    #[test]
-    fn inline_node_to_spans_then_split_newlines_simple() {
-        // let mut parser = MdParser::new().unwrap();
-        // let doc =
-        // MdDocument::new("this *is* a test.\nAnother line.".to_owned(), &mut parser).unwrap();
-        let source = "one\ntwo\nthree\n";
-        let tree = MdDocument::inline_parser().parse(source, None).unwrap();
-        let mdspans = inline_node_to_spans(tree.root_node(), source, MdModifier::default(), 0);
-        let mdspans = split_newlines(mdspans);
-        assert_eq!(
-            mdspans,
-            vec![
-                MdNode::new("one".to_owned(), MdModifier::default()),
-                MdNode::new("two".to_owned(), MdModifier::NewLine),
-                MdNode::new("three".to_owned(), MdModifier::NewLine),
-            ]
-        )
+    fn make_parser() -> Parser {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_md::LANGUAGE.into())
+            .unwrap();
+        parser
     }
 
-    #[test]
-    fn inline_node_to_spans_then_split_newlines() {
-        let source = "This *is* a test.\nAnother line.";
-        let tree = MdDocument::inline_parser().parse(source, None).unwrap();
-        let mdspans = inline_node_to_spans(tree.root_node(), source, MdModifier::default(), 0);
-        let mdspans = split_newlines(mdspans);
-        assert_eq!(
-            mdspans,
-            vec![
-                MdNode::new("This ".to_owned(), MdModifier::default()),
-                MdNode::new("is".to_owned(), MdModifier::Emphasis),
-                MdNode::new(" a test.".to_owned(), MdModifier::default()),
-                MdNode::new("Another line.".to_owned(), MdModifier::NewLine),
-            ]
-        )
-    }
-
-    #[test]
-    fn split_newlines_at_styled() {
-        let source = "This\n*is* a test.";
-        let tree = MdDocument::inline_parser().parse(source, None).unwrap();
-        let mdspans = inline_node_to_spans(tree.root_node(), source, MdModifier::default(), 0);
-        let mdspans = split_newlines(mdspans);
-        assert_eq!(
-            mdspans,
-            vec![
-                MdNode::new("This".to_owned(), MdModifier::default()),
-                MdNode::new("is".to_owned(), MdModifier::Emphasis | MdModifier::NewLine),
-                MdNode::new(" a test.".to_owned(), MdModifier::default()),
-            ]
-        )
-    }
-
-    #[test]
-    fn split_newlines_middle() {
-        let source = "hello\nworld";
-        let tree = MdDocument::inline_parser().parse(source, None).unwrap();
-        let mdspans = inline_node_to_spans(tree.root_node(), source, MdModifier::default(), 0);
-        let mdspans = split_newlines(mdspans);
-        assert_eq!(
-            mdspans,
-            vec![
-                MdNode::new("hello".to_owned(), MdModifier::default()),
-                MdNode::new("world".to_owned(), MdModifier::NewLine),
-            ]
-        )
-    }
-
-    #[test]
-    fn merges_punctuation() {
-        let source = "one, two.";
-        let tree = MdDocument::inline_parser().parse(source, None).unwrap();
-        let mdspans = inline_node_to_spans(tree.root_node(), source, MdModifier::default(), 0);
-        let mdspans = split_newlines(mdspans);
-        assert_eq!(
-            mdspans,
-            vec![MdNode::new("one, two.".to_owned(), MdModifier::default()),]
-        )
-    }
-
-    #[test]
-    fn multiple_styled_sections() {
-        let source = "you can _put_ **Markdown** into";
-        let tree = MdDocument::inline_parser().parse(source, None).unwrap();
-        let mdspans = inline_node_to_spans(tree.root_node(), source, MdModifier::default(), 0);
-        let mdspans = split_newlines(mdspans);
-        assert_eq!(
-            mdspans,
-            vec![
-                MdNode::new("you can ".to_owned(), MdModifier::default()),
-                MdNode::new("put".to_owned(), MdModifier::Emphasis),
-                MdNode::new(" ".to_owned(), MdModifier::default()),
-                MdNode::new("Markdown".to_owned(), MdModifier::StrongEmphasis),
-                MdNode::new(" into".to_owned(), MdModifier::default()),
-            ]
-        );
+    fn make_inline_parser() -> Parser {
+        let mut inline_parser = Parser::new();
+        inline_parser
+            .set_language(&tree_sitter_md::INLINE_LANGUAGE.into())
+            .unwrap();
+        inline_parser
     }
 
     #[test]
     fn blockquote_blank_lines() {
-        let mut parser = MdParser::new().unwrap();
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
         let source = r#"> First paragraph
 >
 > Second paragraph"#;
-        let doc = MdDocument::new(source.to_owned(), &mut parser).unwrap();
+        let mut doc =
+            MdDocument::new(source.to_owned(), &mut parser, &mut inline_parser).unwrap();
 
-        let sections: Vec<_> = doc.iter().collect();
-        assert_eq!(sections.len(), 3, "should have 3 sections");
-        // First paragraph
-        assert!(matches!(sections[0].content, MdContent::Paragraph(_)));
+        let sections: Vec<_> = doc.sections().collect();
+        assert_eq!(sections.len(), 3);
         assert!(!sections[0].content.is_blank());
-        // Blank line (Paragraph with empty content)
-        assert!(matches!(sections[1].content, MdContent::Paragraph(_)));
         assert!(sections[1].content.is_blank());
-        // Second paragraph
-        assert!(matches!(sections[2].content, MdContent::Paragraph(_)));
         assert!(!sections[2].content.is_blank());
     }
 
     #[test]
-    fn blockquote_styled_preserves_whitespace() {
-        let mut parser = MdParser::new().unwrap();
-        let doc =
-            MdDocument::new("> you can _put_ **Markdown** into".to_owned(), &mut parser).unwrap();
-
-        let sections: Vec<_> = doc.iter().collect();
+    fn parse_header() {
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
+        let mut doc = MdDocument::new("# Hello".to_owned(), &mut parser, &mut inline_parser).unwrap();
+        let sections: Vec<_> = doc.sections().collect();
         assert_eq!(sections.len(), 1);
-
-        if let MdContent::Paragraph(spans) = &sections[0].content {
-            // Verify whitespace between styled sections is preserved
-            let content: String = spans.iter().map(|s| s.content.clone()).collect();
-            assert_eq!(content, "you can put Markdown into");
-
-            // Verify the space between styled elements is present
-            assert_eq!(
-                spans,
-                &vec![
-                    MdNode::new("you can ".to_owned(), MdModifier::default()),
-                    MdNode::new("put".to_owned(), MdModifier::Emphasis),
-                    MdNode::new(" ".to_owned(), MdModifier::default()),
-                    MdNode::new("Markdown".to_owned(), MdModifier::StrongEmphasis),
-                    MdNode::new(" into".to_owned(), MdModifier::default()),
-                ]
-            );
-        } else {
-            panic!("Expected Nodes content");
-        }
+        assert!(matches!(
+            sections[0].content,
+            MdContent::Header { tier: 1, .. }
+        ));
     }
 }

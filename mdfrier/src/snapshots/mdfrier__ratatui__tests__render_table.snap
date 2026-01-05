@@ -1,5 +1,6 @@
 ---
-source: src/worker/pipeline.rs
+source: mdfrier/src/ratatui.rs
+assertion_line: 687
 expression: output
 ---
 ┌──────────┬──────────┐

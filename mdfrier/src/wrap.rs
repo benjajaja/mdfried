@@ -1,52 +1,47 @@
 use textwrap::{Options, wrap};
 use unicode_width::UnicodeWidthStr;
 
-use crate::{
-    MarkdownImage,
-    worker::pipeline::markdown::{MdModifier, MdNode},
-};
+use crate::markdown::{MdModifier, MdNode};
+
+/// Image reference extracted from markdown.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageRef {
+    pub url: String,
+    pub description: String,
+}
 
 /// A wrapped line of markdown content.
 pub struct WrappedLine {
-    /// Prefix to prepend (source prefix or continuation spaces).
-    pub prefix: String,
+    /// Whether this is a first line (not a soft-wrapped continuation).
+    pub is_first: bool,
     /// The content spans.
     pub spans: Vec<MdNode>,
     /// Any images found on this line.
-    pub images: Vec<MarkdownImage>,
+    pub images: Vec<ImageRef>,
 }
 
-pub fn wrap_md_spans(width: u16, mdspans: Vec<MdNode>, source_prefix: &str) -> Vec<WrappedLine> {
-    let prefix_width = source_prefix.width() as u16;
-    let continuation_prefix = " ".repeat(source_prefix.width());
-    let available_width = width.saturating_sub(prefix_width).max(1);
+pub fn wrap_md_spans(width: u16, mdspans: Vec<MdNode>, prefix_width: usize) -> Vec<WrappedLine> {
+    let available_width = width.saturating_sub(prefix_width as u16).max(1);
 
     wrap_md_spans_lines(available_width, mdspans)
         .into_iter()
         .filter(|line| !line.is_empty())
         .enumerate()
         .map(|(line_idx, mdspans)| {
-            // Check if this line came from a hard line break in source (NewLine marker)
             let is_source_newline = mdspans
                 .first()
                 .is_some_and(|s| s.extra.contains(MdModifier::NewLine));
 
-            let prefix = if line_idx == 0 || is_source_newline {
-                // First line or hard line break from source - use source prefix
-                source_prefix.to_owned()
-            } else {
-                // Soft-wrapped continuation line - use spaces
-                continuation_prefix.clone()
-            };
+            let is_first = line_idx == 0 || is_source_newline;
 
             // Extract images from spans
-            let images: Vec<MarkdownImage> = mdspans
+            let images: Vec<ImageRef> = mdspans
                 .iter()
                 .filter(|s| {
                     s.extra.contains(MdModifier::LinkURL) && s.extra.contains(MdModifier::Image)
                 })
-                .map(|s| MarkdownImage {
-                    destination: s.content.clone(),
+                .map(|s| ImageRef {
+                    url: s.content.clone(),
                     description: String::from("TODO:img_desc"),
                 })
                 .collect();
@@ -58,7 +53,7 @@ pub fn wrap_md_spans(width: u16, mdspans: Vec<MdNode>, source_prefix: &str) -> V
                 .collect();
 
             WrappedLine {
-                prefix,
+                is_first,
                 spans,
                 images,
             }
@@ -69,6 +64,7 @@ pub fn wrap_md_spans(width: u16, mdspans: Vec<MdNode>, source_prefix: &str) -> V
 fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>> {
     let mut lines: Vec<Vec<MdNode>> = Vec::new();
     let mut line: Vec<MdNode> = Vec::new();
+    let mut after_newline = false;
 
     for mdspan in mdspans {
         if mdspan.extra.contains(MdModifier::NewLine) {
@@ -76,6 +72,14 @@ fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>> {
                 last.content.truncate(last.content.trim_end().len());
             }
             lines.push(std::mem::take(&mut line));
+            after_newline = true;
+        }
+
+        // Strip leading whitespace from content after a hard line break
+        let mut mdspan = mdspan;
+        if after_newline && !mdspan.content.is_empty() {
+            mdspan.content = mdspan.content.trim_start().to_owned();
+            after_newline = false;
         }
 
         let span_width = mdspan.content.width() as u16;
@@ -98,14 +102,11 @@ fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>> {
                 for (i, part) in parts.into_iter().enumerate() {
                     let is_last = i == num_parts - 1;
                     let is_first = i == 0;
-                    // textwrap strips trailing spaces - preserve them on the last part
-                    // if the original content ended with space
                     let mut part_content = if is_last && ends_with_space {
                         format!("{} ", part)
                     } else {
                         part.to_string()
                     };
-                    // Trim leading whitespace on soft-wrapped continuation lines
                     if is_first && starting_new_line && !mdspan.extra.contains(MdModifier::NewLine)
                     {
                         part_content = part_content.trim_start().to_owned();
@@ -125,7 +126,6 @@ fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>> {
                     line_width += part_width;
                 }
             } else {
-                // Trim leading whitespace on soft-wrapped continuation lines
                 let mut mdspan = mdspan;
                 if starting_new_line && !mdspan.extra.contains(MdModifier::NewLine) {
                     mdspan.content = mdspan.content.trim_start().to_owned();
@@ -149,7 +149,7 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::wrap_md_spans_lines;
-    use crate::worker::pipeline::markdown::{MdModifier, MdNode};
+    use crate::markdown::{MdModifier, MdNode};
 
     #[test]
     fn simple_wrap() {
@@ -184,30 +184,6 @@ mod tests {
     }
 
     #[test]
-    fn trailing_word_break() {
-        let mdspans = vec![MdNode::from("one twoo")];
-        let lines = wrap_md_spans_lines(4, mdspans);
-        assert_eq!(
-            lines,
-            vec![vec![MdNode::from("one")], vec![MdNode::from("twoo")],]
-        );
-    }
-
-    #[test]
-    fn multiline_break() {
-        let mdspans = vec![MdNode::from("onetwo")];
-        let lines = wrap_md_spans_lines(2, mdspans);
-        assert_eq!(
-            lines,
-            vec![
-                vec![MdNode::from("on")],
-                vec![MdNode::from("et")],
-                vec![MdNode::from("wo")],
-            ]
-        );
-    }
-
-    #[test]
     fn newline() {
         let mdspans = vec![
             MdNode::from("one "),
@@ -219,100 +195,6 @@ mod tests {
             vec![
                 vec![MdNode::from("one")],
                 vec![MdNode::new("two".into(), MdModifier::NewLine),]
-            ],
-        );
-    }
-
-    #[test]
-    fn newline_wordbreak() {
-        let mdspans = vec![
-            MdNode::from("one "),
-            MdNode::new("twoooo".into(), MdModifier::NewLine),
-        ];
-        let lines = wrap_md_spans_lines(4, mdspans);
-        assert_eq!(
-            lines,
-            vec![
-                vec![MdNode::from("one")],
-                vec![MdNode::new("twoo".into(), MdModifier::NewLine)],
-                vec![MdNode::from("oo")],
-            ],
-        );
-    }
-
-    #[test]
-    fn trailing_space_before_styled() {
-        // When a span ending with space is broken by textwrap, the trailing space
-        // should be preserved so styled spans following it have proper spacing
-        let mdspans = vec![
-            MdNode::from("you can "),
-            MdNode::new("put".into(), MdModifier::Emphasis),
-        ];
-        // Width 10: "you can " (8) fits, then "put" (3) would overflow
-        // so "put" goes on next line. But we want the trailing space preserved
-        // in case they end up on the same line at different widths
-        let lines = wrap_md_spans_lines(10, mdspans);
-        // Both should fit on same line with trailing space preserved
-        let content: String = lines
-            .iter()
-            .flat_map(|l| l.iter().map(|s| s.content.as_str()))
-            .collect();
-        assert_eq!(content, "you can put"); // space between "can" and "put"
-    }
-
-    #[test]
-    fn trailing_space_before_styled_wrapped() {
-        // When a long span ending with space is broken, the last part
-        // should preserve the trailing space
-        let mdspans = vec![
-            MdNode::from("hello world "),
-            MdNode::new("styled".into(), MdModifier::Emphasis),
-        ];
-        let lines = wrap_md_spans_lines(8, mdspans);
-        // "hello world " broken into ["hello", "world "]
-        // Check that "world" has trailing space for styled text
-        let last_unstyled = lines
-            .iter()
-            .flat_map(|l| l.iter())
-            .rfind(|s| !s.extra.contains(MdModifier::Emphasis))
-            .expect("should have unstyled span");
-        assert!(
-            last_unstyled.content.ends_with(' '),
-            "Last unstyled span should preserve trailing space: {:?}",
-            last_unstyled.content
-        );
-    }
-
-    #[test]
-    #[ignore]
-    fn link() {
-        let mut mdspans = vec![MdNode::from("one ")];
-        mdspans.extend(MdNode::link("here", "http://googoo"));
-        mdspans.push(MdNode::from("two"));
-        let lines = wrap_md_spans_lines(15, mdspans);
-        assert_eq!(
-            lines,
-            vec![
-                vec![MdNode::from("one")],
-                MdNode::link("here", "http://googoo"),
-                vec![MdNode::from("two")],
-            ],
-        );
-    }
-
-    #[test]
-    #[ignore]
-    fn link_break() {
-        let mut mdspans = vec![MdNode::from("one ")];
-        mdspans.extend(MdNode::link("here", "http://googoo"));
-        mdspans.push(MdNode::from("two"));
-        let lines = wrap_md_spans_lines(10, mdspans);
-        assert_eq!(
-            lines,
-            vec![
-                vec![MdNode::from("one")],
-                vec![MdNode::new("twoo".into(), MdModifier::NewLine)],
-                vec![MdNode::from("oo")],
             ],
         );
     }

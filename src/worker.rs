@@ -23,7 +23,7 @@
 //!      ↓
 //!     View
 //!
-pub mod pipeline;
+pub mod markdown;
 
 use std::{
     path::PathBuf,
@@ -34,6 +34,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+use mdfrier::MdFrier;
 use ratatui_image::picker::{Picker, ProtocolType};
 use ratskin::MadSkin;
 use reqwest::Client;
@@ -46,7 +47,7 @@ use crate::{
     widget_sources::{WidgetSource, header_images, header_sources, image_source},
 };
 
-use pipeline::{markdown::MdParser, pipeline};
+use markdown::parse_to_events;
 
 #[expect(clippy::too_many_arguments)]
 pub fn worker_thread(
@@ -74,7 +75,7 @@ pub fn worker_thread(
             let thread_renderer =
                 renderer.map(|renderer| Arc::new(std::sync::Mutex::new(renderer)));
             let thread_picker = Arc::new(picker);
-            let mut parser = MdParser::new()?;
+            let mut parser = MdFrier::new()?;
 
             for cmd in cmd_rx {
                 log::debug!("Cmd: {cmd}");
@@ -84,7 +85,7 @@ pub fn worker_thread(
 
                         event_tx.send(Event::NewDocument(document_id))?;
 
-                        let (events, last_source_id) = pipeline(
+                        let (events, last_source_id) = parse_to_events(
                             &mut parser,
                             document_id,
                             width,

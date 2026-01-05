@@ -1,7 +1,0 @@
----
-source: src/worker/pipeline.rs
-expression: output
----
-let x = 1;                                                                      
-
-- list item

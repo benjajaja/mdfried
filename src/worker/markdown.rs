@@ -1,0 +1,197 @@
+//! Pipeline for parsing markdown into Events.
+//!
+//! Uses the mdfrier crate for parsing and styling, then converts to application Events.
+
+use mdfrier::{
+    LineKind, MdFrier, MdLine,
+    ratatui::{Tag, render_line},
+};
+use textwrap::{Options, wrap};
+
+use crate::{
+    Event, LineExtra, MarkdownImage,
+    error::Error,
+    model::DocumentId,
+    widget_sources::{BigText, WidgetSource, WidgetSourceData},
+};
+
+/// Main pipeline function that parses markdown text into Events.
+pub fn parse_to_events(
+    parser: &mut MdFrier,
+    document_id: DocumentId,
+    width: u16,
+    has_text_size_protocol: bool,
+    text: String,
+) -> Result<(Vec<Event>, Option<usize>), Error> {
+    let mut source_id: Option<usize> = None;
+    let mut events = Vec::new();
+
+    for md_line in parser.parse(width, text) {
+        let line_events = md_line_to_events(
+            document_id,
+            &mut source_id,
+            width,
+            has_text_size_protocol,
+            md_line,
+        );
+        events.extend(line_events);
+    }
+
+    Ok((events, source_id))
+}
+
+/// Convert an MdLine to application Events.
+fn md_line_to_events(
+    document_id: DocumentId,
+    source_id: &mut Option<usize>,
+    width: u16,
+    has_text_size_protocol: bool,
+    md_line: MdLine,
+) -> Vec<Event> {
+    // Handle special cases that need application-specific treatment
+    match &md_line.meta.kind {
+        LineKind::Header(tier) => {
+            let tier = *tier;
+            let text: String = md_line.spans.iter().map(|s| s.content.as_str()).collect();
+
+            if has_text_size_protocol {
+                // Wrap header text for big text rendering
+                let (n, d) = BigText::size_ratio(tier);
+                let scaled_width = width as usize / 2 * usize::from(d) / usize::from(n);
+                let options = Options::new(scaled_width)
+                    .break_words(true)
+                    .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation);
+                wrap(&text, options)
+                    .iter()
+                    .map(|part| {
+                        Event::Parsed(
+                            document_id,
+                            WidgetSource {
+                                id: post_incr_source_id(source_id),
+                                height: 2,
+                                data: WidgetSourceData::Header(part.to_string(), tier),
+                            },
+                        )
+                    })
+                    .collect()
+            } else {
+                vec![Event::ParseHeader(
+                    document_id,
+                    post_incr_source_id(source_id),
+                    tier,
+                    text,
+                )]
+            }
+        }
+        LineKind::Image { url, description } => {
+            vec![Event::ParsedImage(
+                document_id,
+                post_incr_source_id(source_id),
+                MarkdownImage {
+                    destination: url.clone(),
+                    description: description.clone(),
+                },
+            )]
+        }
+        // All other lines: render via mdfrier and convert to Event
+        _ => {
+            let (line, tags) = render_line(md_line, width);
+
+            // Extract link info from tags, using span index to calculate character offsets
+            let links: Vec<LineExtra> = tags
+                .into_iter()
+                .filter_map(|tag| {
+                    if let Tag::Link(span_idx, url) = tag {
+                        // Sum widths of spans before this one to get character offset
+                        let offset: u16 = line.spans[..span_idx]
+                            .iter()
+                            .map(|s| {
+                                unicode_width::UnicodeWidthStr::width(s.content.as_ref()) as u16
+                            })
+                            .sum();
+                        let span_width = unicode_width::UnicodeWidthStr::width(
+                            line.spans[span_idx].content.as_ref(),
+                        ) as u16;
+                        Some(LineExtra::Link(url, offset, offset + span_width))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            vec![Event::Parsed(
+                document_id,
+                WidgetSource {
+                    id: post_incr_source_id(source_id),
+                    height: 1,
+                    data: WidgetSourceData::Line(line, links),
+                },
+            )]
+        }
+    }
+}
+
+/// Post-increment the source ID.
+pub fn post_incr_source_id(source_id: &mut Option<usize>) -> usize {
+    if source_id.is_none() {
+        *source_id = Some(0);
+        0
+    } else {
+        *source_id = source_id.map(|id| id + 1);
+        source_id.unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        DocumentId, Event, WidgetSource, WidgetSourceData, worker::markdown::parse_to_events,
+    };
+    use mdfrier::MdFrier;
+
+    #[expect(clippy::unwrap_used)]
+    fn parse(text: String, width: u16, has_text_size_protocol: bool) -> Vec<Event> {
+        let mut parser = MdFrier::new().unwrap();
+        let (events, _) = parse_to_events(
+            &mut parser,
+            DocumentId::default(),
+            width,
+            has_text_size_protocol,
+            text,
+        )
+        .unwrap();
+        events
+    }
+
+    #[test]
+    fn parse_header_wrapping_tier_1() {
+        let events: Vec<Event> = parse("# 1234567890".to_owned(), 10, true);
+        assert_eq!(2, events.len());
+
+        let Event::Parsed(
+            _,
+            WidgetSource {
+                data: WidgetSourceData::Header(text, tier),
+                ..
+            },
+        ) = &events[0]
+        else {
+            panic!("expected Header");
+        };
+        assert_eq!(1, *tier);
+        assert_eq!("12345", text);
+
+        let Event::Parsed(
+            _,
+            WidgetSource {
+                data: WidgetSourceData::Header(text, tier),
+                ..
+            },
+        ) = &events[1]
+        else {
+            panic!("expected Header");
+        };
+        assert_eq!(1, *tier);
+        assert_eq!("67890", text);
+    }
+}

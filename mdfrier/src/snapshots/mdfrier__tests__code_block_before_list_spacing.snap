@@ -1,0 +1,8 @@
+---
+source: mdfrier/src/lib.rs
+assertion_line: 316
+expression: output
+---
+let x = 1;
+
+- list item

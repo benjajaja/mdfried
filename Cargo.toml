@@ -1,5 +1,5 @@
 [workspace]
-members = [ ".", "ratskin" ]
+members = [ ".", "ratskin", "mdfrier" ]
 
 [package]
 name = "mdfried"
@@ -43,6 +43,7 @@ tokio = { version = "1.32.0", features = ["full"] }
 tree-sitter = "0.26"
 tree-sitter-md = "0.5"
 flexi_logger = { version = "0.31.7", features = ["buffer_writer"] }
+mdfrier = { path = "mdfrier", features = ["ratatui"] }
 
 [dev-dependencies]
 pretty_assertions = "1.4"

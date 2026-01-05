@@ -156,3 +156,9 @@ impl From<InstallError> for Error {
         Self::Generic(format!("{value}"))
     }
 }
+
+impl From<mdfrier::Error> for Error {
+    fn from(_value: mdfrier::Error) -> Self {
+        Self::MarkdownParse
+    }
+}
