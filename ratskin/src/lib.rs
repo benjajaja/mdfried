@@ -16,6 +16,8 @@
 //! Line wrapping is taken care of, and the styles can be customized with a "skin" (hence the name).
 //!
 //! ```rust
+//! # use ratskin::RatSkin;
+//! # use ratatui::{text::{Line, Span}, style::Stylize};
 //! let rat_skin = RatSkin::default();
 //! let lines: Vec<Line> = rat_skin.parse(RatSkin::parse_text("**cook it!**"), 80);
 //! assert_eq!(lines, vec![Line::from(Span::from("cook it!").bold())]);

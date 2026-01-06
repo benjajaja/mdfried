@@ -390,7 +390,7 @@ impl<'a> MdIterator<'a> {
 
 bitflags! {
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-    pub struct MdModifier: u16 {
+    pub struct MdModifier: u32 {
         const Emphasis = 1 << 0;
         const StrongEmphasis = 1 << 1;
         const Code = 1 << 2;
@@ -401,6 +401,18 @@ bitflags! {
         const LinkURLWrapper = 1 << 7;
         const Image = 1 << 8;
         const NewLine = 1 << 9;
+        // Prefix/structural elements (added for mapper support)
+        const BlockquoteBar = 1 << 10;
+        const ListMarker = 1 << 11;
+        const TableBorder = 1 << 12;
+        const HorizontalRule = 1 << 13;
+        // Wrapper elements for decorators
+        const EmphasisWrapper = 1 << 14;
+        const StrongEmphasisWrapper = 1 << 15;
+        const CodeWrapper = 1 << 16;
+        // Strikethrough
+        const Strikethrough = 1 << 17;
+        const StrikethroughWrapper = 1 << 18;
     }
 }
 
@@ -589,9 +601,13 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
     let current_extra = match kind {
         "emphasis" => MdModifier::Emphasis,
         "strong_emphasis" => MdModifier::StrongEmphasis,
+        "strikethrough" => MdModifier::Strikethrough,
         "code_span" => {
+            // Strip the backtick delimiters from code span content
+            let content = &source[node.byte_range()];
+            let stripped = content.trim_start_matches('`').trim_end_matches('`').trim(); // Also trim inner whitespace that some code spans have
             return vec![MdNode::new(
-                source[node.byte_range()].to_owned(),
+                stripped.to_owned(),
                 extra.union(MdModifier::Code),
             )];
         }

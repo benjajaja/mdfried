@@ -99,7 +99,7 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>>
             let starting_new_line = !line.is_empty();
             if starting_new_line {
                 // Keep opening "(" with the URL, not on previous line
-                let move_paren = line.last().map_or(false, |last| {
+                let move_paren = line.last().is_some_and(|last| {
                     last.extra.contains(MdModifier::LinkURLWrapper) && last.content == "("
                 });
                 let moved_paren = if move_paren { line.pop() } else { None };

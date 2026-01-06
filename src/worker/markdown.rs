@@ -28,7 +28,7 @@ pub fn parse_to_events(
     let mut source_id: Option<usize> = None;
     let mut events = Vec::new();
 
-    for md_line in parser.parse(width, text) {
+    for md_line in parser.parse(width, text, theme) {
         let line_events = md_line_to_events(
             document_id,
             &mut source_id,
@@ -53,7 +53,7 @@ fn md_line_to_events(
     md_line: MdLine,
 ) -> Vec<Event> {
     // Handle special cases that need application-specific treatment
-    match &md_line.meta.kind {
+    match &md_line.kind {
         LineKind::Header(tier) => {
             let tier = *tier;
             let text: String = md_line.spans.iter().map(|s| s.content.as_str()).collect();
@@ -99,7 +99,7 @@ fn md_line_to_events(
         }
         // All other lines: render via mdfrier and convert to Event
         _ => {
-            let (line, tags) = render_line(md_line, width, theme);
+            let (line, tags) = render_line(md_line, theme);
 
             // Extract link info from tags, using span index to calculate character offsets
             let links: Vec<LineExtra> = tags

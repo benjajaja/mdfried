@@ -5,41 +5,31 @@ use crate::{
     wrap::{wrap_md_spans, wrap_md_spans_lines},
 };
 
-/// A single output line from the markdown parser.
+/// Internal intermediate line type with nesting metadata.
+/// This is converted to the public `MdLine` after applying the mapper.
 #[derive(Debug, Clone, PartialEq)]
-pub struct MdLine {
+pub(crate) struct RawLine {
     /// The text spans making up this line.
     pub spans: Vec<MdNode>,
     /// Metadata about this line.
     pub meta: LineMeta,
 }
 
-impl MdLine {
+impl RawLine {
     /// Create a blank line.
     pub fn blank() -> Self {
         Self {
             spans: Vec::new(),
             meta: LineMeta {
-                kind: LineKind::Blank,
+                kind: RawLineKind::Blank,
                 nesting: Vec::new(),
-            },
-        }
-    }
-
-    /// Create a blank line with blockquote nesting.
-    pub fn blockquote_blank(depth: usize) -> Self {
-        Self {
-            spans: Vec::new(),
-            meta: LineMeta {
-                kind: LineKind::Blank,
-                nesting: vec![MdLineContainer::Blockquote; depth],
             },
         }
     }
 }
 
 #[cfg(test)]
-impl std::fmt::Display for MdLine {
+impl std::fmt::Display for RawLine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -53,34 +43,13 @@ impl std::fmt::Display for MdLine {
     }
 }
 
-/// Metadata about a markdown line.
+/// Metadata about a raw markdown line (internal).
 #[derive(Debug, Clone, PartialEq)]
-pub struct LineMeta {
+pub(crate) struct LineMeta {
     /// The kind of line content.
-    pub kind: LineKind,
+    pub kind: RawLineKind,
     /// Nesting containers (blockquotes and list items).
     pub nesting: Vec<MdLineContainer>,
-}
-
-impl LineMeta {
-    /// Get the blockquote nesting depth.
-    pub fn blockquote_depth(&self) -> usize {
-        self.nesting
-            .iter()
-            .filter(|c| matches!(c, MdLineContainer::Blockquote))
-            .count()
-    }
-
-    /// Calculate the display width of the prefix.
-    pub fn prefix_width(&self) -> usize {
-        self.nesting
-            .iter()
-            .map(|c| match c {
-                MdLineContainer::Blockquote => 2, // "▌ "
-                MdLineContainer::ListItem { marker, .. } => marker.width(),
-            })
-            .sum()
-    }
 }
 
 /// A simplified nesting container for [`MdLine`].
@@ -155,9 +124,9 @@ impl ListMarker {
     }
 }
 
-/// The kind of content a line represents.
+/// The kind of content a raw line represents (internal).
 #[derive(Debug, Clone, PartialEq)]
-pub enum LineKind {
+pub(crate) enum RawLineKind {
     /// Regular text paragraph.
     Paragraph,
     /// Header line with tier (1-6).
@@ -198,16 +167,16 @@ pub enum BorderPosition {
     Bottom,
 }
 
-/// Convert a markdown section to output lines.
-pub fn section_to_lines(width: u16, section: &MdSection) -> Vec<MdLine> {
+/// Convert a markdown section to raw lines (internal).
+pub(crate) fn section_to_raw_lines(width: u16, section: &MdSection) -> Vec<RawLine> {
     let nesting = convert_nesting(&section.nesting, section.is_list_continuation);
 
     match &section.content {
         MdContent::Paragraph(mdspans) if mdspans.is_empty() => {
-            vec![MdLine {
+            vec![RawLine {
                 spans: Vec::new(),
                 meta: LineMeta {
-                    kind: LineKind::Blank,
+                    kind: RawLineKind::Blank,
                     nesting,
                 },
             }]
@@ -221,13 +190,13 @@ pub fn section_to_lines(width: u16, section: &MdSection) -> Vec<MdLine> {
                 })
                 .sum();
             let wrapped_lines = wrap_md_spans(width, mdspans.clone(), prefix_width);
-            wrapped_lines_to_mdlines(wrapped_lines, nesting)
+            wrapped_lines_to_raw_lines(wrapped_lines, nesting)
         }
         MdContent::Header { tier, text } => {
-            vec![MdLine {
+            vec![RawLine {
                 spans: vec![MdNode::from(text.clone())],
                 meta: LineMeta {
-                    kind: LineKind::Header(*tier),
+                    kind: RawLineKind::Header(*tier),
                     nesting,
                 },
             }]
@@ -243,10 +212,10 @@ pub fn section_to_lines(width: u16, section: &MdSection) -> Vec<MdLine> {
             let mut nesting_owned = Some(nesting);
             for (i, line) in code_lines.into_iter().enumerate() {
                 let is_last = i == last_idx;
-                result.push(MdLine {
+                result.push(RawLine {
                     spans: vec![MdNode::from(line.to_owned())],
                     meta: LineMeta {
-                        kind: LineKind::CodeBlock {
+                        kind: RawLineKind::CodeBlock {
                             language: language.clone(),
                         },
                         nesting: if is_last {
@@ -260,10 +229,10 @@ pub fn section_to_lines(width: u16, section: &MdSection) -> Vec<MdLine> {
             result
         }
         MdContent::HorizontalRule => {
-            vec![MdLine {
+            vec![RawLine {
                 spans: Vec::new(),
                 meta: LineMeta {
-                    kind: LineKind::HorizontalRule,
+                    kind: RawLineKind::HorizontalRule,
                     nesting,
                 },
             }]
@@ -272,7 +241,7 @@ pub fn section_to_lines(width: u16, section: &MdSection) -> Vec<MdLine> {
             header,
             rows,
             alignments,
-        } => table_to_mdlines(width, header, rows, alignments, nesting),
+        } => table_to_raw_lines(width, header, rows, alignments, nesting),
     }
 }
 
@@ -331,10 +300,10 @@ fn convert_nesting(md_nesting: &[MdContainer], is_list_continuation: bool) -> Ve
     nesting
 }
 
-fn wrapped_lines_to_mdlines(
+fn wrapped_lines_to_raw_lines(
     wrapped_lines: Vec<crate::wrap::WrappedLine>,
     nesting: Vec<MdLineContainer>,
-) -> Vec<MdLine> {
+) -> Vec<RawLine> {
     let mut lines = Vec::new();
 
     for (line_idx, wrapped_line) in wrapped_lines.into_iter().enumerate() {
@@ -365,10 +334,10 @@ fn wrapped_lines_to_mdlines(
 
         // Create text line
         if !wrapped_line.spans.is_empty() {
-            lines.push(MdLine {
+            lines.push(RawLine {
                 spans: wrapped_line.spans,
                 meta: LineMeta {
-                    kind: LineKind::Paragraph,
+                    kind: RawLineKind::Paragraph,
                     nesting: line_nesting.clone(),
                 },
             });
@@ -376,10 +345,10 @@ fn wrapped_lines_to_mdlines(
 
         // Create image lines
         for img in wrapped_line.images {
-            lines.push(MdLine {
+            lines.push(RawLine {
                 spans: Vec::new(),
                 meta: LineMeta {
-                    kind: LineKind::Image {
+                    kind: RawLineKind::Image {
                         url: img.url,
                         description: img.description,
                     },
@@ -392,13 +361,13 @@ fn wrapped_lines_to_mdlines(
     lines
 }
 
-fn table_to_mdlines(
+fn table_to_raw_lines(
     width: u16,
     header: &[Vec<MdNode>],
     rows: &[Vec<Vec<MdNode>>],
     alignments: &[TableAlignment],
     nesting: Vec<MdLineContainer>,
-) -> Vec<MdLine> {
+) -> Vec<RawLine> {
     let mut lines = Vec::new();
 
     let prefix_width: usize = nesting
@@ -450,7 +419,7 @@ fn table_to_mdlines(
     };
 
     // Wrap cells to fit column widths and emit rows
-    let wrap_and_emit_row = |lines: &mut Vec<MdLine>,
+    let wrap_and_emit_row = |lines: &mut Vec<RawLine>,
                              row: &[Vec<MdNode>],
                              is_header: bool,
                              column_info: &TableColumnInfo,
@@ -481,10 +450,10 @@ fn table_to_mdlines(
                 .map(|cell_lines| cell_lines.get(line_idx).cloned().unwrap_or_default())
                 .collect();
 
-            lines.push(MdLine {
+            lines.push(RawLine {
                 spans: Vec::new(),
                 meta: LineMeta {
-                    kind: LineKind::TableRow {
+                    kind: RawLineKind::TableRow {
                         cells: cells_for_line,
                         column_info: column_info.clone(),
                         is_header,
@@ -496,10 +465,10 @@ fn table_to_mdlines(
     };
 
     // Top border
-    lines.push(MdLine {
+    lines.push(RawLine {
         spans: Vec::new(),
         meta: LineMeta {
-            kind: LineKind::TableBorder {
+            kind: RawLineKind::TableBorder {
                 column_info: column_info.clone(),
                 position: BorderPosition::Top,
             },
@@ -511,10 +480,10 @@ fn table_to_mdlines(
     wrap_and_emit_row(&mut lines, header, true, &column_info, &nesting);
 
     // Header separator
-    lines.push(MdLine {
+    lines.push(RawLine {
         spans: Vec::new(),
         meta: LineMeta {
-            kind: LineKind::TableBorder {
+            kind: RawLineKind::TableBorder {
                 column_info: column_info.clone(),
                 position: BorderPosition::HeaderSeparator,
             },
@@ -528,10 +497,10 @@ fn table_to_mdlines(
     }
 
     // Bottom border
-    lines.push(MdLine {
+    lines.push(RawLine {
         spans: Vec::new(),
         meta: LineMeta {
-            kind: LineKind::TableBorder {
+            kind: RawLineKind::TableBorder {
                 column_info,
                 position: BorderPosition::Bottom,
             },
