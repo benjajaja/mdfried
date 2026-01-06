@@ -312,8 +312,8 @@ pub fn render_line<T: Theme>(md_line: MdLine, theme: &T) -> (Line<'static>, Vec<
 
     for node in spans {
         // Track links for tags
-        if node.extra.contains(MdModifier::LinkURL)
-            && !node.extra.contains(MdModifier::LinkURLWrapper)
+        if node.modifiers.contains(MdModifier::LinkURL)
+            && !node.modifiers.contains(MdModifier::LinkURLWrapper)
         {
             tags.push(Tag::Link(line_spans.len(), node.content.clone()));
         }
@@ -359,7 +359,10 @@ fn node_to_span<T: Theme>(
     theme: &T,
     bq_depth_out: &mut usize,
 ) -> Span<'static> {
-    let MdNode { content, extra } = node;
+    let MdNode {
+        content,
+        modifiers: extra,
+    } = node;
 
     // Handle special modifier-based styling
     if extra.contains(MdModifier::BlockquoteBar) {

@@ -40,7 +40,7 @@ pub fn wrap_md_spans(width: u16, mdspans: Vec<MdNode>, prefix_width: usize) -> V
         .map(|(line_idx, mdspans)| {
             let is_source_newline = mdspans
                 .first()
-                .is_some_and(|s| s.extra.contains(MdModifier::NewLine));
+                .is_some_and(|s| s.modifiers.contains(MdModifier::NewLine));
 
             let is_first = line_idx == 0 || is_source_newline;
 
@@ -48,7 +48,8 @@ pub fn wrap_md_spans(width: u16, mdspans: Vec<MdNode>, prefix_width: usize) -> V
             let images: Vec<ImageRef> = mdspans
                 .iter()
                 .filter(|s| {
-                    s.extra.contains(MdModifier::LinkURL) && s.extra.contains(MdModifier::Image)
+                    s.modifiers.contains(MdModifier::LinkURL)
+                        && s.modifiers.contains(MdModifier::Image)
                 })
                 .map(|s| ImageRef {
                     url: s.content.clone(),
@@ -59,7 +60,7 @@ pub fn wrap_md_spans(width: u16, mdspans: Vec<MdNode>, prefix_width: usize) -> V
             // Filter out image URL spans from content
             let spans: Vec<MdNode> = mdspans
                 .into_iter()
-                .filter(|s| !s.extra.contains(MdModifier::Image))
+                .filter(|s| !s.modifiers.contains(MdModifier::Image))
                 .collect();
 
             WrappedLine {
@@ -77,7 +78,7 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>>
     let mut after_newline = false;
 
     for mdspan in mdspans {
-        if mdspan.extra.contains(MdModifier::NewLine) {
+        if mdspan.modifiers.contains(MdModifier::NewLine) {
             if let Some(last) = line.last_mut() {
                 last.content.truncate(last.content.trim_end().len());
             }
@@ -100,7 +101,7 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>>
             if starting_new_line {
                 // Keep opening "(" with the URL, not on previous line
                 let move_paren = line.last().is_some_and(|last| {
-                    last.extra.contains(MdModifier::LinkURLWrapper) && last.content == "("
+                    last.modifiers.contains(MdModifier::LinkURLWrapper) && last.content == "("
                 });
                 let moved_paren = if move_paren { line.pop() } else { None };
 
@@ -131,7 +132,9 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>>
                     } else {
                         part.into_owned()
                     };
-                    if is_first && starting_new_line && !mdspan.extra.contains(MdModifier::NewLine)
+                    if is_first
+                        && starting_new_line
+                        && !mdspan.modifiers.contains(MdModifier::NewLine)
                     {
                         trim_start_inplace(&mut part_content);
                     }
@@ -140,7 +143,7 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>>
                         lines.push(std::mem::take(&mut line));
                         line_width = 0;
                     }
-                    let mut extra = mdspan.extra;
+                    let mut extra = mdspan.modifiers;
                     if !copied_newline {
                         copied_newline = true;
                     } else {
@@ -151,7 +154,7 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>>
                 }
             } else {
                 let mut mdspan = mdspan;
-                if starting_new_line && !mdspan.extra.contains(MdModifier::NewLine) {
+                if starting_new_line && !mdspan.modifiers.contains(MdModifier::NewLine) {
                     trim_start_inplace(&mut mdspan.content);
                 }
                 line.push(mdspan);

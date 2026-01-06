@@ -66,7 +66,7 @@ pub trait Mapper {
         format!("{}. ", num)
     }
 
-    /// Task list checked marker (default: "[x] ").
+    /// Task list checked marker (default: "\[x\] ").
     fn task_checked(&self) -> &str {
         "[x] "
     }

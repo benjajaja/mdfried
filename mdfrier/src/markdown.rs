@@ -175,7 +175,7 @@ impl<'a> MdIterator<'a> {
                 let mdspans: Vec<MdNode> = mdspans
                     .into_iter()
                     .map(|mut s| {
-                        if s.extra.contains(MdModifier::NewLine) {
+                        if s.modifiers.contains(MdModifier::NewLine) {
                             s.content =
                                 strip_blockquote_prefix(&s.content, blockquote_depth).into_owned();
                         }
@@ -184,7 +184,7 @@ impl<'a> MdIterator<'a> {
                     .filter(|s| {
                         // Keep spans with content, or empty spans with NewLine (hard line breaks)
                         (!s.content.is_empty() && !is_blockquote_marker_only(s.content.trim()))
-                            || s.extra.contains(MdModifier::NewLine)
+                            || s.modifiers.contains(MdModifier::NewLine)
                     })
                     .collect();
                 if mdspans.is_empty() {
@@ -419,12 +419,15 @@ bitflags! {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MdNode {
     pub content: String,
-    pub extra: MdModifier,
+    pub modifiers: MdModifier,
 }
 
 impl MdNode {
     pub fn new(content: String, extra: MdModifier) -> Self {
-        MdNode { content, extra }
+        MdNode {
+            content,
+            modifiers: extra,
+        }
     }
 
     #[cfg(test)]
@@ -699,7 +702,7 @@ fn detect_bare_urls(mdspans: Vec<MdNode>) -> Vec<MdNode> {
     for span in mdspans {
         // Skip spans that are already part of a link or code
         if span
-            .extra
+            .modifiers
             .intersects(MdModifier::Link | MdModifier::LinkURL | MdModifier::Code)
         {
             result.push(span);
@@ -718,26 +721,26 @@ fn detect_bare_urls(mdspans: Vec<MdNode>) -> Vec<MdNode> {
             if mat.start() > last_end {
                 result.push(MdNode::new(
                     content[last_end..mat.start()].to_owned(),
-                    span.extra,
+                    span.modifiers,
                 ));
             }
 
             // Opening wrapper
             result.push(MdNode::new(
                 "(".to_owned(),
-                span.extra | MdModifier::LinkURLWrapper,
+                span.modifiers | MdModifier::LinkURLWrapper,
             ));
 
             // The URL itself - marked as LinkURL
             result.push(MdNode::new(
                 mat.as_str().to_owned(),
-                span.extra | MdModifier::LinkURL,
+                span.modifiers | MdModifier::LinkURL,
             ));
 
             // Closing wrapper
             result.push(MdNode::new(
                 ")".to_owned(),
-                span.extra | MdModifier::LinkURLWrapper,
+                span.modifiers | MdModifier::LinkURLWrapper,
             ));
 
             last_end = mat.end();
@@ -746,7 +749,7 @@ fn detect_bare_urls(mdspans: Vec<MdNode>) -> Vec<MdNode> {
         if found_urls {
             // Text after the last URL
             if last_end < content.len() {
-                result.push(MdNode::new(content[last_end..].to_owned(), span.extra));
+                result.push(MdNode::new(content[last_end..].to_owned(), span.modifiers));
             }
         } else {
             // No URLs found, keep original span
@@ -761,7 +764,7 @@ fn split_newlines(mdspans: Vec<MdNode>) -> Vec<MdNode> {
     let mut result = Vec::with_capacity(mdspans.len());
     for mdspan in mdspans {
         // Preserve empty spans that have NewLine flag (from hard_line_break)
-        if mdspan.content.is_empty() && mdspan.extra.contains(MdModifier::NewLine) {
+        if mdspan.content.is_empty() && mdspan.modifiers.contains(MdModifier::NewLine) {
             result.push(mdspan);
             continue;
         }
@@ -780,11 +783,11 @@ fn split_newlines(mdspans: Vec<MdNode>) -> Vec<MdNode> {
             }
             result.push(MdNode {
                 content: part.to_owned(),
-                extra: if first {
+                modifiers: if first {
                     first = false;
-                    mdspan.extra
+                    mdspan.modifiers
                 } else {
-                    mdspan.extra.union(MdModifier::NewLine)
+                    mdspan.modifiers.union(MdModifier::NewLine)
                 },
             });
         }
@@ -871,15 +874,15 @@ mod tests {
         let result = detect_bare_urls(spans);
         assert_eq!(result.len(), 5);
         assert_eq!(result[0].content, "Check ");
-        assert!(!result[0].extra.contains(MdModifier::LinkURL));
+        assert!(!result[0].modifiers.contains(MdModifier::LinkURL));
         assert_eq!(result[1].content, "(");
-        assert!(result[1].extra.contains(MdModifier::LinkURLWrapper));
+        assert!(result[1].modifiers.contains(MdModifier::LinkURLWrapper));
         assert_eq!(result[2].content, "https://example.com");
-        assert!(result[2].extra.contains(MdModifier::LinkURL));
+        assert!(result[2].modifiers.contains(MdModifier::LinkURL));
         assert_eq!(result[3].content, ")");
-        assert!(result[3].extra.contains(MdModifier::LinkURLWrapper));
+        assert!(result[3].modifiers.contains(MdModifier::LinkURLWrapper));
         assert_eq!(result[4].content, " for more.");
-        assert!(!result[4].extra.contains(MdModifier::LinkURL));
+        assert!(!result[4].modifiers.contains(MdModifier::LinkURL));
     }
 
     #[test]
@@ -890,14 +893,14 @@ mod tests {
         )];
         let result = detect_bare_urls(spans);
         assert_eq!(result.len(), 5);
-        assert!(result[0].extra.contains(MdModifier::Emphasis));
-        assert!(result[1].extra.contains(MdModifier::Emphasis));
-        assert!(result[1].extra.contains(MdModifier::LinkURLWrapper));
-        assert!(result[2].extra.contains(MdModifier::Emphasis));
-        assert!(result[2].extra.contains(MdModifier::LinkURL));
-        assert!(result[3].extra.contains(MdModifier::Emphasis));
-        assert!(result[3].extra.contains(MdModifier::LinkURLWrapper));
-        assert!(result[4].extra.contains(MdModifier::Emphasis));
+        assert!(result[0].modifiers.contains(MdModifier::Emphasis));
+        assert!(result[1].modifiers.contains(MdModifier::Emphasis));
+        assert!(result[1].modifiers.contains(MdModifier::LinkURLWrapper));
+        assert!(result[2].modifiers.contains(MdModifier::Emphasis));
+        assert!(result[2].modifiers.contains(MdModifier::LinkURL));
+        assert!(result[3].modifiers.contains(MdModifier::Emphasis));
+        assert!(result[3].modifiers.contains(MdModifier::LinkURLWrapper));
+        assert!(result[4].modifiers.contains(MdModifier::Emphasis));
     }
 
     #[test]

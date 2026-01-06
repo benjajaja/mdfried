@@ -52,7 +52,7 @@ pub(crate) struct LineMeta {
     pub nesting: Vec<MdLineContainer>,
 }
 
-/// A simplified nesting container for [`MdLine`].
+/// A simplified nesting container.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MdLineContainer {
     /// Blockquote level.

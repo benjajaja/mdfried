@@ -26,7 +26,10 @@
 //! // StyledMapper removes decorators (for use with colors/bold/italic styling)
 //! let lines = frier.parse(80, "*emphasis* and **strong**".to_owned(), &StyledMapper);
 //! let text: String = lines.iter()
-//!     .flat_map(|l| l.spans.iter().map(|s| s.content.as_str()))
+//!     .flat_map(|l| l.spans.iter().map(|s|
+//!         // We should really add colors from `s.modifiers` here!
+//!         s.content.as_str()
+//!     ))
 //!     .collect();
 //! assert_eq!(text, "emphasis and strong");
 //!
@@ -37,6 +40,7 @@
 //!     fn emphasis_close(&self) -> &str { "♥" }
 //!     fn strong_open(&self) -> &str { "✦" }
 //!     fn strong_close(&self) -> &str { "✦" }
+//!     fn blockquote_bar(&self) -> &str { "➤ " }
 //! }
 //!
 //! let lines = frier.parse(80, "Hello *world*!\n\n> Quote\n\n**Bold**".to_owned(), &FancyMapper);
@@ -47,7 +51,7 @@
 //!     }
 //!     output.push('\n');
 //! }
-//! assert_eq!(output, "Hello ♥world♥!\n\n> Quote\n\n✦Bold✦\n");
+//! assert_eq!(output, "Hello ♥world♥!\n\n➤ Quote\n\n✦Bold✦\n");
 //! ```
 
 mod lines;
@@ -298,10 +302,10 @@ fn apply_mapper_to_spans<M: Mapper>(spans: Vec<MdNode>, mapper: &M) -> Vec<MdNod
     let mut prev_strikethrough = false;
 
     for mut span in spans {
-        let has_emphasis = span.extra.contains(MdModifier::Emphasis);
-        let has_strong = span.extra.contains(MdModifier::StrongEmphasis);
-        let has_code = span.extra.contains(MdModifier::Code);
-        let has_strikethrough = span.extra.contains(MdModifier::Strikethrough);
+        let has_emphasis = span.modifiers.contains(MdModifier::Emphasis);
+        let has_strong = span.modifiers.contains(MdModifier::StrongEmphasis);
+        let has_code = span.modifiers.contains(MdModifier::Code);
+        let has_strikethrough = span.modifiers.contains(MdModifier::Strikethrough);
 
         // Close decorators that ended (in reverse order of nesting)
         if prev_code && !has_code {
@@ -368,13 +372,13 @@ fn apply_mapper_to_spans<M: Mapper>(spans: Vec<MdNode>, mapper: &M) -> Vec<MdNod
         }
 
         // Transform link wrappers
-        if span.extra.contains(MdModifier::LinkDescriptionWrapper) {
+        if span.modifiers.contains(MdModifier::LinkDescriptionWrapper) {
             span.content = if span.content == "[" {
                 mapper.link_desc_open().to_owned()
             } else {
                 mapper.link_desc_close().to_owned()
             };
-        } else if span.extra.contains(MdModifier::LinkURLWrapper) {
+        } else if span.modifiers.contains(MdModifier::LinkURLWrapper) {
             span.content = if span.content == "(" {
                 mapper.link_url_open().to_owned()
             } else {
@@ -568,7 +572,7 @@ fn build_table_row_spans<M: Mapper>(
         for node in cell_spans {
             let mut mapped_node = node.clone();
             if mapped_node
-                .extra
+                .modifiers
                 .contains(MdModifier::LinkDescriptionWrapper)
             {
                 mapped_node.content = if mapped_node.content == "[" {
@@ -576,7 +580,7 @@ fn build_table_row_spans<M: Mapper>(
                 } else {
                     mapper.link_desc_close().to_owned()
                 };
-            } else if mapped_node.extra.contains(MdModifier::LinkURLWrapper) {
+            } else if mapped_node.modifiers.contains(MdModifier::LinkURLWrapper) {
                 mapped_node.content = if mapped_node.content == "(" {
                     mapper.link_url_open().to_owned()
                 } else {
@@ -798,11 +802,19 @@ mod tests {
         assert_eq!(line.spans.len(), 5);
         assert_eq!(line.spans[0].content, "Hello ");
         assert_eq!(line.spans[1].content, "*");
-        assert!(line.spans[1].extra.contains(MdModifier::EmphasisWrapper));
+        assert!(
+            line.spans[1]
+                .modifiers
+                .contains(MdModifier::EmphasisWrapper)
+        );
         assert_eq!(line.spans[2].content, "world");
-        assert!(line.spans[2].extra.contains(MdModifier::Emphasis));
+        assert!(line.spans[2].modifiers.contains(MdModifier::Emphasis));
         assert_eq!(line.spans[3].content, "*");
-        assert!(line.spans[3].extra.contains(MdModifier::EmphasisWrapper));
+        assert!(
+            line.spans[3]
+                .modifiers
+                .contains(MdModifier::EmphasisWrapper)
+        );
         assert_eq!(line.spans[4].content, "!");
     }
 
@@ -836,7 +848,7 @@ mod tests {
 
         let line = &lines[0];
         // With flat API, first span should be the blockquote bar
-        assert!(line.spans[0].extra.contains(MdModifier::BlockquoteBar));
+        assert!(line.spans[0].modifiers.contains(MdModifier::BlockquoteBar));
         assert_eq!(line.spans[0].content, "> ");
     }
 
@@ -867,15 +879,15 @@ mod tests {
         assert_eq!(lines[1].spans[0].content, "*");
         assert!(
             lines[1].spans[0]
-                .extra
+                .modifiers
                 .contains(MdModifier::EmphasisWrapper)
         );
         assert_eq!(lines[1].spans[1].content, "is");
-        assert!(lines[1].spans[1].extra.contains(MdModifier::Emphasis));
+        assert!(lines[1].spans[1].modifiers.contains(MdModifier::Emphasis));
         assert_eq!(lines[1].spans[2].content, "*");
         assert!(
             lines[1].spans[2]
-                .extra
+                .modifiers
                 .contains(MdModifier::EmphasisWrapper)
         );
     }
