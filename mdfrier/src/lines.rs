@@ -38,6 +38,21 @@ impl MdLine {
     }
 }
 
+#[cfg(test)]
+impl std::fmt::Display for MdLine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.spans
+                .iter()
+                .map(|span| span.content.clone())
+                .collect::<Vec<String>>()
+                .join("")
+        )
+    }
+}
+
 /// Metadata about a markdown line.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LineMeta {

@@ -716,11 +716,6 @@ mod tests {
     use crate::{MdFrier, lines::LineMeta};
     use pretty_assertions::assert_eq;
 
-    /// Convert a ratatui Line to string for testing.
-    fn line_to_string(line: &Line) -> String {
-        line.spans.iter().map(|s| s.content.as_ref()).collect()
-    }
-
     /// Parse and render markdown, returning string output.
     fn parse_and_render(input: &str, width: u16) -> String {
         let mut frier = MdFrier::new().unwrap();
@@ -729,7 +724,7 @@ mod tests {
             .into_iter()
             .map(|md_line| {
                 let (rendered, _) = render_line(md_line, width, &DefaultTheme::default());
-                line_to_string(&rendered)
+                rendered.to_string()
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -829,7 +824,7 @@ mod tests {
         let (rendered, tags) = render_line(lines[0].clone(), 80, &DefaultTheme::default());
 
         // Check rendered content includes link decorations
-        let content = line_to_string(&rendered);
+        let content = rendered.to_string();
         assert!(content.contains("text"));
         assert!(content.contains("http://link.com"));
 
@@ -911,5 +906,53 @@ mod tests {
 
         let output = parse_and_render(input, 80);
         insta::assert_snapshot!(output);
+    }
+
+    #[test]
+    fn render_bare_url() {
+        let mut frier = MdFrier::new().unwrap();
+        let lines: Vec<_> = frier
+            .parse(80, "Check https://example.com for info.".to_owned())
+            .collect();
+        assert_eq!(lines.len(), 1);
+
+        let (line, tags) = render_line(lines[0].to_owned(), 80, &DefaultTheme::default());
+
+        // Check rendered content includes the URL
+        let content = line.to_string();
+        assert_eq!(content, "Check https://example.com for info.");
+
+        assert_eq!(tags, vec![Tag::Link(1, "https://example.com".to_owned())]);
+
+        let url_span = &line.spans[1];
+        assert_eq!(url_span.content, "https://example.com");
+        assert!(url_span.style.add_modifier.contains(Modifier::UNDERLINED));
+    }
+
+    #[test]
+    #[ignore]
+    fn tag_linebroken_url() {
+        let mut frier = MdFrier::new().unwrap();
+        let lines: Vec<_> = frier
+            .parse(15, "Check https://example.com for info.".to_owned())
+            .collect();
+        assert_eq!(
+            lines
+                .iter()
+                .map(MdLine::to_string)
+                .collect::<Vec<String>>()
+                .join("\n"),
+            r#"Check 
+https://
+example.com
+for info."#
+        );
+
+        for i in 1..=2 {
+            let (line, tags) = render_line(lines[i].to_owned(), 10, &DefaultTheme::default());
+            assert_eq!(tags, vec![Tag::Link(1, "https://example.com".to_owned())]);
+            let url_span = &line.spans[0];
+            assert!(url_span.style.add_modifier.contains(Modifier::UNDERLINED));
+        }
     }
 }

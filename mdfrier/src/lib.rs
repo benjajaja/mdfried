@@ -452,6 +452,25 @@ Quote break.
     }
 
     #[test]
+    fn bare_url_line_broken() {
+        let mut frier = MdFrier::new().unwrap();
+        let lines: Vec<_> = frier
+            .parse(15, "See https://example.com/path ok?".to_owned())
+            .collect();
+        let spans: Vec<_> = lines.into_iter().flat_map(|l| l.spans).collect();
+        assert_eq!(
+            spans,
+            vec![
+                MdNode::new("See ".into(), MdModifier::empty()),
+                MdNode::new("https://".into(), MdModifier::LinkURL),
+                MdNode::new("example.com/".into(), MdModifier::LinkURL),
+                MdNode::new("path".into(), MdModifier::LinkURL),
+                MdNode::new(" ok?".into(), MdModifier::empty()),
+            ]
+        );
+    }
+
+    #[test]
     fn list_preserve_formatting() {
         let input = r#"1. First ordered list item
 2. Another item

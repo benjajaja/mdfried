@@ -1867,6 +1867,7 @@ dependencies = [
  "insta",
  "pretty_assertions",
  "ratatui",
+ "regex",
  "textwrap",
  "tree-sitter",
  "tree-sitter-md",

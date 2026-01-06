@@ -1,6 +1,8 @@
 use std::borrow::Cow;
 
 use bitflags::bitflags;
+use regex::Regex;
+use std::sync::LazyLock;
 use tree_sitter::{Node, Parser, Tree, TreeCursor};
 use unicode_width::UnicodeWidthStr;
 
@@ -168,6 +170,7 @@ impl<'a> MdIterator<'a> {
                 let mdspans =
                     inline_node_to_spans(tree.root_node(), text, MdModifier::default(), 0);
                 let mdspans = split_newlines(mdspans);
+                let mdspans = detect_bare_urls(mdspans);
                 // Strip blockquote markers from spans
                 let mdspans: Vec<MdNode> = mdspans
                     .into_iter()
@@ -302,6 +305,7 @@ impl<'a> MdIterator<'a> {
                 } else if let Some(tree) = self.inline_parser.parse(cell_text, None) {
                     let mdspans =
                         inline_node_to_spans(tree.root_node(), cell_text, MdModifier::default(), 0);
+                    let mdspans = detect_bare_urls(mdspans);
                     cells.push(mdspans);
                 } else {
                     cells.push(vec![MdNode::new(
@@ -660,6 +664,64 @@ fn is_punctuation(kind: &str, parent_modifier: MdModifier) -> bool {
     }
 }
 
+/// Regex for detecting bare URLs (http:// or https://).
+static URL_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"https?://[^\s<>\[\]()]+").unwrap());
+
+/// Detect bare URLs in spans and mark them with LinkURL modifier.
+/// Skips spans that already have link-related modifiers.
+fn detect_bare_urls(mdspans: Vec<MdNode>) -> Vec<MdNode> {
+    let mut result = Vec::with_capacity(mdspans.len());
+
+    for span in mdspans {
+        // Skip spans that are already part of a link or code
+        if span
+            .extra
+            .intersects(MdModifier::Link | MdModifier::LinkURL | MdModifier::Code)
+        {
+            result.push(span);
+            continue;
+        }
+
+        // Find all URL matches in this span
+        let mut last_end = 0;
+        let content = &span.content;
+        let mut found_urls = false;
+
+        for mat in URL_REGEX.find_iter(content) {
+            found_urls = true;
+
+            // Text before the URL
+            if mat.start() > last_end {
+                result.push(MdNode::new(
+                    content[last_end..mat.start()].to_owned(),
+                    span.extra,
+                ));
+            }
+
+            // The URL itself - marked as LinkURL
+            result.push(MdNode::new(
+                mat.as_str().to_owned(),
+                span.extra | MdModifier::LinkURL,
+            ));
+
+            last_end = mat.end();
+        }
+
+        if found_urls {
+            // Text after the last URL
+            if last_end < content.len() {
+                result.push(MdNode::new(content[last_end..].to_owned(), span.extra));
+            }
+        } else {
+            // No URLs found, keep original span
+            result.push(span);
+        }
+    }
+
+    result
+}
+
 fn split_newlines(mdspans: Vec<MdNode>) -> Vec<MdNode> {
     let mut result = Vec::with_capacity(mdspans.len());
     for mdspan in mdspans {
@@ -763,5 +825,55 @@ mod tests {
             sections[0].content,
             MdContent::Header { tier: 1, .. }
         ));
+    }
+
+    #[test]
+    fn detect_bare_url() {
+        let spans = vec![MdNode::new(
+            "Check https://example.com for more.".to_owned(),
+            MdModifier::default(),
+        )];
+        let result = detect_bare_urls(spans);
+        assert_eq!(result.len(), 3);
+        assert_eq!(result[0].content, "Check ");
+        assert!(!result[0].extra.contains(MdModifier::LinkURL));
+        assert_eq!(result[1].content, "https://example.com");
+        assert!(result[1].extra.contains(MdModifier::LinkURL));
+        assert_eq!(result[2].content, " for more.");
+        assert!(!result[2].extra.contains(MdModifier::LinkURL));
+    }
+
+    #[test]
+    fn detect_bare_url_preserves_existing_modifiers() {
+        let spans = vec![MdNode::new(
+            "See https://example.com now".to_owned(),
+            MdModifier::Emphasis,
+        )];
+        let result = detect_bare_urls(spans);
+        assert_eq!(result.len(), 3);
+        assert!(result[0].extra.contains(MdModifier::Emphasis));
+        assert!(result[1].extra.contains(MdModifier::Emphasis));
+        assert!(result[2].extra.contains(MdModifier::Emphasis));
+        assert!(result[1].extra.contains(MdModifier::LinkURL));
+    }
+
+    #[test]
+    fn detect_bare_url_skips_existing_links() {
+        let spans = vec![MdNode::new(
+            "https://example.com".to_owned(),
+            MdModifier::Link | MdModifier::LinkURL,
+        )];
+        let result = detect_bare_urls(spans.clone());
+        assert_eq!(result, spans);
+    }
+
+    #[test]
+    fn detect_bare_url_skips_code() {
+        let spans = vec![MdNode::new(
+            "https://example.com".to_owned(),
+            MdModifier::Code,
+        )];
+        let result = detect_bare_urls(spans.clone());
+        assert_eq!(result, spans);
     }
 }
