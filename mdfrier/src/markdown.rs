@@ -441,6 +441,13 @@ impl From<&str> for MdNode {
     }
 }
 
+#[cfg(test)]
+impl std::fmt::Display for MdNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.content)
+    }
+}
+
 impl UnicodeWidthStr for MdNode {
     fn width(&self) -> usize {
         self.content.width()

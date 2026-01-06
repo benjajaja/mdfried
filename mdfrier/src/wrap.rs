@@ -98,8 +98,19 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>>
         if would_overflow {
             let starting_new_line = !line.is_empty();
             if starting_new_line {
+                // Keep opening "(" with the URL, not on previous line
+                let move_paren = line.last().map_or(false, |last| {
+                    last.extra.contains(MdModifier::LinkURLWrapper) && last.content == "("
+                });
+                let moved_paren = if move_paren { line.pop() } else { None };
+
                 lines.push(std::mem::take(&mut line));
                 line_width = 0;
+
+                if let Some(paren) = moved_paren {
+                    line.push(paren);
+                    line_width = 1;
+                }
             }
             if span_width > width {
                 let options = Options::new(width as usize)
@@ -209,6 +220,30 @@ mod tests {
                 vec![MdNode::from("one")],
                 vec![MdNode::new("two".into(), MdModifier::NewLine),]
             ],
+        );
+    }
+
+    #[test]
+    fn link_wrapping() {
+        let mdspans = vec![
+            MdNode::new("[".into(), MdModifier::LinkDescriptionWrapper),
+            MdNode::new("link".into(), MdModifier::LinkDescription),
+            MdNode::new("]".into(), MdModifier::LinkDescriptionWrapper),
+            MdNode::new("(".into(), MdModifier::LinkURLWrapper),
+            MdNode::new("https://example.com".into(), MdModifier::LinkURL),
+            MdNode::new(")".into(), MdModifier::LinkURLWrapper),
+        ];
+        let lines = wrap_md_spans_lines(25, mdspans);
+        assert_eq!(
+            lines
+                .iter()
+                .map(|spans| spans
+                    .iter()
+                    .map(MdNode::to_string)
+                    .collect::<Vec<String>>()
+                    .join(""))
+                .collect::<Vec<String>>(),
+            vec!["[link]", "(https://example.com)",],
         );
     }
 }
