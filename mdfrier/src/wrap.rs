@@ -15,13 +15,13 @@ fn trim_start_inplace(s: &mut String) {
 
 /// Image reference extracted from markdown.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ImageRef {
+pub(crate) struct ImageRef {
     pub url: String,
     pub description: String,
 }
 
 /// A wrapped line of markdown content.
-pub struct WrappedLine {
+pub(crate) struct WrappedLine {
     /// Whether this is a first line (not a soft-wrapped continuation).
     pub is_first: bool,
     /// The content spans.
@@ -30,7 +30,7 @@ pub struct WrappedLine {
     pub images: Vec<ImageRef>,
 }
 
-pub fn wrap_md_spans(width: u16, mdspans: Vec<Span>, prefix_width: usize) -> Vec<WrappedLine> {
+pub(crate) fn wrap_md_spans(width: u16, mdspans: Vec<Span>, prefix_width: usize) -> Vec<WrappedLine> {
     let available_width = width.saturating_sub(prefix_width as u16).max(1);
 
     wrap_md_spans_lines(available_width, mdspans)
@@ -71,7 +71,7 @@ pub fn wrap_md_spans(width: u16, mdspans: Vec<Span>, prefix_width: usize) -> Vec
         .collect()
 }
 
-pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>) -> Vec<Vec<Span>> {
+pub(crate) fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>) -> Vec<Vec<Span>> {
     let mut lines: Vec<Vec<Span>> = Vec::new();
     let mut line: Vec<Span> = Vec::new();
     let mut after_newline = false;

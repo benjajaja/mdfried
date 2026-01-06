@@ -54,7 +54,7 @@ pub(crate) struct LineMeta {
 
 /// A simplified nesting container.
 #[derive(Debug, Clone, PartialEq)]
-pub enum MdLineContainer {
+pub(crate) enum MdLineContainer {
     /// Blockquote level.
     Blockquote,
     /// List item with marker type.
@@ -68,7 +68,7 @@ pub enum MdLineContainer {
 
 /// Type of list marker.
 #[derive(Debug, Clone, PartialEq)]
-pub enum ListMarker {
+pub(crate) enum ListMarker {
     Unordered(BulletStyle),
     Ordered(u32),
     TaskUnchecked(BulletStyle),
@@ -154,14 +154,14 @@ pub(crate) enum RawLineKind {
 
 /// Information about table columns for rendering.
 #[derive(Debug, Clone, PartialEq)]
-pub struct TableColumnInfo {
+pub(crate) struct TableColumnInfo {
     pub widths: Vec<usize>,
     pub alignments: Vec<TableAlignment>,
 }
 
 /// Position of a table border.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum BorderPosition {
+pub(crate) enum BorderPosition {
     Top,
     HeaderSeparator,
     Bottom,

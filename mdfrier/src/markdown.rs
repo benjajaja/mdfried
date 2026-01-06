@@ -11,7 +11,7 @@ use crate::Error;
 /// Default list marker when none can be determined.
 const DEFAULT_LIST_MARKER: &str = "-";
 
-pub struct MdDocument<'a> {
+pub(crate) struct MdDocument<'a> {
     source: String,
     tree: Tree,
     inline_parser: &'a mut Parser,
@@ -51,7 +51,7 @@ impl<'a> MdDocument<'a> {
     }
 }
 
-pub struct MdIterator<'a> {
+pub(crate) struct MdIterator<'a> {
     source: &'a str,
     cursor: TreeCursor<'a>,
     done: bool,
@@ -479,7 +479,7 @@ impl UnicodeWidthStr for Span {
 
 /// A container in the document structure.
 #[derive(Debug, Clone, PartialEq)]
-pub enum MdContainer {
+pub(crate) enum MdContainer {
     List(ListMarker),
     ListItem(ListMarker),
     Blockquote(BlockquoteMarker),
@@ -487,7 +487,7 @@ pub enum MdContainer {
 
 /// Column alignment for tables.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum TableAlignment {
+pub(crate) enum TableAlignment {
     #[default]
     Left,
     Center,
@@ -496,7 +496,7 @@ pub enum TableAlignment {
 
 /// Content of a markdown section.
 #[derive(Debug, Clone, PartialEq)]
-pub enum MdContent {
+pub(crate) enum MdContent {
     Paragraph(Vec<Span>),
     Header {
         tier: u8,
@@ -522,7 +522,7 @@ impl MdContent {
 
 /// Marker style for list items.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ListMarker {
+pub(crate) struct ListMarker {
     pub original: String,
     pub indent: usize,
     pub task: Option<bool>,
@@ -548,11 +548,11 @@ impl ListMarker {
 
 /// Marker style for blockquotes.
 #[derive(Debug, Default, Clone, PartialEq)]
-pub struct BlockquoteMarker;
+pub(crate) struct BlockquoteMarker;
 
 /// A markdown section with its content and nesting path.
 #[derive(Debug)]
-pub struct MdSection {
+pub(crate) struct MdSection {
     pub content: MdContent,
     pub nesting: Vec<MdContainer>,
     /// True if this is a continuation paragraph within a list item (not the first content).

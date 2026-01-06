@@ -106,11 +106,11 @@ use tree_sitter::Parser;
 use unicode_width::UnicodeWidthStr;
 
 use lines::{RawLine, RawLineKind};
-use markdown::{MdContainer, MdContent, MdDocument, MdSection};
+use markdown::{MdContainer, MdContent, MdDocument, MdSection, TableAlignment};
 
-pub use lines::{BulletStyle, ListMarker, MdLineContainer as Container};
+pub use lines::BulletStyle;
 pub use mapper::{DefaultMapper, Mapper, StyledMapper};
-pub use markdown::{Modifier, Span, TableAlignment};
+pub use markdown::{Modifier, Span};
 
 // Re-export for internal use by lines module
 pub(crate) use lines::MdLineContainer;
