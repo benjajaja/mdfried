@@ -920,11 +920,11 @@ mod tests {
 
         // Check rendered content includes the URL
         let content = line.to_string();
-        assert_eq!(content, "Check https://example.com for info.");
+        assert_eq!(content, "Check ◖https://example.com◗ for info.");
 
-        assert_eq!(tags, vec![Tag::Link(1, "https://example.com".to_owned())]);
+        assert_eq!(tags, vec![Tag::Link(2, "https://example.com".to_owned())]);
 
-        let url_span = &line.spans[1];
+        let url_span = &line.spans[2];
         assert_eq!(url_span.content, "https://example.com");
         assert!(url_span.style.add_modifier.contains(Modifier::UNDERLINED));
     }

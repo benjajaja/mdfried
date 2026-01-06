@@ -462,9 +462,11 @@ Quote break.
             spans,
             vec![
                 MdNode::new("See ".into(), MdModifier::empty()),
+                MdNode::new("(".into(), MdModifier::LinkURLWrapper),
                 MdNode::new("https://".into(), MdModifier::LinkURL),
                 MdNode::new("example.com/".into(), MdModifier::LinkURL),
                 MdNode::new("path".into(), MdModifier::LinkURL),
+                MdNode::new(")".into(), MdModifier::LinkURLWrapper),
                 MdNode::new(" ok?".into(), MdModifier::empty()),
             ]
         );

@@ -699,10 +699,22 @@ fn detect_bare_urls(mdspans: Vec<MdNode>) -> Vec<MdNode> {
                 ));
             }
 
+            // Opening wrapper
+            result.push(MdNode::new(
+                "(".to_owned(),
+                span.extra | MdModifier::LinkURLWrapper,
+            ));
+
             // The URL itself - marked as LinkURL
             result.push(MdNode::new(
                 mat.as_str().to_owned(),
                 span.extra | MdModifier::LinkURL,
+            ));
+
+            // Closing wrapper
+            result.push(MdNode::new(
+                ")".to_owned(),
+                span.extra | MdModifier::LinkURLWrapper,
             ));
 
             last_end = mat.end();
@@ -834,13 +846,17 @@ mod tests {
             MdModifier::default(),
         )];
         let result = detect_bare_urls(spans);
-        assert_eq!(result.len(), 3);
+        assert_eq!(result.len(), 5);
         assert_eq!(result[0].content, "Check ");
         assert!(!result[0].extra.contains(MdModifier::LinkURL));
-        assert_eq!(result[1].content, "https://example.com");
-        assert!(result[1].extra.contains(MdModifier::LinkURL));
-        assert_eq!(result[2].content, " for more.");
-        assert!(!result[2].extra.contains(MdModifier::LinkURL));
+        assert_eq!(result[1].content, "(");
+        assert!(result[1].extra.contains(MdModifier::LinkURLWrapper));
+        assert_eq!(result[2].content, "https://example.com");
+        assert!(result[2].extra.contains(MdModifier::LinkURL));
+        assert_eq!(result[3].content, ")");
+        assert!(result[3].extra.contains(MdModifier::LinkURLWrapper));
+        assert_eq!(result[4].content, " for more.");
+        assert!(!result[4].extra.contains(MdModifier::LinkURL));
     }
 
     #[test]
@@ -850,11 +866,15 @@ mod tests {
             MdModifier::Emphasis,
         )];
         let result = detect_bare_urls(spans);
-        assert_eq!(result.len(), 3);
+        assert_eq!(result.len(), 5);
         assert!(result[0].extra.contains(MdModifier::Emphasis));
         assert!(result[1].extra.contains(MdModifier::Emphasis));
+        assert!(result[1].extra.contains(MdModifier::LinkURLWrapper));
         assert!(result[2].extra.contains(MdModifier::Emphasis));
-        assert!(result[1].extra.contains(MdModifier::LinkURL));
+        assert!(result[2].extra.contains(MdModifier::LinkURL));
+        assert!(result[3].extra.contains(MdModifier::Emphasis));
+        assert!(result[3].extra.contains(MdModifier::LinkURLWrapper));
+        assert!(result[4].extra.contains(MdModifier::Emphasis));
     }
 
     #[test]
