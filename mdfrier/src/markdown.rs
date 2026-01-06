@@ -171,7 +171,7 @@ impl<'a> MdIterator<'a> {
                     inline_node_to_spans(tree.root_node(), text, MdModifier::default(), 0);
                 let mdspans = split_newlines(mdspans);
                 let mdspans = detect_bare_urls(mdspans);
-                // Strip blockquote markers from spans
+                // Strip blockquote markers from line-start spans and filter empty/marker-only spans
                 let mdspans: Vec<MdNode> = mdspans
                     .into_iter()
                     .map(|mut s| {
@@ -182,9 +182,17 @@ impl<'a> MdIterator<'a> {
                         s
                     })
                     .filter(|s| {
-                        // Keep spans with content, or empty spans with NewLine (hard line breaks)
-                        (!s.content.is_empty() && !is_blockquote_marker_only(s.content.trim()))
-                            || s.modifiers.contains(MdModifier::NewLine)
+                        // Empty spans: only keep if they represent hard line breaks (NewLine)
+                        if s.content.is_empty() {
+                            return s.modifiers.contains(MdModifier::NewLine);
+                        }
+                        // For line-start spans (NewLine), filter out blockquote-marker-only content
+                        // that remains after stripping (e.g., a line that was just "> > ")
+                        if s.modifiers.contains(MdModifier::NewLine) {
+                            return !is_blockquote_marker_only(s.content.trim());
+                        }
+                        // Mid-line spans are always kept (e.g., ">" from angle bracket URLs)
+                        true
                     })
                     .collect();
                 if mdspans.is_empty() {
@@ -733,10 +741,7 @@ fn detect_bare_urls(mdspans: Vec<MdNode>) -> Vec<MdNode> {
                     first_emitted = true;
                     span.modifiers
                 };
-                result.push(MdNode::new(
-                    content[last_end..mat.start()].to_owned(),
-                    mods,
-                ));
+                result.push(MdNode::new(content[last_end..mat.start()].to_owned(), mods));
             }
 
             // Opening wrapper - only keep NewLine if this is the first span emitted
