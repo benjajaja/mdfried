@@ -581,16 +581,20 @@ fn is_blockquote_marker_only(s: &str) -> bool {
         return false;
     }
     let mut chars = s.chars().peekable();
+    let mut has_space = false;
     while let Some(c) = chars.next() {
         if c == '>' {
             if chars.peek() == Some(&' ') {
                 chars.next();
+                has_space = true;
             }
         } else {
             return false;
         }
     }
-    true
+    // A proper blockquote marker has "> " pattern, not just ">" or ">>"
+    // A standalone ">" is likely part of angle bracket URL syntax, not a blockquote marker
+    has_space
 }
 
 #[expect(clippy::string_slice)]
@@ -713,34 +717,47 @@ fn detect_bare_urls(mdspans: Vec<MdNode>) -> Vec<MdNode> {
         let mut last_end = 0;
         let content = &span.content;
         let mut found_urls = false;
+        // Track whether we've emitted the first span (which keeps NewLine if present)
+        let mut first_emitted = false;
+        // Base modifiers without NewLine - we only want NewLine on the first span
+        let base_modifiers = span.modifiers.difference(MdModifier::NewLine);
 
         for mat in URL_REGEX.find_iter(content) {
             found_urls = true;
 
             // Text before the URL
             if mat.start() > last_end {
+                let mods = if first_emitted {
+                    base_modifiers
+                } else {
+                    first_emitted = true;
+                    span.modifiers
+                };
                 result.push(MdNode::new(
                     content[last_end..mat.start()].to_owned(),
-                    span.modifiers,
+                    mods,
                 ));
             }
 
-            // Opening wrapper
-            result.push(MdNode::new(
-                "(".to_owned(),
-                span.modifiers | MdModifier::LinkURLWrapper,
-            ));
+            // Opening wrapper - only keep NewLine if this is the first span emitted
+            let wrapper_mods = if first_emitted {
+                base_modifiers | MdModifier::LinkURLWrapper
+            } else {
+                first_emitted = true;
+                span.modifiers | MdModifier::LinkURLWrapper
+            };
+            result.push(MdNode::new("(".to_owned(), wrapper_mods));
 
-            // The URL itself - marked as LinkURL
+            // The URL itself - marked as LinkURL (never first, wrapper is always before)
             result.push(MdNode::new(
                 mat.as_str().to_owned(),
-                span.modifiers | MdModifier::LinkURL,
+                base_modifiers | MdModifier::LinkURL,
             ));
 
             // Closing wrapper
             result.push(MdNode::new(
                 ")".to_owned(),
-                span.modifiers | MdModifier::LinkURLWrapper,
+                base_modifiers | MdModifier::LinkURLWrapper,
             ));
 
             last_end = mat.end();
@@ -749,7 +766,7 @@ fn detect_bare_urls(mdspans: Vec<MdNode>) -> Vec<MdNode> {
         if found_urls {
             // Text after the last URL
             if last_end < content.len() {
-                result.push(MdNode::new(content[last_end..].to_owned(), span.modifiers));
+                result.push(MdNode::new(content[last_end..].to_owned(), base_modifiers));
             }
         } else {
             // No URLs found, keep original span
@@ -921,5 +938,24 @@ mod tests {
         )];
         let result = detect_bare_urls(spans.clone());
         assert_eq!(result, spans);
+    }
+
+    #[test]
+    fn angle_bracket_url_preserved() {
+        // Angle bracket URLs like <http://example.com> should preserve both < and >
+        let spans = vec![MdNode::new(
+            "<http://www.example.com>".to_owned(),
+            MdModifier::default(),
+        )];
+        let result = detect_bare_urls(spans);
+        assert_eq!(result.len(), 5);
+        assert_eq!(result[0].content, "<");
+        assert_eq!(result[1].content, "(");
+        assert!(result[1].modifiers.contains(MdModifier::LinkURLWrapper));
+        assert_eq!(result[2].content, "http://www.example.com");
+        assert!(result[2].modifiers.contains(MdModifier::LinkURL));
+        assert_eq!(result[3].content, ")");
+        assert!(result[3].modifiers.contains(MdModifier::LinkURLWrapper));
+        assert_eq!(result[4].content, ">");
     }
 }
