@@ -30,7 +30,11 @@ pub(crate) struct WrappedLine {
     pub images: Vec<ImageRef>,
 }
 
-pub(crate) fn wrap_md_spans(width: u16, mdspans: Vec<Span>, prefix_width: usize) -> Vec<WrappedLine> {
+pub(crate) fn wrap_md_spans(
+    width: u16,
+    mdspans: Vec<Span>,
+    prefix_width: usize,
+) -> Vec<WrappedLine> {
     let available_width = width.saturating_sub(prefix_width as u16).max(1);
 
     wrap_md_spans_lines(available_width, mdspans)

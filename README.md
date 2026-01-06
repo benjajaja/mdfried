@@ -102,7 +102,4 @@ select text.
 ### Configuration
 
 `~/.config/mdfried/config.toml` is automatically created on first run.
-The `[skin]` section can be configured to set various colors and styles.
-See [termimad skin format](https://github.com/Canop/termimad/blob/main/examples/serialize-skin/skin.hjson)
-for more information.
 

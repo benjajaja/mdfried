@@ -1848,7 +1848,6 @@ dependencies = [
  "pretty_assertions",
  "ratatui",
  "ratatui-image",
- "ratskin 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "regex",
  "reqwest",
  "serde",
@@ -1861,7 +1860,7 @@ dependencies = [
 
 [[package]]
 name = "mdfrier"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "bitflags 2.10.0",
  "insta",
@@ -2565,17 +2564,6 @@ name = "ratskin"
 version = "0.3.0"
 dependencies = [
  "ratatui",
- "termimad",
-]
-
-[[package]]
-name = "ratskin"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d16b869729f2643509ef628e2ac0238b82752f01d08eaced4d217aa33166a01"
-dependencies = [
- "ratatui",
- "regex",
  "termimad",
 ]
 

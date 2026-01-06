@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+- Use tree-sitter / tree-sitter-md for markdown parsing.
+  - Added workspace / crate `mdfrier` that deals with markdown parsing.
+  - Flow: `Parse markdown -> Map formatting / decorators -> Wrap lines -> Stylize`
+  - Prepares groundwork for various bugfixes that need deeper insight into the markdown source.
+
 ### Removed
 - `chafa-libload` feature, has been removed from ratatui-image. Simply use halfblocks directly.
 
