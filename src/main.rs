@@ -1,11 +1,12 @@
+mod big_text;
 mod config;
 mod cursor;
 mod debug;
+mod document;
 mod error;
 mod model;
 mod setup;
 mod watch;
-mod widget_sources;
 mod worker;
 
 #[cfg(not(windows))]
@@ -43,12 +44,13 @@ use ratatui_image::{Image, picker::ProtocolType};
 use setup::{SetupResult, setup_graphics};
 
 use crate::{
+    big_text::BigText,
     config::Config,
     cursor::{Cursor, CursorPointer, SearchState},
+    document::{LineExtra, Section, SectionContent, SectionID},
     error::Error,
     model::{DocumentId, Model},
     watch::watch,
-    widget_sources::{BigText, LineExtra, SourceID, WidgetSource, WidgetSourceData},
     worker::worker_thread,
 };
 
@@ -309,11 +311,11 @@ impl Display for Cmd {
 #[derive(Debug, PartialEq)]
 pub enum Event {
     NewDocument(DocumentId),
-    ParseDone(DocumentId, Option<SourceID>), // Only signals "parsing done", not "images ready"!
-    Parsed(DocumentId, WidgetSource),
-    ParsedImage(DocumentId, SourceID, MarkdownImage),
-    ParseHeader(DocumentId, SourceID, u8, String),
-    Update(DocumentId, Vec<WidgetSource>),
+    ParseDone(DocumentId, Option<SectionID>), // Only signals "parsing done", not "images ready"!
+    Parsed(DocumentId, Section),
+    ParsedImage(DocumentId, SectionID, MarkdownImage),
+    ParseHeader(DocumentId, SectionID, u8, String),
+    Update(DocumentId, Vec<Section>),
     FileChanged,
 }
 
@@ -321,15 +323,15 @@ impl Display for Event {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Event::NewDocument(document_id) => write!(f, "Event::NewDocument({document_id})"),
-            Event::ParseDone(document_id, last_source_id) => {
-                write!(f, "Event::ParseDone({document_id}, {last_source_id:?})")
+            Event::ParseDone(document_id, last_section_id) => {
+                write!(f, "Event::ParseDone({document_id}, {last_section_id:?})")
             }
 
-            Event::Parsed(document_id, source) => {
+            Event::Parsed(document_id, section) => {
                 write!(
                     f,
-                    "Event::Parsed({document_id}, id:{}, data: {})",
-                    source.id, source.data
+                    "Event::Parsed({document_id}, id:{}, content: {})",
+                    section.id, section.content
                 )
             }
 
@@ -484,10 +486,10 @@ fn run(
                                         if let Cursor::Links(CursorPointer { id, index }) =
                                             model.cursor
                                         {
-                                            let url = model.sources().find_map(|source| {
-                                                if source.id == id {
-                                                    let WidgetSourceData::Line(_, extras) =
-                                                        &source.data
+                                            let url = model.sections().find_map(|section| {
+                                                if section.id == id {
+                                                    let SectionContent::Line(_, extras) =
+                                                        &section.content
                                                     else {
                                                         return None;
                                                     };
@@ -599,18 +601,18 @@ fn view(model: &Model, frame: &mut Frame) {
     let mut cursor_positioned = None;
 
     let mut y: i16 = 0 - (model.scroll as i16);
-    for source in model.sources() {
+    for section in model.sections() {
         if y >= 0 {
             let y: u16 = y as u16;
-            match &source.data {
-                WidgetSourceData::Line(line, extras) => {
+            match &section.content {
+                SectionContent::Line(line, extras) => {
                     let p = Paragraph::new(line.clone());
 
-                    render_widget(p, source.height, y, inner_area, frame);
+                    render_widget(p, section.height, y, inner_area, frame);
 
                     match &model.cursor {
                         Cursor::Links(CursorPointer { id, index })
-                            if *id == source.id && !extras.is_empty() =>
+                            if *id == section.id && !extras.is_empty() =>
                         {
                             // Render links now on top, again, this shouldn't be a performance concern.
 
@@ -634,7 +636,7 @@ fn view(model: &Model, frame: &mut Frame) {
                                     let mut link_overlay_widget = Paragraph::new(text.clone());
                                     link_overlay_widget = if let Some(CursorPointer { id, index }) =
                                         pointer
-                                        && source.id == *id
+                                        && section.id == *id
                                         && i == *index
                                     {
                                         link_overlay_widget.fg(Color::Black).bg(Color::Indexed(197))
@@ -649,11 +651,11 @@ fn view(model: &Model, frame: &mut Frame) {
                         _ => {}
                     }
                 }
-                WidgetSourceData::Image(_, proto) => {
+                SectionContent::Image(_, proto) => {
                     let img = Image::new(proto);
-                    render_widget(img, source.height, y, inner_area, frame);
+                    render_widget(img, section.height, y, inner_area, frame);
                 }
-                WidgetSourceData::BrokenImage(url, text) => {
+                SectionContent::BrokenImage(url, text) => {
                     let spans = vec![
                         Span::from(format!("![{text}](")).red(),
                         Span::from(url.clone()).blue(),
@@ -664,13 +666,13 @@ fn view(model: &Model, frame: &mut Frame) {
                     let p = Paragraph::new(text);
                     render_widget(p, height as u16, y, inner_area, frame);
                 }
-                WidgetSourceData::Header(text, tier) => {
+                SectionContent::Header(text, tier) => {
                     let big_text = BigText::new(text, *tier);
                     render_widget(big_text, 2, y, inner_area, frame);
                 }
             }
         }
-        y += source.height as i16;
+        y += section.height as i16;
         if y >= inner_area.height as i16 - 1 {
             // Do not render into last line, nor beyond area.
             break;

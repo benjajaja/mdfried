@@ -26,9 +26,9 @@ use tokio::{runtime::Builder, sync::RwLock};
 use crate::{
     Cmd, Event,
     config::Theme,
+    document::{Section, header_images, header_sections, image_section},
     error::Error,
     setup::{BgColor, FontRenderer},
-    widget_sources::{WidgetSource, header_images, header_sources, image_source},
 };
 
 use markdown::parse_to_events;
@@ -69,7 +69,7 @@ pub fn worker_thread(
 
                         event_tx.send(Event::NewDocument(document_id))?;
 
-                        let (events, last_source_id) = parse_to_events(
+                        let (events, last_section_id) = parse_to_events(
                             &mut parser,
                             document_id,
                             width,
@@ -80,9 +80,9 @@ pub fn worker_thread(
                         for event in events {
                             event_tx.send(event)?;
                         }
-                        event_tx.send(Event::ParseDone(document_id, last_source_id))?;
+                        event_tx.send(Event::ParseDone(document_id, last_section_id))?;
                     }
-                    Cmd::Header(document_id, source_id, width, tier, text) => {
+                    Cmd::Header(document_id, section_id, width, tier, text) => {
                         debug_assert!(
                             thread_renderer.is_some(),
                             "should not have sent ImgCmd::Header without renderer"
@@ -100,7 +100,9 @@ pub fn worker_thread(
                                     .await??;
 
                                     let headers = tokio::task::spawn_blocking(move || {
-                                        header_sources(&picker, width, source_id, images, deep_fry)
+                                        header_sections(
+                                            &picker, width, section_id, images, deep_fry,
+                                        )
                                     })
                                     .await??;
                                     task_tx.send(Event::Update(document_id, headers))?;
@@ -109,40 +111,40 @@ pub fn worker_thread(
                             }
                         }
                     }
-                    Cmd::UrlImage(document_id, source_id, width, url, text) => {
+                    Cmd::UrlImage(document_id, section_id, width, url, text) => {
                         let task_tx = event_tx.clone();
                         let basepath = basepath.clone();
                         let client = client.clone();
                         let picker = thread_picker.clone();
                         // TODO: handle spawned task result errors, right now it's just discarded.
                         tokio::spawn(async move {
-                            match image_source(
+                            match image_section(
                                 &picker,
                                 config_max_image_height,
                                 width,
                                 &basepath,
                                 client,
-                                source_id,
+                                section_id,
                                 &url,
                                 deep_fry,
                             )
                             .await
                             {
-                                Ok(source) => {
-                                    task_tx.send(Event::Update(document_id, vec![source]))?
+                                Ok(section) => {
+                                    task_tx.send(Event::Update(document_id, vec![section]))?
                                 }
                                 Err(Error::UnknownImage(id, link)) => {
-                                    log::error!("image_source UnknownImage");
+                                    log::error!("image_section UnknownImage");
                                     task_tx.send(Event::Update(
                                         document_id,
-                                        vec![WidgetSource::image_unknown(id, link, text)],
+                                        vec![Section::image_unknown(id, link, text)],
                                     ))?
                                 }
                                 Err(err) => {
-                                    log::error!("image_source error: {err}");
+                                    log::error!("image_section error: {err}");
                                     task_tx.send(Event::Update(
                                         document_id,
-                                        vec![WidgetSource::image_unknown(source_id, url, text)],
+                                        vec![Section::image_unknown(section_id, url, text)],
                                     ))?
                                 }
                             }

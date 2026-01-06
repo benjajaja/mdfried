@@ -1,6 +1,6 @@
 use std::{
     any::Any as _,
-    fmt::{Debug, Display, Write as _},
+    fmt::{Debug, Display},
     ops::{Deref, DerefMut},
     path::PathBuf,
     sync::Arc,
@@ -13,7 +13,7 @@ use image::{
     DynamicImage, GenericImage as _, ImageFormat, ImageReader, Pixel as _, Rgba, RgbaImage,
     imageops,
 };
-use ratatui::{layout::Rect, text::Line, widgets::Widget};
+use ratatui::{layout::Rect, text::Line};
 
 use ratatui_image::{Resize, picker::Picker, protocol::Protocol};
 use regex::{Match, Regex};
@@ -31,83 +31,83 @@ use crate::{
 };
 
 #[derive(Default)]
-pub struct WidgetSources {
-    sources: Vec<WidgetSource>,
+pub struct Document {
+    sections: Vec<Section>,
     updated_images: Vec<(u16, String, Protocol)>,
 }
 
-impl WidgetSources {
-    pub fn push(&mut self, source: WidgetSource) {
+impl Document {
+    pub fn push(&mut self, section: Section) {
         debug_assert!(
-            !self.sources.iter().any(|s| s.id == source.id),
-            "WidgetSources::push expects unique ids"
+            !self.sections.iter().any(|s| s.id == section.id),
+            "Document::push expects unique ids"
         );
-        self.sources.push(source);
+        self.sections.push(section);
     }
 
     // Update widgets with a list by id
-    pub fn update(&mut self, updates: Vec<WidgetSource>) {
+    pub fn update(&mut self, updates: Vec<Section>) {
         let Some(first_id) = updates.first().map(|s| s.id) else {
-            log::error!("ineffective WidgetSources::update with empty list");
+            log::error!("ineffective Document::update with empty list");
             return;
         };
         debug_assert!(
             updates[1..].iter().all(|s| s.id == first_id),
-            "WidgetSources::update must be called with same id for in the one updates list"
+            "Document::update must be called with same id for in the one updates list"
         );
 
         let mut range = None;
 
-        for (i, source) in self.sources.iter().enumerate() {
-            if source.id == first_id {
+        for (i, section) in self.sections.iter().enumerate() {
+            if section.id == first_id {
                 range = match range {
                     None => Some((i, i + 1)),
                     Some((start, _)) => Some((start, i + 1)),
                 };
             } else if range.is_some() {
-                break; // Found the end of consecutive ID sources
+                break; // Found the end of consecutive ID sections
             }
         }
 
         if let Some((start, end)) = range {
-            let splice = self.sources.splice(start..end, updates);
+            let splice = self.sections.splice(start..end, updates);
             for splice in splice {
-                if let WidgetSourceData::Image(url, proto) = splice.data {
+                if let SectionContent::Image(url, proto) = splice.content {
                     self.updated_images.push((splice.height, url, proto));
                 }
             }
-        } else if let Some(last) = self.sources.last()
+        } else if let Some(last) = self.sections.last()
             && last.id < first_id
         {
-            log::debug!("Update source #{first_id} not found but id is higher than last source");
-            for source in updates {
-                self.sources.push(source);
+            log::debug!("Update section #{first_id} not found but id is higher than last section");
+            for section in updates {
+                self.sections.push(section);
             }
         } else {
-            log::error!("Update source #{first_id} not found anymore: {updates:?}");
+            log::error!("Update section #{first_id} not found anymore: {updates:?}");
         }
     }
 
-    pub fn replace(&mut self, id: SourceID, url: &str) -> Option<WidgetSource> {
-        for source in &mut self.sources {
-            if source.id < id {
+    pub fn replace(&mut self, id: SectionID, url: &str) -> Option<Section> {
+        for section in &mut self.sections {
+            if section.id < id {
                 continue;
             }
-            if let WidgetSourceData::Image(existing_url, _) = &source.data
+            if let SectionContent::Image(existing_url, _) = &section.content
                 && *existing_url == url
             {
                 let removed_image = std::mem::replace(
-                    source,
-                    WidgetSource {
-                        id: source.id,
+                    section,
+                    Section {
+                        id: section.id,
                         height: 1,
-                        data: WidgetSourceData::Line(
+                        content: SectionContent::Line(
                             Line::from(format!("![Replacing...]({url})")),
                             Vec::new(),
                         ),
                     },
                 );
-                log::debug!("search & replaced #{}: {}", source.id, source.data);
+                log::debug!("search & replaced #{}: {}", section.id, section.content);
                 return Some(removed_image);
             }
         }
@@ -116,57 +116,57 @@ impl WidgetSources {
             .position(|(_, stored_url, _)| stored_url == url)
             .map(|i| {
                 let (height, url, proto) = self.updated_images.remove(i);
-                WidgetSource {
+                Section {
                     id: 0, // will be overwritten by caller
                     height,
-                    data: WidgetSourceData::Image(url, proto),
+                    content: SectionContent::Image(url, proto),
                 }
             })
     }
 
-    pub fn trim_last_source(&mut self, last_source_id: Option<usize>) {
+    pub fn trim(&mut self, last_section_id: Option<usize>) {
         self.updated_images.clear();
-        let Some(last_source_id) = last_source_id else {
-            log::warn!("WidgetSources::trim without last_source_id, nothing parsed");
+        let Some(last_section_id) = last_section_id else {
+            log::warn!("Document::trim without last_section_id, nothing parsed");
             return;
         };
-        if let Some(last) = self.sources.last()
-            && last.id == last_source_id
+        if let Some(last) = self.sections.last()
+            && last.id == last_section_id
         {
             return;
         }
         if let Some(idx) = self
-            .sources
+            .sections
             .iter()
-            .position(|source| source.id == last_source_id)
+            .position(|section| section.id == last_section_id)
         {
             log::debug!("trim: {idx} + 1");
-            self.sources.truncate(idx + 1);
+            self.sections.truncate(idx + 1);
         }
     }
 
     pub fn get_y(&self, id: usize) -> i16 {
         let mut y = 0;
-        for source in self.sources.iter() {
-            if source.id == id {
+        for section in self.sections.iter() {
+            if section.id == id {
                 break;
             }
-            y += source.height as i16;
+            y += section.height as i16;
         }
         y
     }
 
-    pub fn find_first_cursor<'b, Iter: Iterator<Item = &'b WidgetSource>>(
+    pub fn find_first_cursor<'b, Iter: Iterator<Item = &'b Section>>(
         iter: Iter,
         target: FindTarget,
         scroll: u16,
     ) -> Option<CursorPointer> {
-        let locate = move |source: &WidgetSource| -> Option<CursorPointer> {
-            if let WidgetSourceData::Line(_, extras) = &source.data
+        let locate = move |section: &Section| -> Option<CursorPointer> {
+            if let SectionContent::Line(_, extras) = &section.content
                 && let Some(i) = extras.iter().position(|extra| target.matches(extra))
             {
                 Some(CursorPointer {
-                    id: source.id,
+                    id: section.id,
                     index: i,
                 })
             } else {
@@ -176,15 +176,15 @@ impl WidgetSources {
 
         let mut first = None;
         let mut offset_acc = 0;
-        for source in iter {
-            offset_acc += source.height;
+        for section in iter {
+            offset_acc += section.height;
             if offset_acc < scroll + 1 {
                 if first.is_none() {
-                    first = locate(source);
+                    first = locate(section);
                 }
                 continue;
             }
-            match locate(source) {
+            match locate(section) {
                 None => {}
                 x => return x,
             }
@@ -200,9 +200,9 @@ impl WidgetSources {
         steps: u16,
     ) -> Option<CursorPointer>
     where
-        Iter: DoubleEndedIterator<Item = &'b WidgetSource> + Clone,
+        Iter: DoubleEndedIterator<Item = &'b Section> + Clone,
     {
-        let mut iter = WidgetSources::flatten_sources(iter, &mode, &target);
+        let mut iter = Document::flatten_sections(iter, &mode, &target);
         let mut iter2 = iter.clone();
         let Some(curr_pos) = iter2.position(|x| x == *current) else {
             // TODO: This probably won't happen after #52 and #53 are fixed
@@ -216,7 +216,7 @@ impl WidgetSources {
         iter.nth(index)
     }
 
-    fn flatten_sources<'a, Iter>(
+    fn flatten_sections<'a, Iter>(
         iter: Iter,
         mode: &FindMode,
         target: &FindTarget,
@@ -225,20 +225,20 @@ impl WidgetSources {
         impl Iterator<Item = CursorPointer> + Clone,
     >
     where
-        Iter: DoubleEndedIterator<Item = &'a WidgetSource> + Clone,
+        Iter: DoubleEndedIterator<Item = &'a Section> + Clone,
     {
         match mode {
-            FindMode::Next => Either::Left(iter.flat_map(move |source| {
-                WidgetSources::line_extras_to_cursor_pointers(source, mode, target)
+            FindMode::Next => Either::Left(iter.flat_map(move |section| {
+                Document::line_extras_to_cursor_pointers(section, mode, target)
             })),
-            FindMode::Prev => Either::Right(iter.rev().flat_map(move |source| {
-                WidgetSources::line_extras_to_cursor_pointers(source, mode, target)
+            FindMode::Prev => Either::Right(iter.rev().flat_map(move |section| {
+                Document::line_extras_to_cursor_pointers(section, mode, target)
             })),
         }
     }
 
     fn line_extras_to_cursor_pointers(
-        source: &WidgetSource,
+        section: &Section,
         mode: &FindMode,
         target: &FindTarget,
     ) -> Either<
@@ -250,8 +250,8 @@ impl WidgetSources {
     > {
         match mode {
             FindMode::Next => {
-                if let WidgetSourceData::Line(_, extras) = &source.data {
-                    let id = source.id;
+                if let SectionContent::Line(_, extras) = &section.content {
+                    let id = section.id;
                     Either::Left(Either::Left(
                         extras
                             .iter()
@@ -264,8 +264,8 @@ impl WidgetSources {
                 }
             }
             FindMode::Prev => {
-                if let WidgetSourceData::Line(_, extras) = &source.data {
-                    let id = source.id;
+                if let SectionContent::Line(_, extras) = &section.content {
+                    let id = section.id;
                     Either::Left(Either::Right(
                         extras
                             .iter()
@@ -283,11 +283,11 @@ impl WidgetSources {
 
     #[cfg(test)]
     pub fn find_extra_by_cursor(&self, pointer: &CursorPointer) -> Option<&LineExtra> {
-        for source in self.iter() {
-            if source.id != pointer.id {
+        for section in self.iter() {
+            if section.id != pointer.id {
                 continue;
             }
-            let WidgetSourceData::Line(_, extras) = &source.data else {
+            let SectionContent::Line(_, extras) = &section.content else {
                 continue;
             };
             if let Some(extra) = extras.get(pointer.index) {
@@ -298,17 +298,16 @@ impl WidgetSources {
     }
 }
 
-impl Deref for WidgetSources {
-    type Target = Vec<WidgetSource>;
-    fn deref(&self) -> &Vec<WidgetSource> {
-        &self.sources
+impl Deref for Document {
+    type Target = Vec<Section>;
+    fn deref(&self) -> &Vec<Section> {
+        &self.sections
     }
 }
 
-impl DerefMut for WidgetSources {
-    // type Target = Vec<WidgetSource<'a>>;
-    fn deref_mut(&mut self) -> &mut Vec<WidgetSource> {
-        &mut self.sources
+impl DerefMut for Document {
+    fn deref_mut(&mut self) -> &mut Vec<Section> {
+        &mut self.sections
     }
 }
 
@@ -332,31 +331,31 @@ impl FindTarget {
     }
 }
 
-pub type SourceID = usize;
+pub type SectionID = usize;
 
 #[derive(Debug, PartialEq)]
-pub struct WidgetSource {
-    pub id: SourceID,
+pub struct Section {
+    pub id: SectionID,
     pub height: u16,
-    pub data: WidgetSourceData,
+    pub content: SectionContent,
 }
 
-pub enum WidgetSourceData {
+pub enum SectionContent {
     Image(String, Protocol),
     BrokenImage(String, String),
     Header(String, u8),
     Line(Line<'static>, Vec<LineExtra>),
 }
 
-impl WidgetSourceData {
+impl SectionContent {
     pub fn add_search(&mut self, re: Option<&Regex>) {
-        if let WidgetSourceData::Line(line, extras) = self {
+        if let SectionContent::Line(line, extras) = self {
             let line_string = line.to_string();
             extras.retain(|extra| !matches!(extra, LineExtra::SearchMatch(_, _, _)));
             if let Some(re) = re {
                 extras.extend(
                     re.find_iter(&line_string)
-                        .map(WidgetSourceData::regex_to_searchmatch(&line_string)),
+                        .map(SectionContent::regex_to_searchmatch(&line_string)),
                 );
             }
         }
@@ -374,7 +373,7 @@ impl WidgetSourceData {
     }
 }
 
-impl PartialEq for WidgetSourceData {
+impl PartialEq for SectionContent {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Image(l0, l1), Self::Image(r0, r1)) => l0 == r0 && l1.type_id() == r1.type_id(),
@@ -386,7 +385,7 @@ impl PartialEq for WidgetSourceData {
     }
 }
 
-impl Debug for WidgetSourceData {
+impl Debug for SectionContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Image(url, _) => f.debug_tuple(format!("Image({url})").as_str()).finish(),
@@ -406,7 +405,7 @@ impl Debug for WidgetSourceData {
     }
 }
 
-impl Display for WidgetSourceData {
+impl Display for SectionContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Image(url, protocol) => write!(f, "Image({url}, {:?})", protocol.type_id()),
@@ -417,28 +416,28 @@ impl Display for WidgetSourceData {
     }
 }
 
-impl WidgetSource {
-    pub fn image_unknown(id: SourceID, url: String, text: String) -> Self {
-        WidgetSource {
+impl Section {
+    pub fn image_unknown(id: SectionID, url: String, text: String) -> Self {
+        Section {
             id,
             height: 1,
-            data: WidgetSourceData::BrokenImage(url, text),
+            content: SectionContent::BrokenImage(url, text),
         }
     }
 
     pub fn add_search(&mut self, re: Option<&Regex>) {
-        self.data.add_search(re);
+        self.content.add_search(re);
     }
 }
 
 #[cfg(test)]
-impl Display for WidgetSource {
+impl Display for Section {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.data {
-            WidgetSourceData::Image(_, _) => write!(f, "<image>"),
-            WidgetSourceData::BrokenImage(_, _) => write!(f, "<broken-image>"),
-            WidgetSourceData::Line(line, _) => Display::fmt(&line, f),
-            WidgetSourceData::Header(text, tier) => {
+        match &self.content {
+            SectionContent::Image(_, _) => write!(f, "<image>"),
+            SectionContent::BrokenImage(_, _) => write!(f, "<broken-image>"),
+            SectionContent::Line(line, _) => Display::fmt(&line, f),
+            SectionContent::Header(text, tier) => {
                 write!(f, "{} {}", "#".repeat(*tier as usize), text)
             }
         }
@@ -550,15 +549,15 @@ pub fn header_images(
 
 const HEADER_ROW_COUNT: u16 = 2;
 
-/// Render a list of images to [`WidgetSource`]s.
-pub fn header_sources(
+/// Render a list of images to [`Section`]s.
+pub fn header_sections(
     picker: &Picker,
     width: u16,
-    id: SourceID,
+    id: SectionID,
     dyn_imgs: Vec<(String, DynamicImage)>,
     deep_fry_meme: bool,
-) -> Result<Vec<WidgetSource>, Error> {
-    let mut sources = vec![];
+) -> Result<Vec<Section>, Error> {
+    let mut sections = vec![];
     for (text, mut dyn_img) in dyn_imgs {
         if deep_fry_meme {
             dyn_img = deep_fry(dyn_img);
@@ -568,27 +567,27 @@ pub fn header_sources(
             Rect::new(0, 0, width, HEADER_ROW_COUNT),
             Resize::Fit(None),
         )?;
-        sources.push(WidgetSource {
+        sections.push(Section {
             id,
             height: HEADER_ROW_COUNT,
-            data: WidgetSourceData::Image(text, proto),
+            content: SectionContent::Image(text, proto),
         });
     }
 
-    Ok(sources)
+    Ok(sections)
 }
 
 #[expect(clippy::too_many_arguments)]
-pub async fn image_source(
+pub async fn image_section(
     picker: &Arc<Picker>,
     max_height: u16,
     width: u16,
     basepath: &Option<PathBuf>,
     client: Arc<RwLock<Client>>,
-    id: SourceID,
+    id: SectionID,
     url: &str,
     deep_fry_meme: bool,
-) -> Result<WidgetSource, Error> {
+) -> Result<Section, Error> {
     enum ImageSource {
         Bytes(Vec<u8>, ImageFormat),
         Path(String),
@@ -630,7 +629,7 @@ pub async fn image_source(
     // Now do all the blocking stuff
     let picker = picker.clone();
     let url = String::from(url);
-    let source = tokio::task::spawn_blocking(move || {
+    let section = tokio::task::spawn_blocking(move || {
         let mut dyn_img = match image_source {
             ImageSource::Bytes(bytes, format) => {
                 ImageReader::with_format(std::io::Cursor::new(bytes), format).decode()?
@@ -651,14 +650,14 @@ pub async fn image_source(
         )?;
 
         let height = proto.area().height;
-        Ok::<WidgetSource, Error>(WidgetSource {
+        Ok::<Section, Error>(Section {
             id,
             height,
-            data: WidgetSourceData::Image(url, proto),
+            content: SectionContent::Image(url, proto),
         })
     })
     .await??;
-    Ok(source)
+    Ok(section)
 }
 
 fn deep_fry(mut dyn_img: DynamicImage) -> DynamicImage {
@@ -701,187 +700,112 @@ fn deep_fry(mut dyn_img: DynamicImage) -> DynamicImage {
     DynamicImage::ImageRgba8(deep_fried)
 }
 
-pub struct BigText<'a> {
-    text: &'a str,
-    tier: u8,
-}
-
-impl<'a> BigText<'a> {
-    pub fn new(text: &'a str, tier: u8) -> Self {
-        BigText { text, tier }
-    }
-
-    #[inline]
-    pub fn size_ratio(tier: u8) -> (u8, u8) {
-        match tier {
-            1 => (7, 7),
-            2 => (5, 6),
-            3 => (3, 4),
-            4 => (2, 3),
-            5 => (3, 5),
-            _ => (1, 3),
-        }
-    }
-
-    #[expect(clippy::unwrap_used)]
-    #[inline]
-    fn text_sizing_sequence(&self, area_width: u16) -> String {
-        let (n, d) = BigText::size_ratio(self.tier);
-
-        let chars: Vec<char> = self.text.chars().collect();
-        let chunk_count = chars.len().div_ceil(d as usize);
-        let width_digits = area_width.checked_ilog10().unwrap_or(0) as usize + 1;
-        let capacity = 19 + 2 * width_digits + self.text.len() + chunk_count * 24;
-        let mut symbol = String::with_capacity(capacity);
-
-        // Erase-character dance.
-        // We must erase anything inside area, which is 2 lines high and `area.width` wide.
-        // This must be done before we write the text.
-        // Also disable DECAWM, unsure if really necessary.
-        write!(symbol, "\x1b[{}X\x1B[?7l", area_width).expect("write to string");
-        write!(symbol, "\x1b[1B").expect("write to string");
-        write!(symbol, "\x1b[{}X\x1B[?7l", area_width).expect("write to string");
-        write!(symbol, "\x1b[1A").expect("write to string");
-
-        for chunk in chars.chunks(d as usize) {
-            write!(symbol, "\x1b]66;s=2:n={n}:d={d}:w={n};").unwrap();
-            symbol.extend(chunk);
-            write!(symbol, "\x1b\\").unwrap(); // Could also use BEL, but this seems safer.
-        }
-        symbol
-    }
-}
-
-impl Widget for BigText<'_> {
-    fn render(self, area: Rect, buf: &mut ratatui::buffer::Buffer) {
-        if area.width == 0 || area.height == 0 {
-            return;
-        }
-
-        let symbol = self.text_sizing_sequence(area.width);
-
-        // Skip entire text area except first cell
-        let mut skip_first = false;
-
-        for y in area.top()..area.bottom() {
-            for x in area.left()..area.right() {
-                if skip_first {
-                    buf.cell_mut((x, y)).map(|cell| cell.set_skip(true));
-                } else {
-                    skip_first = true;
-                    buf.cell_mut((x, y)).map(|cell| cell.set_symbol(&symbol));
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
 
     use regex::Regex;
 
-    use crate::{widget_sources::WidgetSources, *};
+    use crate::{document::Document, *};
 
     #[test]
     fn widgestsources_update() {
-        let mut ws = WidgetSources::default();
-        ws.push(WidgetSource {
+        let mut ws = Document::default();
+        ws.push(Section {
             id: 0,
             height: 2,
-            data: WidgetSourceData::Line(Line::from("line #0"), Vec::new()),
+            content: SectionContent::Line(Line::from("line #0"), Vec::new()),
         });
-        ws.push(WidgetSource {
+        ws.push(Section {
             id: 1,
             height: 2,
-            data: WidgetSourceData::Line(Line::from("headerline1 headerline2"), Vec::new()),
+            content: SectionContent::Line(Line::from("headerline1 headerline2"), Vec::new()),
         });
-        ws.push(WidgetSource {
+        ws.push(Section {
             id: 2,
             height: 2,
-            data: WidgetSourceData::Line(Line::from("line #2"), Vec::new()),
+            content: SectionContent::Line(Line::from("line #2"), Vec::new()),
         });
 
         ws.update(vec![
-            WidgetSource {
+            Section {
                 id: 1,
                 height: 2,
-                data: WidgetSourceData::Header(String::from("headerline1"), 1),
+                content: SectionContent::Header(String::from("headerline1"), 1),
             },
-            WidgetSource {
+            Section {
                 id: 1,
                 height: 2,
-                data: WidgetSourceData::Header(String::from("headerline2"), 1),
+                content: SectionContent::Header(String::from("headerline2"), 1),
             },
         ]);
-        assert_eq!(ws.sources.len(), 4);
-        assert_eq!(0, ws.sources[0].id,);
-        assert_eq!(1, ws.sources[1].id,);
+        assert_eq!(ws.sections.len(), 4);
+        assert_eq!(0, ws.sections[0].id,);
+        assert_eq!(1, ws.sections[1].id,);
         assert_eq!(
-            WidgetSourceData::Header(String::from("headerline1"), 1),
-            ws.sources[1].data
+            SectionContent::Header(String::from("headerline1"), 1),
+            ws.sections[1].content
         );
-        assert_eq!(1, ws.sources[2].id,);
+        assert_eq!(1, ws.sections[2].id,);
         assert_eq!(
-            WidgetSourceData::Header(String::from("headerline2"), 1),
-            ws.sources[2].data
+            SectionContent::Header(String::from("headerline2"), 1),
+            ws.sections[2].content
         );
-        assert_eq!(2, ws.sources[3].id,);
+        assert_eq!(2, ws.sections[3].id,);
 
         ws.update(vec![
-            WidgetSource {
+            Section {
                 id: 1,
                 height: 2,
-                data: WidgetSourceData::Header(String::from("headerline3"), 1),
+                content: SectionContent::Header(String::from("headerline3"), 1),
             },
-            WidgetSource {
+            Section {
                 id: 1,
                 height: 2,
-                data: WidgetSourceData::Header(String::from("headerline4"), 1),
+                content: SectionContent::Header(String::from("headerline4"), 1),
             },
         ]);
-        assert_eq!(ws.sources.len(), 4);
-        assert_eq!(0, ws.sources[0].id,);
-        assert_eq!(1, ws.sources[1].id,);
+        assert_eq!(ws.sections.len(), 4);
+        assert_eq!(0, ws.sections[0].id,);
+        assert_eq!(1, ws.sections[1].id,);
         assert_eq!(
-            WidgetSourceData::Header(String::from("headerline3"), 1),
-            ws.sources[1].data
+            SectionContent::Header(String::from("headerline3"), 1),
+            ws.sections[1].content
         );
-        assert_eq!(1, ws.sources[2].id,);
+        assert_eq!(1, ws.sections[2].id,);
         assert_eq!(
-            WidgetSourceData::Header(String::from("headerline4"), 1),
-            ws.sources[2].data
+            SectionContent::Header(String::from("headerline4"), 1),
+            ws.sections[2].content
         );
-        assert_eq!(2, ws.sources[3].id,);
+        assert_eq!(2, ws.sections[3].id,);
     }
 
     #[test]
     fn get_y() {
-        let mut ws = WidgetSources::default();
-        ws.push(WidgetSource {
+        let mut ws = Document::default();
+        ws.push(Section {
             id: 1,
             height: 2,
-            data: WidgetSourceData::Header(String::from("one"), 1),
+            content: SectionContent::Header(String::from("one"), 1),
         });
-        ws.push(WidgetSource {
+        ws.push(Section {
             id: 2,
             height: 1,
-            data: WidgetSourceData::Line(Line::from("line"), Vec::new()),
+            content: SectionContent::Line(Line::from("line"), Vec::new()),
         });
-        ws.push(WidgetSource {
+        ws.push(Section {
             id: 3,
             height: 1,
-            data: WidgetSourceData::Line(Line::from("line"), Vec::new()),
+            content: SectionContent::Line(Line::from("line"), Vec::new()),
         });
-        ws.push(WidgetSource {
+        ws.push(Section {
             id: 4,
             height: 2,
-            data: WidgetSourceData::Header(String::from("one"), 1),
+            content: SectionContent::Header(String::from("one"), 1),
         });
-        ws.push(WidgetSource {
+        ws.push(Section {
             id: 5,
             height: 1,
-            data: WidgetSourceData::Line(Line::from("line"), Vec::new()),
+            content: SectionContent::Line(Line::from("line"), Vec::new()),
         });
         assert_eq!(ws.get_y(1), 0);
         assert_eq!(ws.get_y(2), 2);
@@ -893,9 +817,9 @@ mod tests {
     #[test]
     fn add_search_offset() {
         let line = Line::from(vec![Span::from("▐").magenta(), Span::from(" hi")]);
-        let mut wsd = WidgetSourceData::Line(line, Vec::new());
+        let mut wsd = SectionContent::Line(line, Vec::new());
         wsd.add_search(Regex::new("hi").ok().as_ref());
-        let WidgetSourceData::Line(_, extra) = wsd else {
+        let SectionContent::Line(_, extra) = wsd else {
             panic!("Line");
         };
         assert_eq!(extra[0], LineExtra::SearchMatch(2, 4, String::from("hi")));

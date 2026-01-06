@@ -1,4 +1,4 @@
-use crate::SourceID;
+use crate::document::SectionID;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub enum Cursor {
@@ -19,11 +19,11 @@ impl Cursor {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-// Points to a LineExtra by WidgetSource id and LinexExtra index.
+// Points to a LineExtra by Section id and LineExtra index.
 pub struct CursorPointer {
-    // The WidgetSource (line(s))
-    pub id: SourceID,
-    // The matched LinexExtra part index
+    // The Section (line(s))
+    pub id: SectionID,
+    // The matched LineExtra part index
     pub index: usize,
 }
 

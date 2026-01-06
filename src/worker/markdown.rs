@@ -9,11 +9,12 @@ use mdfrier::{
 use textwrap::{Options, wrap};
 
 use crate::{
-    Event, LineExtra, MarkdownImage,
+    Event, MarkdownImage,
+    big_text::BigText,
     config::Theme,
+    document::{LineExtra, Section, SectionContent},
     error::Error,
     model::DocumentId,
-    widget_sources::{BigText, WidgetSource, WidgetSourceData},
 };
 
 /// Main pipeline function that parses markdown text into Events.
@@ -25,13 +26,13 @@ pub fn parse_to_events(
     theme: &Theme,
     text: String,
 ) -> Result<(Vec<Event>, Option<usize>), Error> {
-    let mut source_id: Option<usize> = None;
+    let mut section_id: Option<usize> = None;
     let mut events = Vec::new();
 
     for md_line in parser.parse(width, text, theme) {
         let line_events = md_line_to_events(
             document_id,
-            &mut source_id,
+            &mut section_id,
             width,
             has_text_size_protocol,
             theme,
@@ -40,13 +41,13 @@ pub fn parse_to_events(
         events.extend(line_events);
     }
 
-    Ok((events, source_id))
+    Ok((events, section_id))
 }
 
 /// Convert an MdLine to application Events.
 fn md_line_to_events(
     document_id: DocumentId,
-    source_id: &mut Option<usize>,
+    section_id: &mut Option<usize>,
     width: u16,
     has_text_size_protocol: bool,
     theme: &Theme,
@@ -70,10 +71,10 @@ fn md_line_to_events(
                     .map(|part| {
                         Event::Parsed(
                             document_id,
-                            WidgetSource {
-                                id: post_incr_source_id(source_id),
+                            Section {
+                                id: post_incr_section_id(section_id),
                                 height: 2,
-                                data: WidgetSourceData::Header(part.to_string(), tier),
+                                content: SectionContent::Header(part.to_string(), tier),
                             },
                         )
                     })
@@ -81,7 +82,7 @@ fn md_line_to_events(
             } else {
                 vec![Event::ParseHeader(
                     document_id,
-                    post_incr_source_id(source_id),
+                    post_incr_section_id(section_id),
                     tier,
                     text,
                 )]
@@ -90,7 +91,7 @@ fn md_line_to_events(
         LineKind::Image { url, description } => {
             vec![Event::ParsedImage(
                 document_id,
-                post_incr_source_id(source_id),
+                post_incr_section_id(section_id),
                 MarkdownImage {
                     destination: url.clone(),
                     description: description.clone(),
@@ -125,10 +126,10 @@ fn md_line_to_events(
 
             vec![Event::Parsed(
                 document_id,
-                WidgetSource {
-                    id: post_incr_source_id(source_id),
+                Section {
+                    id: post_incr_section_id(section_id),
                     height: 1,
-                    data: WidgetSourceData::Line(line, links),
+                    content: SectionContent::Line(line, links),
                 },
             )]
         }
@@ -136,20 +137,22 @@ fn md_line_to_events(
 }
 
 /// Post-increment the source ID.
-pub fn post_incr_source_id(source_id: &mut Option<usize>) -> usize {
-    if source_id.is_none() {
-        *source_id = Some(0);
+pub fn post_incr_section_id(section_id: &mut Option<usize>) -> usize {
+    if section_id.is_none() {
+        *section_id = Some(0);
         0
     } else {
-        *source_id = source_id.map(|id| id + 1);
-        source_id.unwrap_or_default()
+        *section_id = section_id.map(|id| id + 1);
+        section_id.unwrap_or_default()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        DocumentId, Event, WidgetSource, WidgetSourceData, config::Theme,
+        DocumentId, Event,
+        config::Theme,
+        document::{Section, SectionContent},
         worker::markdown::parse_to_events,
     };
     use mdfrier::MdFrier;
@@ -176,8 +179,8 @@ mod tests {
 
         let Event::Parsed(
             _,
-            WidgetSource {
-                data: WidgetSourceData::Header(text, tier),
+            Section {
+                content: SectionContent::Header(text, tier),
                 ..
             },
         ) = &events[0]
@@ -189,8 +192,8 @@ mod tests {
 
         let Event::Parsed(
             _,
-            WidgetSource {
-                data: WidgetSourceData::Header(text, tier),
+            Section {
+                content: SectionContent::Header(text, tier),
                 ..
             },
         ) = &events[1]

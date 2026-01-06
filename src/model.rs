@@ -18,19 +18,14 @@ use regex::RegexBuilder;
 use crate::{
     Cmd,
     config::{Config, PaddingConfig},
+    document::{Document, FindMode, FindTarget, Section, SectionContent},
     error::Error,
-    widget_sources::{FindMode, FindTarget},
 };
-use crate::{Event, widget_sources::WidgetSources};
-use crate::{MarkdownImage, setup::BgColor};
-use crate::{
-    cursor::Cursor,
-    widget_sources::{WidgetSource, WidgetSourceData},
-};
+use crate::{Event, MarkdownImage, cursor::Cursor, setup::BgColor};
 
 pub struct Model {
     pub bg: Option<BgColor>,
-    sources: WidgetSources,
+    document: Document,
     pub scroll: u16,
     pub movement_count: Option<NonZeroU16>,
     pub cursor: Cursor,
@@ -62,7 +57,7 @@ impl Model {
             scroll: 0,
             movement_count: None,
             cursor: Cursor::default(),
-            sources: WidgetSources::default(),
+            document: Document::default(),
             cmd_tx,
             event_rx,
             log_snapshot: None,
@@ -123,7 +118,7 @@ impl Model {
     }
 
     pub fn total_lines(&self) -> u16 {
-        self.sources.iter().map(|s| s.height).sum()
+        self.document.iter().map(|s| s.height).sum()
     }
 
     pub fn process_events(&mut self, screen_width: u16) -> Result<(bool, bool), Error> {
@@ -142,31 +137,31 @@ impl Model {
                     log::info!("NewDocument {document_id}");
                     self.document_id = document_id;
                 }
-                Event::ParseDone(document_id, last_source_id) => {
+                Event::ParseDone(document_id, last_section_id) => {
                     if !self.document_id.is_same_document(&document_id) {
                         log::debug!("stale event, ignoring");
                         continue;
                     }
-                    self.sources.trim_last_source(last_source_id);
+                    self.document.trim(last_section_id);
                     self.reload_search();
                     had_done = true;
                 }
-                Event::Parsed(document_id, source) => {
+                Event::Parsed(document_id, section) => {
                     if !self.document_id.is_same_document(&document_id) {
                         log::debug!("stale event, ignoring");
                         continue;
                     }
 
                     debug_assert!(
-                        !matches!(source.data, WidgetSourceData::Image(_, _),),
-                        "unexped Event::Parsed with Image: {:?}",
-                        source.data
+                        !matches!(section.content, SectionContent::Image(_, _),),
+                        "unexpected Event::Parsed with Image: {:?}",
+                        section.content
                     );
 
                     if self.document_id.is_first_load() {
-                        self.sources.push(source);
+                        self.document.push(section);
                     } else {
-                        self.sources.update(vec![source]);
+                        self.document.update(vec![section]);
                     }
                 }
                 Event::Update(document_id, updates) => {
@@ -175,13 +170,13 @@ impl Model {
                         continue;
                     }
                     #[cfg(test)]
-                    for source in &updates {
-                        if let WidgetSourceData::Image(_, _) = source.data {
-                            log::debug!("Update #{}: {:?}", source.id, source.data);
+                    for section in &updates {
+                        if let SectionContent::Image(_, _) = section.content {
+                            log::debug!("Update #{}: {:?}", section.id, section.content);
                             self.pending_image_count -= 1;
                         }
                     }
-                    self.sources.update(updates);
+                    self.document.update(updates);
                 }
                 Event::ParsedImage(
                     document_id,
@@ -196,19 +191,19 @@ impl Model {
                         continue;
                     }
 
-                    if let Some(mut existing_image) = self.sources.replace(id, &link_destination) {
+                    if let Some(mut existing_image) = self.document.replace(id, &link_destination) {
                         log::debug!("replacing from existing image ({link_destination})");
                         existing_image.id = id;
-                        self.sources.update(vec![existing_image]);
+                        self.document.update(vec![existing_image]);
                     } else {
                         if self.document_id.is_first_load() {
                             log::debug!(
                                 "existing image not found, push placeholder and process image ({link_destination})"
                             );
-                            self.sources.push(WidgetSource {
+                            self.document.push(Section {
                                 id,
                                 height: 1,
-                                data: WidgetSourceData::Line(
+                                content: SectionContent::Line(
                                     Line::from(format!("![Loading...]({link_destination})")),
                                     Vec::new(),
                                 ),
@@ -217,10 +212,10 @@ impl Model {
                             log::debug!(
                                 "existing image not found, update placeholder and process image ({link_destination})"
                             );
-                            self.sources.update(vec![WidgetSource {
+                            self.document.update(vec![Section {
                                 id,
                                 height: 1,
-                                data: WidgetSourceData::Line(
+                                content: SectionContent::Line(
                                     Line::from(format!("![Loading...]({link_destination})")),
                                     Vec::new(),
                                 ),
@@ -251,16 +246,16 @@ impl Model {
                         Span::from(text.clone()),
                     ]);
                     if self.document_id.is_first_load() {
-                        self.sources.push(WidgetSource {
+                        self.document.push(Section {
                             id,
                             height: 2,
-                            data: WidgetSourceData::Line(line, Vec::new()),
+                            content: SectionContent::Line(line, Vec::new()),
                         });
                     } else {
-                        self.sources.update(vec![WidgetSource {
+                        self.document.update(vec![Section {
                             id,
                             height: 2,
-                            data: WidgetSourceData::Line(line, Vec::new()),
+                            content: SectionContent::Line(line, Vec::new()),
                         }]);
                     }
                     #[cfg(test)]
@@ -336,19 +331,17 @@ impl Model {
     fn cursor_find(&mut self, mode: FindMode) {
         match &mut self.cursor {
             Cursor::None => {
-                if let Some(pointer) = WidgetSources::find_first_cursor(
-                    self.sources.iter(),
-                    FindTarget::Link,
-                    self.scroll,
-                ) {
+                if let Some(pointer) =
+                    Document::find_first_cursor(self.document.iter(), FindTarget::Link, self.scroll)
+                {
                     self.cursor = Cursor::Links(pointer);
                 } else {
                     self.movement_count = None;
                 }
             }
             Cursor::Links(current) => {
-                if let Some(pointer) = WidgetSources::find_nth_next_cursor(
-                    self.sources.iter(),
+                if let Some(pointer) = Document::find_nth_next_cursor(
+                    self.document.iter(),
                     current,
                     mode,
                     FindTarget::Link,
@@ -359,8 +352,8 @@ impl Model {
             }
             Cursor::Search(_, pointer) => match pointer {
                 None => {
-                    *pointer = WidgetSources::find_first_cursor(
-                        self.sources.iter(),
+                    *pointer = Document::find_first_cursor(
+                        self.document.iter(),
                         FindTarget::Search,
                         self.scroll,
                     );
@@ -369,8 +362,8 @@ impl Model {
                     }
                 }
                 Some(current) => {
-                    *pointer = WidgetSources::find_nth_next_cursor(
-                        self.sources.iter(),
+                    *pointer = Document::find_nth_next_cursor(
+                        self.document.iter(),
                         current,
                         mode,
                         FindTarget::Search,
@@ -396,15 +389,15 @@ impl Model {
                 .inspect_err(|err| log::error!("{err}"))
                 .ok()
         });
-        for source in self.sources.iter_mut() {
-            source.add_search(re.as_ref());
+        for section in self.document.iter_mut() {
+            section.add_search(re.as_ref());
         }
     }
 
     fn jump_to_pointer(&mut self) {
         if let Some(pointer) = self.cursor.pointer() {
             let id = pointer.id;
-            let pointer_y = self.sources.get_y(id);
+            let pointer_y = self.document.get_y(id);
             let (from, to) = self.visible_lines();
             if pointer_y > to {
                 self.scroll_by((pointer_y - to) as i32);
@@ -414,8 +407,8 @@ impl Model {
         }
     }
 
-    pub fn sources(&self) -> impl Iterator<Item = &WidgetSource> {
-        self.sources.iter()
+    pub fn sections(&self) -> impl Iterator<Item = &Section> {
+        self.document.iter()
     }
 }
 
@@ -467,8 +460,8 @@ mod tests {
         Cmd, DocumentId, Event,
         config::UserConfig,
         cursor::{Cursor, CursorPointer, SearchState},
+        document::{Document, LineExtra, Section, SectionContent},
         model::Model,
-        widget_sources::{LineExtra, WidgetSource, WidgetSourceData, WidgetSources},
     };
 
     fn test_model() -> Model {
@@ -482,7 +475,7 @@ mod tests {
             scroll: 0,
             movement_count: None,
             cursor: Cursor::default(),
-            sources: WidgetSources::default(),
+            document: Document::default(),
             cmd_tx,
             event_rx,
             log_snapshot: None,
@@ -494,7 +487,7 @@ mod tests {
     #[track_caller]
     fn assert_cursor_link(model: &Model, expected_url: &str) {
         let LineExtra::Link(url, ..) = model
-            .sources
+            .document
             .find_extra_by_cursor(
                 model
                     .cursor
@@ -508,7 +501,7 @@ mod tests {
                 model
                     .cursor
                     .pointer()
-                    .and_then(|p| model.sources.find_extra_by_cursor(p))
+                    .and_then(|p| model.document.find_extra_by_cursor(p))
             );
         };
         assert_eq!(url, expected_url);
@@ -517,10 +510,10 @@ mod tests {
     #[test]
     fn finds_link_per_line() {
         let mut model = test_model();
-        model.sources.push(WidgetSource {
+        model.document.push(Section {
             id: 1,
             height: 1,
-            data: WidgetSourceData::Line(
+            content: SectionContent::Line(
                 Line::from("http://a.com http://b.com"),
                 vec![
                     LineExtra::Link("http://a.com".into(), 0, 11),
@@ -528,10 +521,10 @@ mod tests {
                 ],
             ),
         });
-        model.sources.push(WidgetSource {
+        model.document.push(Section {
             id: 2,
             height: 1,
-            data: WidgetSourceData::Line(
+            content: SectionContent::Line(
                 Line::from("http://c.com"),
                 vec![LineExtra::Link("http://c.com".into(), 0, 11)],
             ),
@@ -552,10 +545,10 @@ mod tests {
         let mut model = test_model();
         for i in 1..5 {
             let link = format!("http://{}.com", i);
-            model.sources.push(WidgetSource {
+            model.document.push(Section {
                 id: i,
                 height: 1,
-                data: WidgetSourceData::Line(
+                content: SectionContent::Line(
                     Line::from(link.clone()),
                     vec![LineExtra::Link(link, 0, 11)],
                 ),
@@ -570,19 +563,19 @@ mod tests {
     #[test]
     fn finds_link_with_scroll_wrapping() {
         let mut model = test_model();
-        model.sources.push(WidgetSource {
+        model.document.push(Section {
             id: 1,
             height: 1,
-            data: WidgetSourceData::Line(
+            content: SectionContent::Line(
                 Line::from("http://a.com"),
                 vec![LineExtra::Link("http://a.com".into(), 0, 11)],
             ),
         });
         for i in 2..5 {
-            model.sources.push(WidgetSource {
+            model.document.push(Section {
                 id: i,
                 height: 1,
-                data: WidgetSourceData::Line(Line::from("text"), vec![]),
+                content: SectionContent::Line(Line::from("text"), vec![]),
             });
         }
 
@@ -594,10 +587,10 @@ mod tests {
     #[test]
     fn finds_multiple_links_per_line_next() {
         let mut model = test_model();
-        model.sources.push(WidgetSource {
+        model.document.push(Section {
             id: 1,
             height: 1,
-            data: WidgetSourceData::Line(
+            content: SectionContent::Line(
                 Line::from("http://a.com http://b.com"),
                 vec![
                     LineExtra::Link("http://a.com".into(), 0, 11),
@@ -605,10 +598,10 @@ mod tests {
                 ],
             ),
         });
-        model.sources.push(WidgetSource {
+        model.document.push(Section {
             id: 2,
             height: 1,
-            data: WidgetSourceData::Line(
+            content: SectionContent::Line(
                 Line::from("http://c.com"),
                 vec![LineExtra::Link("http://c.com".into(), 0, 11)],
             ),
@@ -627,10 +620,10 @@ mod tests {
     #[test]
     fn finds_multiple_links_per_line_prev() {
         let mut model = test_model();
-        model.sources.push(WidgetSource {
+        model.document.push(Section {
             id: 1,
             height: 1,
-            data: WidgetSourceData::Line(
+            content: SectionContent::Line(
                 Line::from("http://a.com http://b.com"),
                 vec![
                     LineExtra::Link("http://a.com".into(), 0, 11),
@@ -638,10 +631,10 @@ mod tests {
                 ],
             ),
         });
-        model.sources.push(WidgetSource {
+        model.document.push(Section {
             id: 2,
             height: 1,
-            data: WidgetSourceData::Line(
+            content: SectionContent::Line(
                 Line::from("http://c.com"),
                 vec![LineExtra::Link("http://c.com".into(), 0, 11)],
             ),
@@ -661,10 +654,10 @@ mod tests {
     fn jump_to_pointer() {
         let mut model = test_model();
         for i in 0..31 {
-            model.sources.push(WidgetSource {
+            model.document.push(Section {
                 id: i,
                 height: 1,
-                data: WidgetSourceData::Line(Line::from(format!("line {}", i + 1)), Vec::new()),
+                content: SectionContent::Line(Line::from(format!("line {}", i + 1)), Vec::new()),
             });
         }
 
@@ -690,10 +683,10 @@ mod tests {
     fn jump_back_to_pointer() {
         let mut model = test_model();
         for i in 0..31 {
-            model.sources.push(WidgetSource {
+            model.document.push(Section {
                 id: i,
                 height: 1,
-                data: WidgetSourceData::Line(Line::from(format!("line {}", i + 1)), Vec::new()),
+                content: SectionContent::Line(Line::from(format!("line {}", i + 1)), Vec::new()),
             });
         }
 
@@ -710,16 +703,16 @@ mod tests {
     fn scrolls_into_view() {
         let mut model = test_model();
         for i in 0..30 {
-            model.sources.push(WidgetSource {
+            model.document.push(Section {
                 id: i,
                 height: 1,
-                data: WidgetSourceData::Line(Line::from(format!("line {}", i + 1)), Vec::new()),
+                content: SectionContent::Line(Line::from(format!("line {}", i + 1)), Vec::new()),
             });
         }
-        model.sources.push(WidgetSource {
+        model.document.push(Section {
             id: 30,
             height: 1,
-            data: WidgetSourceData::Line(
+            content: SectionContent::Line(
                 Line::from("http://a.com"),
                 vec![LineExtra::Link("http://a.com".into(), 0, 11)],
             ),
@@ -733,7 +726,7 @@ mod tests {
 
         let mut last_rendered = None;
         let mut y: i16 = 0 - (model.scroll as i16);
-        for source in model.sources.iter() {
+        for source in model.document.iter() {
             y += source.height as i16;
             if y >= model.inner_height(model.screen_size.height) as i16 - 1 {
                 last_rendered = Some(source);
@@ -741,7 +734,7 @@ mod tests {
             }
         }
         let last_rendered = last_rendered.unwrap();
-        let WidgetSourceData::Line(_, extra) = &last_rendered.data else {
+        let SectionContent::Line(_, extra) = &last_rendered.content else {
             panic!("expected Line");
         };
         let LineExtra::Link(url, _, _) = &extra[0] else {
@@ -755,10 +748,10 @@ mod tests {
         let mut model = test_model();
         for i in 1..10 {
             let link = format!("http://{}.com", i);
-            model.sources.push(WidgetSource {
+            model.document.push(Section {
                 id: i,
                 height: 1,
-                data: WidgetSourceData::Line(
+                content: SectionContent::Line(
                     Line::from(link.clone()),
                     vec![LineExtra::Link(link, 0, 11)],
                 ),
