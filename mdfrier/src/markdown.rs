@@ -154,9 +154,9 @@ impl<'a> MdIterator<'a> {
                 }
 
                 let Some(tree) = self.inline_parser.parse(text, None) else {
-                    return Some(MdContent::Paragraph(vec![MdNode::new(
+                    return Some(MdContent::Paragraph(vec![Span::new(
                         text.to_owned(),
-                        MdModifier::default(),
+                        Modifier::default(),
                     )]));
                 };
 
@@ -167,15 +167,14 @@ impl<'a> MdIterator<'a> {
                     .filter(|(_, c)| matches!(c, MdContainer::Blockquote(_)))
                     .count();
 
-                let mdspans =
-                    inline_node_to_spans(tree.root_node(), text, MdModifier::default(), 0);
+                let mdspans = inline_node_to_spans(tree.root_node(), text, Modifier::default(), 0);
                 let mdspans = split_newlines(mdspans);
                 let mdspans = detect_bare_urls(mdspans);
                 // Strip blockquote markers from line-start spans and filter empty/marker-only spans
-                let mdspans: Vec<MdNode> = mdspans
+                let mdspans: Vec<Span> = mdspans
                     .into_iter()
                     .map(|mut s| {
-                        if s.modifiers.contains(MdModifier::NewLine) {
+                        if s.modifiers.contains(Modifier::NewLine) {
                             s.content =
                                 strip_blockquote_prefix(&s.content, blockquote_depth).into_owned();
                         }
@@ -184,11 +183,11 @@ impl<'a> MdIterator<'a> {
                     .filter(|s| {
                         // Empty spans: only keep if they represent hard line breaks (NewLine)
                         if s.content.is_empty() {
-                            return s.modifiers.contains(MdModifier::NewLine);
+                            return s.modifiers.contains(Modifier::NewLine);
                         }
                         // For line-start spans (NewLine), filter out blockquote-marker-only content
                         // that remains after stripping (e.g., a line that was just "> > ")
-                        if s.modifiers.contains(MdModifier::NewLine) {
+                        if s.modifiers.contains(Modifier::NewLine) {
                             return !is_blockquote_marker_only(s.content.trim());
                         }
                         // Mid-line spans are always kept (e.g., ">" from angle bracket URLs)
@@ -271,8 +270,8 @@ impl<'a> MdIterator<'a> {
     }
 
     fn parse_table(&mut self, node: Node<'a>) -> MdContent {
-        let mut header: Vec<Vec<MdNode>> = Vec::new();
-        let mut rows: Vec<Vec<Vec<MdNode>>> = Vec::new();
+        let mut header: Vec<Vec<Span>> = Vec::new();
+        let mut rows: Vec<Vec<Vec<Span>>> = Vec::new();
         let mut alignments: Vec<TableAlignment> = Vec::new();
 
         for child in node.children(&mut node.walk()) {
@@ -302,8 +301,8 @@ impl<'a> MdIterator<'a> {
     }
 
     #[expect(clippy::string_slice)]
-    fn parse_table_row(&mut self, row_node: Node<'a>) -> Vec<Vec<MdNode>> {
-        let mut cells: Vec<Vec<MdNode>> = Vec::new();
+    fn parse_table_row(&mut self, row_node: Node<'a>) -> Vec<Vec<Span>> {
+        let mut cells: Vec<Vec<Span>> = Vec::new();
 
         for child in row_node.children(&mut row_node.walk()) {
             if child.kind() == "pipe_table_cell" {
@@ -312,14 +311,11 @@ impl<'a> MdIterator<'a> {
                     cells.push(Vec::new());
                 } else if let Some(tree) = self.inline_parser.parse(cell_text, None) {
                     let mdspans =
-                        inline_node_to_spans(tree.root_node(), cell_text, MdModifier::default(), 0);
+                        inline_node_to_spans(tree.root_node(), cell_text, Modifier::default(), 0);
                     let mdspans = detect_bare_urls(mdspans);
                     cells.push(mdspans);
                 } else {
-                    cells.push(vec![MdNode::new(
-                        cell_text.to_owned(),
-                        MdModifier::default(),
-                    )]);
+                    cells.push(vec![Span::new(cell_text.to_owned(), Modifier::default())]);
                 }
             }
         }
@@ -398,7 +394,7 @@ impl<'a> MdIterator<'a> {
 
 bitflags! {
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-    pub struct MdModifier: u32 {
+    pub struct Modifier: u32 {
         const Emphasis = 1 << 0;
         const StrongEmphasis = 1 << 1;
         const Code = 1 << 2;
@@ -425,14 +421,14 @@ bitflags! {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct MdNode {
+pub struct Span {
     pub content: String,
-    pub modifiers: MdModifier,
+    pub modifiers: Modifier,
 }
 
-impl MdNode {
-    pub fn new(content: String, extra: MdModifier) -> Self {
-        MdNode {
+impl Span {
+    pub fn new(content: String, extra: Modifier) -> Self {
+        Span {
             content,
             modifiers: extra,
         }
@@ -441,37 +437,37 @@ impl MdNode {
     #[cfg(test)]
     pub fn link(description: &str, url: &str) -> Vec<Self> {
         vec![
-            Self::new("[".to_owned(), MdModifier::Link),
-            Self::new(description.to_owned(), MdModifier::Link),
-            Self::new("]".to_owned(), MdModifier::Link),
-            Self::new("(".to_owned(), MdModifier::Link),
-            Self::new(url.to_owned(), MdModifier::Link | MdModifier::LinkURL),
-            Self::new(")".to_owned(), MdModifier::Link),
+            Self::new("[".to_owned(), Modifier::Link),
+            Self::new(description.to_owned(), Modifier::Link),
+            Self::new("]".to_owned(), Modifier::Link),
+            Self::new("(".to_owned(), Modifier::Link),
+            Self::new(url.to_owned(), Modifier::Link | Modifier::LinkURL),
+            Self::new(")".to_owned(), Modifier::Link),
         ]
     }
 }
 
-impl From<String> for MdNode {
+impl From<String> for Span {
     fn from(value: String) -> Self {
-        Self::new(value, MdModifier::default())
+        Self::new(value, Modifier::default())
     }
 }
 
 #[cfg(test)]
-impl From<&str> for MdNode {
+impl From<&str> for Span {
     fn from(value: &str) -> Self {
         Self::from(value.to_owned())
     }
 }
 
 #[cfg(test)]
-impl std::fmt::Display for MdNode {
+impl std::fmt::Display for Span {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.content)
     }
 }
 
-impl UnicodeWidthStr for MdNode {
+impl UnicodeWidthStr for Span {
     fn width(&self) -> usize {
         self.content.width()
     }
@@ -501,7 +497,7 @@ pub enum TableAlignment {
 /// Content of a markdown section.
 #[derive(Debug, Clone, PartialEq)]
 pub enum MdContent {
-    Paragraph(Vec<MdNode>),
+    Paragraph(Vec<Span>),
     Header {
         tier: u8,
         text: String,
@@ -512,8 +508,8 @@ pub enum MdContent {
     },
     HorizontalRule,
     Table {
-        header: Vec<Vec<MdNode>>,
-        rows: Vec<Vec<Vec<MdNode>>>,
+        header: Vec<Vec<Span>>,
+        rows: Vec<Vec<Vec<Span>>>,
         alignments: Vec<TableAlignment>,
     },
 }
@@ -606,7 +602,7 @@ fn is_blockquote_marker_only(s: &str) -> bool {
 }
 
 #[expect(clippy::string_slice)]
-fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usize) -> Vec<MdNode> {
+fn inline_node_to_spans(node: Node, source: &str, extra: Modifier, _depth: usize) -> Vec<Span> {
     let kind = node.kind();
 
     if kind.contains("delimiter") {
@@ -614,45 +610,42 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
     }
 
     let current_extra = match kind {
-        "emphasis" => MdModifier::Emphasis,
-        "strong_emphasis" => MdModifier::StrongEmphasis,
-        "strikethrough" => MdModifier::Strikethrough,
+        "emphasis" => Modifier::Emphasis,
+        "strong_emphasis" => Modifier::StrongEmphasis,
+        "strikethrough" => Modifier::Strikethrough,
         "code_span" => {
             // Strip the backtick delimiters from code span content
             let content = &source[node.byte_range()];
             let stripped = content.trim_start_matches('`').trim_end_matches('`').trim(); // Also trim inner whitespace that some code spans have
-            return vec![MdNode::new(
-                stripped.to_owned(),
-                extra.union(MdModifier::Code),
-            )];
+            return vec![Span::new(stripped.to_owned(), extra.union(Modifier::Code))];
         }
         "hard_line_break" | "soft_break" => {
             // GFM hard line break (two trailing spaces + newline) or soft break
-            return vec![MdNode::new(String::new(), extra.union(MdModifier::NewLine))];
+            return vec![Span::new(String::new(), extra.union(Modifier::NewLine))];
         }
-        "[" | "]" => MdModifier::LinkDescriptionWrapper,
-        "(" | ")" => MdModifier::LinkURLWrapper,
-        "link_text" => MdModifier::LinkDescription,
-        "inline_link" => MdModifier::Link,
-        "image" => MdModifier::Image,
+        "[" | "]" => Modifier::LinkDescriptionWrapper,
+        "(" | ")" => Modifier::LinkURLWrapper,
+        "link_text" => Modifier::LinkDescription,
+        "inline_link" => Modifier::Link,
+        "image" => Modifier::Image,
         "link_destination" => {
-            return vec![MdNode::new(
+            return vec![Span::new(
                 source[node.byte_range()].to_owned(),
-                extra.union(MdModifier::LinkURL),
+                extra.union(Modifier::LinkURL),
             )];
         }
-        _ => MdModifier::default(),
+        _ => Modifier::default(),
     };
     let extra = extra.union(current_extra);
 
     let (extra, newline_offset) = if source.as_bytes()[node.start_byte()] == b'\n' {
-        (extra.union(MdModifier::NewLine), 1)
+        (extra.union(Modifier::NewLine), 1)
     } else {
         (extra, 0)
     };
 
     if node.child_count() == 0 {
-        return vec![MdNode::new(
+        return vec![Span::new(
             source[newline_offset + node.start_byte()..node.end_byte()].to_owned(),
             extra,
         )];
@@ -667,16 +660,13 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
         }
         let mut ended_with_newline = false;
         if child.start_byte() > pos {
-            spans.push(MdNode::new(
-                source[pos..child.start_byte()].to_owned(),
-                extra,
-            ));
+            spans.push(Span::new(source[pos..child.start_byte()].to_owned(), extra));
             if source.as_bytes()[child.start_byte() - 1] == b'\n' {
                 ended_with_newline = true;
             }
         }
         let extra = if ended_with_newline {
-            extra.union(MdModifier::NewLine)
+            extra.union(Modifier::NewLine)
         } else {
             extra
         };
@@ -685,16 +675,16 @@ fn inline_node_to_spans(node: Node, source: &str, extra: MdModifier, _depth: usi
     }
 
     if pos < node.end_byte() {
-        spans.push(MdNode::new(source[pos..node.end_byte()].to_owned(), extra));
+        spans.push(Span::new(source[pos..node.end_byte()].to_owned(), extra));
     }
 
     spans
 }
 
 #[inline]
-fn is_punctuation(kind: &str, parent_modifier: MdModifier) -> bool {
+fn is_punctuation(kind: &str, parent_modifier: Modifier) -> bool {
     match kind {
-        "(" | ")" | "[" | "]" if parent_modifier == MdModifier::Link => false,
+        "(" | ")" | "[" | "]" if parent_modifier == Modifier::Link => false,
         "!" | "\"" | "#" | "$" | "%" | "&" | "'" | "(" | ")" | "*" | "+" | "," | "-" | "."
         | "/" | ":" | ";" | "<" | "=" | ">" | "?" | "@" | "[" | "\\" | "]" | "^" | "_" | "`"
         | "{" | "|" | "}" | "~" => true,
@@ -708,14 +698,14 @@ static URL_REGEX: LazyLock<Regex> =
 
 /// Detect bare URLs in spans and mark them with LinkURL modifier.
 /// Skips spans that already have link-related modifiers.
-fn detect_bare_urls(mdspans: Vec<MdNode>) -> Vec<MdNode> {
+fn detect_bare_urls(mdspans: Vec<Span>) -> Vec<Span> {
     let mut result = Vec::with_capacity(mdspans.len());
 
     for span in mdspans {
         // Skip spans that are already part of a link or code
         if span
             .modifiers
-            .intersects(MdModifier::Link | MdModifier::LinkURL | MdModifier::Code)
+            .intersects(Modifier::Link | Modifier::LinkURL | Modifier::Code)
         {
             result.push(span);
             continue;
@@ -728,7 +718,7 @@ fn detect_bare_urls(mdspans: Vec<MdNode>) -> Vec<MdNode> {
         // Track whether we've emitted the first span (which keeps NewLine if present)
         let mut first_emitted = false;
         // Base modifiers without NewLine - we only want NewLine on the first span
-        let base_modifiers = span.modifiers.difference(MdModifier::NewLine);
+        let base_modifiers = span.modifiers.difference(Modifier::NewLine);
 
         for mat in URL_REGEX.find_iter(content) {
             found_urls = true;
@@ -741,28 +731,28 @@ fn detect_bare_urls(mdspans: Vec<MdNode>) -> Vec<MdNode> {
                     first_emitted = true;
                     span.modifiers
                 };
-                result.push(MdNode::new(content[last_end..mat.start()].to_owned(), mods));
+                result.push(Span::new(content[last_end..mat.start()].to_owned(), mods));
             }
 
             // Opening wrapper - only keep NewLine if this is the first span emitted
             let wrapper_mods = if first_emitted {
-                base_modifiers | MdModifier::LinkURLWrapper
+                base_modifiers | Modifier::LinkURLWrapper
             } else {
                 first_emitted = true;
-                span.modifiers | MdModifier::LinkURLWrapper
+                span.modifiers | Modifier::LinkURLWrapper
             };
-            result.push(MdNode::new("(".to_owned(), wrapper_mods));
+            result.push(Span::new("(".to_owned(), wrapper_mods));
 
             // The URL itself - marked as LinkURL (never first, wrapper is always before)
-            result.push(MdNode::new(
+            result.push(Span::new(
                 mat.as_str().to_owned(),
-                base_modifiers | MdModifier::LinkURL,
+                base_modifiers | Modifier::LinkURL,
             ));
 
             // Closing wrapper
-            result.push(MdNode::new(
+            result.push(Span::new(
                 ")".to_owned(),
-                base_modifiers | MdModifier::LinkURLWrapper,
+                base_modifiers | Modifier::LinkURLWrapper,
             ));
 
             last_end = mat.end();
@@ -771,7 +761,7 @@ fn detect_bare_urls(mdspans: Vec<MdNode>) -> Vec<MdNode> {
         if found_urls {
             // Text after the last URL
             if last_end < content.len() {
-                result.push(MdNode::new(content[last_end..].to_owned(), base_modifiers));
+                result.push(Span::new(content[last_end..].to_owned(), base_modifiers));
             }
         } else {
             // No URLs found, keep original span
@@ -782,11 +772,11 @@ fn detect_bare_urls(mdspans: Vec<MdNode>) -> Vec<MdNode> {
     result
 }
 
-fn split_newlines(mdspans: Vec<MdNode>) -> Vec<MdNode> {
+fn split_newlines(mdspans: Vec<Span>) -> Vec<Span> {
     let mut result = Vec::with_capacity(mdspans.len());
     for mdspan in mdspans {
         // Preserve empty spans that have NewLine flag (from hard_line_break)
-        if mdspan.content.is_empty() && mdspan.modifiers.contains(MdModifier::NewLine) {
+        if mdspan.content.is_empty() && mdspan.modifiers.contains(Modifier::NewLine) {
             result.push(mdspan);
             continue;
         }
@@ -803,13 +793,13 @@ fn split_newlines(mdspans: Vec<MdNode>) -> Vec<MdNode> {
                 first = false;
                 continue;
             }
-            result.push(MdNode {
+            result.push(Span {
                 content: part.to_owned(),
                 modifiers: if first {
                     first = false;
                     mdspan.modifiers
                 } else {
-                    mdspan.modifiers.union(MdModifier::NewLine)
+                    mdspan.modifiers.union(Modifier::NewLine)
                 },
             });
         }
@@ -825,18 +815,18 @@ mod tests {
     #[test]
     fn split_no_empty_spans() {
         let mdspans = split_newlines(vec![
-            MdNode::new("one line".to_owned(), MdModifier::default()),
-            MdNode::new(".".to_owned(), MdModifier::default()),
-            MdNode::new("\nanother line".to_owned(), MdModifier::NewLine),
-            MdNode::new(".".to_owned(), MdModifier::default()),
+            Span::new("one line".to_owned(), Modifier::default()),
+            Span::new(".".to_owned(), Modifier::default()),
+            Span::new("\nanother line".to_owned(), Modifier::NewLine),
+            Span::new(".".to_owned(), Modifier::default()),
         ]);
         assert_eq!(
             mdspans,
             vec![
-                MdNode::new("one line".to_owned(), MdModifier::default()),
-                MdNode::new(".".to_owned(), MdModifier::default()),
-                MdNode::new("another line".to_owned(), MdModifier::NewLine),
-                MdNode::new(".".to_owned(), MdModifier::default()),
+                Span::new("one line".to_owned(), Modifier::default()),
+                Span::new(".".to_owned(), Modifier::default()),
+                Span::new("another line".to_owned(), Modifier::NewLine),
+                Span::new(".".to_owned(), Modifier::default()),
             ]
         );
     }
@@ -889,47 +879,47 @@ mod tests {
 
     #[test]
     fn detect_bare_url() {
-        let spans = vec![MdNode::new(
+        let spans = vec![Span::new(
             "Check https://example.com for more.".to_owned(),
-            MdModifier::default(),
+            Modifier::default(),
         )];
         let result = detect_bare_urls(spans);
         assert_eq!(result.len(), 5);
         assert_eq!(result[0].content, "Check ");
-        assert!(!result[0].modifiers.contains(MdModifier::LinkURL));
+        assert!(!result[0].modifiers.contains(Modifier::LinkURL));
         assert_eq!(result[1].content, "(");
-        assert!(result[1].modifiers.contains(MdModifier::LinkURLWrapper));
+        assert!(result[1].modifiers.contains(Modifier::LinkURLWrapper));
         assert_eq!(result[2].content, "https://example.com");
-        assert!(result[2].modifiers.contains(MdModifier::LinkURL));
+        assert!(result[2].modifiers.contains(Modifier::LinkURL));
         assert_eq!(result[3].content, ")");
-        assert!(result[3].modifiers.contains(MdModifier::LinkURLWrapper));
+        assert!(result[3].modifiers.contains(Modifier::LinkURLWrapper));
         assert_eq!(result[4].content, " for more.");
-        assert!(!result[4].modifiers.contains(MdModifier::LinkURL));
+        assert!(!result[4].modifiers.contains(Modifier::LinkURL));
     }
 
     #[test]
     fn detect_bare_url_preserves_existing_modifiers() {
-        let spans = vec![MdNode::new(
+        let spans = vec![Span::new(
             "See https://example.com now".to_owned(),
-            MdModifier::Emphasis,
+            Modifier::Emphasis,
         )];
         let result = detect_bare_urls(spans);
         assert_eq!(result.len(), 5);
-        assert!(result[0].modifiers.contains(MdModifier::Emphasis));
-        assert!(result[1].modifiers.contains(MdModifier::Emphasis));
-        assert!(result[1].modifiers.contains(MdModifier::LinkURLWrapper));
-        assert!(result[2].modifiers.contains(MdModifier::Emphasis));
-        assert!(result[2].modifiers.contains(MdModifier::LinkURL));
-        assert!(result[3].modifiers.contains(MdModifier::Emphasis));
-        assert!(result[3].modifiers.contains(MdModifier::LinkURLWrapper));
-        assert!(result[4].modifiers.contains(MdModifier::Emphasis));
+        assert!(result[0].modifiers.contains(Modifier::Emphasis));
+        assert!(result[1].modifiers.contains(Modifier::Emphasis));
+        assert!(result[1].modifiers.contains(Modifier::LinkURLWrapper));
+        assert!(result[2].modifiers.contains(Modifier::Emphasis));
+        assert!(result[2].modifiers.contains(Modifier::LinkURL));
+        assert!(result[3].modifiers.contains(Modifier::Emphasis));
+        assert!(result[3].modifiers.contains(Modifier::LinkURLWrapper));
+        assert!(result[4].modifiers.contains(Modifier::Emphasis));
     }
 
     #[test]
     fn detect_bare_url_skips_existing_links() {
-        let spans = vec![MdNode::new(
+        let spans = vec![Span::new(
             "https://example.com".to_owned(),
-            MdModifier::Link | MdModifier::LinkURL,
+            Modifier::Link | Modifier::LinkURL,
         )];
         let result = detect_bare_urls(spans.clone());
         assert_eq!(result, spans);
@@ -937,10 +927,7 @@ mod tests {
 
     #[test]
     fn detect_bare_url_skips_code() {
-        let spans = vec![MdNode::new(
-            "https://example.com".to_owned(),
-            MdModifier::Code,
-        )];
+        let spans = vec![Span::new("https://example.com".to_owned(), Modifier::Code)];
         let result = detect_bare_urls(spans.clone());
         assert_eq!(result, spans);
     }
@@ -948,19 +935,19 @@ mod tests {
     #[test]
     fn angle_bracket_url_preserved() {
         // Angle bracket URLs like <http://example.com> should preserve both < and >
-        let spans = vec![MdNode::new(
+        let spans = vec![Span::new(
             "<http://www.example.com>".to_owned(),
-            MdModifier::default(),
+            Modifier::default(),
         )];
         let result = detect_bare_urls(spans);
         assert_eq!(result.len(), 5);
         assert_eq!(result[0].content, "<");
         assert_eq!(result[1].content, "(");
-        assert!(result[1].modifiers.contains(MdModifier::LinkURLWrapper));
+        assert!(result[1].modifiers.contains(Modifier::LinkURLWrapper));
         assert_eq!(result[2].content, "http://www.example.com");
-        assert!(result[2].modifiers.contains(MdModifier::LinkURL));
+        assert!(result[2].modifiers.contains(Modifier::LinkURL));
         assert_eq!(result[3].content, ")");
-        assert!(result[3].modifiers.contains(MdModifier::LinkURLWrapper));
+        assert!(result[3].modifiers.contains(Modifier::LinkURLWrapper));
         assert_eq!(result[4].content, ">");
     }
 }

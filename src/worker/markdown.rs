@@ -3,7 +3,7 @@
 //! Uses the mdfrier crate for parsing and styling, then converts to application Events.
 
 use mdfrier::{
-    LineKind, MdFrier, MdLine,
+    Line as MdLine, LineKind, MdFrier,
     ratatui::{Tag, render_line},
 };
 use textwrap::{Options, wrap};

@@ -1,7 +1,7 @@
 use textwrap::{Options, wrap};
 use unicode_width::UnicodeWidthStr;
 
-use crate::markdown::{MdModifier, MdNode};
+use crate::markdown::{Modifier, Span};
 
 /// Trim leading whitespace in place.
 #[inline]
@@ -25,12 +25,12 @@ pub struct WrappedLine {
     /// Whether this is a first line (not a soft-wrapped continuation).
     pub is_first: bool,
     /// The content spans.
-    pub spans: Vec<MdNode>,
+    pub spans: Vec<Span>,
     /// Any images found on this line.
     pub images: Vec<ImageRef>,
 }
 
-pub fn wrap_md_spans(width: u16, mdspans: Vec<MdNode>, prefix_width: usize) -> Vec<WrappedLine> {
+pub fn wrap_md_spans(width: u16, mdspans: Vec<Span>, prefix_width: usize) -> Vec<WrappedLine> {
     let available_width = width.saturating_sub(prefix_width as u16).max(1);
 
     wrap_md_spans_lines(available_width, mdspans)
@@ -40,7 +40,7 @@ pub fn wrap_md_spans(width: u16, mdspans: Vec<MdNode>, prefix_width: usize) -> V
         .map(|(line_idx, mdspans)| {
             let is_source_newline = mdspans
                 .first()
-                .is_some_and(|s| s.modifiers.contains(MdModifier::NewLine));
+                .is_some_and(|s| s.modifiers.contains(Modifier::NewLine));
 
             let is_first = line_idx == 0 || is_source_newline;
 
@@ -48,8 +48,7 @@ pub fn wrap_md_spans(width: u16, mdspans: Vec<MdNode>, prefix_width: usize) -> V
             let images: Vec<ImageRef> = mdspans
                 .iter()
                 .filter(|s| {
-                    s.modifiers.contains(MdModifier::LinkURL)
-                        && s.modifiers.contains(MdModifier::Image)
+                    s.modifiers.contains(Modifier::LinkURL) && s.modifiers.contains(Modifier::Image)
                 })
                 .map(|s| ImageRef {
                     url: s.content.clone(),
@@ -58,9 +57,9 @@ pub fn wrap_md_spans(width: u16, mdspans: Vec<MdNode>, prefix_width: usize) -> V
                 .collect();
 
             // Filter out image URL spans from content
-            let spans: Vec<MdNode> = mdspans
+            let spans: Vec<Span> = mdspans
                 .into_iter()
-                .filter(|s| !s.modifiers.contains(MdModifier::Image))
+                .filter(|s| !s.modifiers.contains(Modifier::Image))
                 .collect();
 
             WrappedLine {
@@ -72,13 +71,13 @@ pub fn wrap_md_spans(width: u16, mdspans: Vec<MdNode>, prefix_width: usize) -> V
         .collect()
 }
 
-pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>> {
-    let mut lines: Vec<Vec<MdNode>> = Vec::new();
-    let mut line: Vec<MdNode> = Vec::new();
+pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>) -> Vec<Vec<Span>> {
+    let mut lines: Vec<Vec<Span>> = Vec::new();
+    let mut line: Vec<Span> = Vec::new();
     let mut after_newline = false;
 
     for mdspan in mdspans {
-        if mdspan.modifiers.contains(MdModifier::NewLine) {
+        if mdspan.modifiers.contains(Modifier::NewLine) {
             if let Some(last) = line.last_mut() {
                 last.content.truncate(last.content.trim_end().len());
             }
@@ -101,7 +100,7 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>>
             if starting_new_line {
                 // Keep opening "(" with the URL, not on previous line
                 let move_paren = line.last().is_some_and(|last| {
-                    last.modifiers.contains(MdModifier::LinkURLWrapper) && last.content == "("
+                    last.modifiers.contains(Modifier::LinkURLWrapper) && last.content == "("
                 });
                 let moved_paren = if move_paren { line.pop() } else { None };
 
@@ -134,7 +133,7 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>>
                     };
                     if is_first
                         && starting_new_line
-                        && !mdspan.modifiers.contains(MdModifier::NewLine)
+                        && !mdspan.modifiers.contains(Modifier::NewLine)
                     {
                         trim_start_inplace(&mut part_content);
                     }
@@ -147,14 +146,14 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<MdNode>) -> Vec<Vec<MdNode>>
                     if !copied_newline {
                         copied_newline = true;
                     } else {
-                        extra.remove(MdModifier::NewLine);
+                        extra.remove(Modifier::NewLine);
                     }
-                    line.push(MdNode::new(part_content, extra));
+                    line.push(Span::new(part_content, extra));
                     line_width += part_width;
                 }
             } else {
                 let mut mdspan = mdspan;
-                if starting_new_line && !mdspan.modifiers.contains(MdModifier::NewLine) {
+                if starting_new_line && !mdspan.modifiers.contains(Modifier::NewLine) {
                     trim_start_inplace(&mut mdspan.content);
                 }
                 line.push(mdspan);
@@ -176,36 +175,36 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::wrap_md_spans_lines;
-    use crate::markdown::{MdModifier, MdNode};
+    use crate::markdown::{Modifier, Span};
 
     #[test]
     fn simple_wrap() {
-        let mdspans = vec![MdNode::from("one two")];
+        let mdspans = vec![Span::from("one two")];
         let lines = wrap_md_spans_lines(4, mdspans);
         assert_eq!(
             lines,
-            vec![vec![MdNode::from("one")], vec![MdNode::from("two")]]
+            vec![vec![Span::from("one")], vec![Span::from("two")]]
         );
     }
 
     #[test]
     fn no_wrap() {
-        let mdspans = vec![MdNode::from("one two")];
+        let mdspans = vec![Span::from("one two")];
         let lines = wrap_md_spans_lines(10, mdspans);
-        assert_eq!(lines, vec![vec![MdNode::from("one two")]]);
+        assert_eq!(lines, vec![vec![Span::from("one two")]]);
     }
 
     #[test]
     fn word_break() {
-        let mdspans = vec![MdNode::from("one two")];
+        let mdspans = vec![Span::from("one two")];
         let lines = wrap_md_spans_lines(2, mdspans);
         assert_eq!(
             lines,
             vec![
-                vec![MdNode::from("on")],
-                vec![MdNode::from("e")],
-                vec![MdNode::from("tw")],
-                vec![MdNode::from("o")]
+                vec![Span::from("on")],
+                vec![Span::from("e")],
+                vec![Span::from("tw")],
+                vec![Span::from("o")]
             ]
         );
     }
@@ -213,15 +212,15 @@ mod tests {
     #[test]
     fn newline() {
         let mdspans = vec![
-            MdNode::from("one "),
-            MdNode::new("two".into(), MdModifier::NewLine),
+            Span::from("one "),
+            Span::new("two".into(), Modifier::NewLine),
         ];
         let lines = wrap_md_spans_lines(10, mdspans);
         assert_eq!(
             lines,
             vec![
-                vec![MdNode::from("one")],
-                vec![MdNode::new("two".into(), MdModifier::NewLine),]
+                vec![Span::from("one")],
+                vec![Span::new("two".into(), Modifier::NewLine),]
             ],
         );
     }
@@ -229,12 +228,12 @@ mod tests {
     #[test]
     fn link_wrapping() {
         let mdspans = vec![
-            MdNode::new("[".into(), MdModifier::LinkDescriptionWrapper),
-            MdNode::new("link".into(), MdModifier::LinkDescription),
-            MdNode::new("]".into(), MdModifier::LinkDescriptionWrapper),
-            MdNode::new("(".into(), MdModifier::LinkURLWrapper),
-            MdNode::new("https://example.com".into(), MdModifier::LinkURL),
-            MdNode::new(")".into(), MdModifier::LinkURLWrapper),
+            Span::new("[".into(), Modifier::LinkDescriptionWrapper),
+            Span::new("link".into(), Modifier::LinkDescription),
+            Span::new("]".into(), Modifier::LinkDescriptionWrapper),
+            Span::new("(".into(), Modifier::LinkURLWrapper),
+            Span::new("https://example.com".into(), Modifier::LinkURL),
+            Span::new(")".into(), Modifier::LinkURLWrapper),
         ];
         let lines = wrap_md_spans_lines(25, mdspans);
         assert_eq!(
@@ -242,7 +241,7 @@ mod tests {
                 .iter()
                 .map(|spans| spans
                     .iter()
-                    .map(MdNode::to_string)
+                    .map(Span::to_string)
                     .collect::<Vec<String>>()
                     .join(""))
                 .collect::<Vec<String>>(),

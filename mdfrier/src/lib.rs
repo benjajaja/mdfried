@@ -1,10 +1,9 @@
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
-//! MdFrier - A markdown parser specialized for terminals
+//! mdfrier - Deep fry markdown for [mdfried](https://crates.io/crates/mdfried).
 //!
-//! ⚠️ WARNING ⚠️ This crate is fundamentally not ready for usage out of mdfried (the app).
-//!
-//! This crate parses markdown with tree-sitter-md to wrapped lines output.
+//! This crate parses markdown with tree-sitter-md into wrapped lines for a fixed width styled
+//! output.
 //!
 //! This isn't as straightforward as wrapping the source and then highlighting syntax, because the
 //! wrapping relies on markdown context. The process is:
@@ -17,12 +16,10 @@
 //!
 //! At step 4, the users of this library will typically convert the wrapped lines of nodes with
 //! their style information to whatever the target is: ANSI escape sequences, or whatever some
-//! other library expects.
+//! their library expects.
 //!
 //! There is a `ratatui` feature that enables the [`ratatui`] module, which does exactly this, for
 //! [ratatui](https://ratatui.rs).
-//!
-//! ---
 //!
 //! The [`Mapper`] trait controls decorator symbols (e.g., blockquote bar, link brackets).
 //! The optional `ratatui` feature provides the [`ratatui::Theme`] trait that combines [`Mapper`]
@@ -32,17 +29,18 @@
 //!
 //! [`StyledMapper`] is the default goal of this crate. It heavily maps markdown symbols, and
 //! strips many, with the intention of adding syles (color, bold, italics...) later, after wrapping.
+//! That is, it does not "stylize" the markdown, but is intented *for* stylizing later.
 //!
-//! The styles should be applied when iterating over the [`MdLine`]'s [`MdNode`]s.
+//! The styles should be applied when iterating over the [`Line`]'s [`Span`]s.
 //! ```
-//! use mdfrier::{MdFrier, MdLine, MdNode, Mapper, DefaultMapper, StyledMapper};
+//! use mdfrier::{MdFrier, Line, Span, Mapper, DefaultMapper, StyledMapper};
 //!
 //! let mut frier = MdFrier::new().unwrap();
 //!
 //! // StyledMapper removes decorators (for use with colors/bold/italic styling)
 //! let lines = frier.parse(80, "*emphasis* and **strong**".to_owned(), &StyledMapper);
 //! let text: String = lines.iter()
-//!     .flat_map(|l: MdLine| l.spans.iter().map(|s: MdNode|
+//!     .flat_map(|l: &Line| l.spans.iter().map(|s: &Span|
 //!         // We should really add colors from `s.modifiers` here!
 //!         s.content.as_str()
 //!     ))
@@ -64,6 +62,8 @@
 //!     fn blockquote_bar(&self) -> &str { "➤ " }
 //! }
 //!
+//! let mut frier = MdFrier::new().unwrap();
+//!
 //! let lines = frier.parse(80, "Hello *world*!\n\n> Quote\n\n**Bold**".to_owned(), &FancyMapper);
 //! let mut output = String::new();
 //! for line in lines {
@@ -81,6 +81,9 @@
 //! since it operates with byte-ranges of the original text. Think editor syntax highlighting.
 //! ```
 //! use mdfrier::{MdFrier, DefaultMapper};
+//!
+//! let mut frier = MdFrier::new().unwrap();
+//!
 //! let lines = frier.parse(80, "*emphasis* and **strong**".to_owned(), &DefaultMapper);
 //! let text: String = lines.iter()
 //!     .flat_map(|l| l.spans.iter().map(|s| s.content.as_str()))
@@ -107,7 +110,7 @@ use markdown::{MdContainer, MdContent, MdDocument, MdSection};
 
 pub use lines::{BulletStyle, ListMarker, MdLineContainer as Container};
 pub use mapper::{DefaultMapper, Mapper, StyledMapper};
-pub use markdown::{MdModifier, MdNode, TableAlignment};
+pub use markdown::{Modifier, Span, TableAlignment};
 
 // Re-export for internal use by lines module
 pub(crate) use lines::MdLineContainer;
@@ -121,10 +124,10 @@ pub(crate) use lines::MdLineContainer;
 /// This is the final, flattened representation with all decorators applied
 /// and nesting converted to prefix spans.
 #[derive(Debug, Clone, PartialEq)]
-pub struct MdLine {
+pub struct Line {
     /// The text spans making up this line, including any prefix spans
     /// (blockquote bars, list markers) that were added from nesting.
-    pub spans: Vec<MdNode>,
+    pub spans: Vec<Span>,
     /// The kind of content this line represents.
     pub kind: LineKind,
 }
@@ -208,7 +211,7 @@ impl MdFrier {
     /// * `width` - The terminal width for line wrapping
     /// * `text` - The markdown text to parse
     /// * `mapper` - The mapper to use for content transformation
-    pub fn parse<M: Mapper>(&mut self, width: u16, text: String, mapper: &M) -> Vec<MdLine> {
+    pub fn parse<M: Mapper>(&mut self, width: u16, text: String, mapper: &M) -> Vec<Line> {
         let doc = match MdDocument::new(text, &mut self.parser, &mut self.inline_parser) {
             Ok(doc) => doc,
             Err(_) => return Vec::new(),
@@ -229,7 +232,7 @@ impl MdFrier {
 // ============================================================================
 
 /// Convert a RawLine to MdLine by applying the mapper and flattening nesting.
-fn convert_raw_to_mdline<M: Mapper>(raw: RawLine, width: u16, mapper: &M) -> MdLine {
+fn convert_raw_to_mdline<M: Mapper>(raw: RawLine, width: u16, mapper: &M) -> Line {
     let RawLine { spans, meta } = raw;
 
     // Build prefix spans from nesting
@@ -246,11 +249,11 @@ fn convert_raw_to_mdline<M: Mapper>(raw: RawLine, width: u16, mapper: &M) -> MdL
     match &meta.kind {
         RawLineKind::HorizontalRule => {
             let available = (width as usize).saturating_sub(prefix_width);
-            final_spans.push(MdNode::new(
+            final_spans.push(Span::new(
                 mapper.horizontal_rule_char().repeat(available),
-                MdModifier::HorizontalRule,
+                Modifier::HorizontalRule,
             ));
-            MdLine {
+            Line {
                 spans: final_spans,
                 kind: LineKind::HorizontalRule,
             }
@@ -262,7 +265,7 @@ fn convert_raw_to_mdline<M: Mapper>(raw: RawLine, width: u16, mapper: &M) -> MdL
             // Build table border spans
             let border_spans = build_table_border_spans(column_info, *position, mapper);
             final_spans.extend(border_spans);
-            MdLine {
+            Line {
                 spans: final_spans,
                 kind: LineKind::TableBorder,
             }
@@ -275,7 +278,7 @@ fn convert_raw_to_mdline<M: Mapper>(raw: RawLine, width: u16, mapper: &M) -> MdL
             // Build table row spans
             let row_spans = build_table_row_spans(cells, column_info, mapper);
             final_spans.extend(row_spans);
-            MdLine {
+            Line {
                 spans: final_spans,
                 kind: LineKind::TableRow {
                     is_header: *is_header,
@@ -290,9 +293,9 @@ fn convert_raw_to_mdline<M: Mapper>(raw: RawLine, width: u16, mapper: &M) -> MdL
 
             final_spans.extend(mapped_spans);
             if padding > 0 {
-                final_spans.push(MdNode::new(" ".repeat(padding), MdModifier::Code));
+                final_spans.push(Span::new(" ".repeat(padding), Modifier::Code));
             }
-            MdLine {
+            Line {
                 spans: final_spans,
                 kind: LineKind::CodeBlock {
                     language: language.clone(),
@@ -301,26 +304,26 @@ fn convert_raw_to_mdline<M: Mapper>(raw: RawLine, width: u16, mapper: &M) -> MdL
         }
         RawLineKind::Paragraph => {
             final_spans.extend(mapped_spans);
-            MdLine {
+            Line {
                 spans: final_spans,
                 kind: LineKind::Paragraph,
             }
         }
         RawLineKind::Header(tier) => {
             final_spans.extend(mapped_spans);
-            MdLine {
+            Line {
                 spans: final_spans,
                 kind: LineKind::Header(*tier),
             }
         }
-        RawLineKind::Image { url, description } => MdLine {
+        RawLineKind::Image { url, description } => Line {
             spans: final_spans,
             kind: LineKind::Image {
                 url: url.clone(),
                 description: description.clone(),
             },
         },
-        RawLineKind::Blank => MdLine {
+        RawLineKind::Blank => Line {
             spans: final_spans,
             kind: LineKind::Blank,
         },
@@ -329,7 +332,7 @@ fn convert_raw_to_mdline<M: Mapper>(raw: RawLine, width: u16, mapper: &M) -> MdL
 
 /// Apply mapper transformations to content spans.
 /// This handles link wrappers and inserts emphasis/strong/code/strikethrough decorators.
-fn apply_mapper_to_spans<M: Mapper>(spans: Vec<MdNode>, mapper: &M) -> Vec<MdNode> {
+fn apply_mapper_to_spans<M: Mapper>(spans: Vec<Span>, mapper: &M) -> Vec<Span> {
     let mut result = Vec::with_capacity(spans.len() * 2);
     let mut prev_emphasis = false;
     let mut prev_strong = false;
@@ -337,40 +340,34 @@ fn apply_mapper_to_spans<M: Mapper>(spans: Vec<MdNode>, mapper: &M) -> Vec<MdNod
     let mut prev_strikethrough = false;
 
     for mut span in spans {
-        let has_emphasis = span.modifiers.contains(MdModifier::Emphasis);
-        let has_strong = span.modifiers.contains(MdModifier::StrongEmphasis);
-        let has_code = span.modifiers.contains(MdModifier::Code);
-        let has_strikethrough = span.modifiers.contains(MdModifier::Strikethrough);
+        let has_emphasis = span.modifiers.contains(Modifier::Emphasis);
+        let has_strong = span.modifiers.contains(Modifier::StrongEmphasis);
+        let has_code = span.modifiers.contains(Modifier::Code);
+        let has_strikethrough = span.modifiers.contains(Modifier::Strikethrough);
 
         // Close decorators that ended (in reverse order of nesting)
         if prev_code && !has_code {
             let close = mapper.code_close();
             if !close.is_empty() {
-                result.push(MdNode::new(close.to_owned(), MdModifier::CodeWrapper));
+                result.push(Span::new(close.to_owned(), Modifier::CodeWrapper));
             }
         }
         if prev_strikethrough && !has_strikethrough {
             let close = mapper.strikethrough_close();
             if !close.is_empty() {
-                result.push(MdNode::new(
-                    close.to_owned(),
-                    MdModifier::StrikethroughWrapper,
-                ));
+                result.push(Span::new(close.to_owned(), Modifier::StrikethroughWrapper));
             }
         }
         if prev_strong && !has_strong {
             let close = mapper.strong_close();
             if !close.is_empty() {
-                result.push(MdNode::new(
-                    close.to_owned(),
-                    MdModifier::StrongEmphasisWrapper,
-                ));
+                result.push(Span::new(close.to_owned(), Modifier::StrongEmphasisWrapper));
             }
         }
         if prev_emphasis && !has_emphasis {
             let close = mapper.emphasis_close();
             if !close.is_empty() {
-                result.push(MdNode::new(close.to_owned(), MdModifier::EmphasisWrapper));
+                result.push(Span::new(close.to_owned(), Modifier::EmphasisWrapper));
             }
         }
 
@@ -378,42 +375,36 @@ fn apply_mapper_to_spans<M: Mapper>(spans: Vec<MdNode>, mapper: &M) -> Vec<MdNod
         if has_emphasis && !prev_emphasis {
             let open = mapper.emphasis_open();
             if !open.is_empty() {
-                result.push(MdNode::new(open.to_owned(), MdModifier::EmphasisWrapper));
+                result.push(Span::new(open.to_owned(), Modifier::EmphasisWrapper));
             }
         }
         if has_strong && !prev_strong {
             let open = mapper.strong_open();
             if !open.is_empty() {
-                result.push(MdNode::new(
-                    open.to_owned(),
-                    MdModifier::StrongEmphasisWrapper,
-                ));
+                result.push(Span::new(open.to_owned(), Modifier::StrongEmphasisWrapper));
             }
         }
         if has_strikethrough && !prev_strikethrough {
             let open = mapper.strikethrough_open();
             if !open.is_empty() {
-                result.push(MdNode::new(
-                    open.to_owned(),
-                    MdModifier::StrikethroughWrapper,
-                ));
+                result.push(Span::new(open.to_owned(), Modifier::StrikethroughWrapper));
             }
         }
         if has_code && !prev_code {
             let open = mapper.code_open();
             if !open.is_empty() {
-                result.push(MdNode::new(open.to_owned(), MdModifier::CodeWrapper));
+                result.push(Span::new(open.to_owned(), Modifier::CodeWrapper));
             }
         }
 
         // Transform link wrappers
-        if span.modifiers.contains(MdModifier::LinkDescriptionWrapper) {
+        if span.modifiers.contains(Modifier::LinkDescriptionWrapper) {
             span.content = if span.content == "[" {
                 mapper.link_desc_open().to_owned()
             } else {
                 mapper.link_desc_close().to_owned()
             };
-        } else if span.modifiers.contains(MdModifier::LinkURLWrapper) {
+        } else if span.modifiers.contains(Modifier::LinkURLWrapper) {
             span.content = if span.content == "(" {
                 mapper.link_url_open().to_owned()
             } else {
@@ -433,31 +424,25 @@ fn apply_mapper_to_spans<M: Mapper>(spans: Vec<MdNode>, mapper: &M) -> Vec<MdNod
     if prev_code {
         let close = mapper.code_close();
         if !close.is_empty() {
-            result.push(MdNode::new(close.to_owned(), MdModifier::CodeWrapper));
+            result.push(Span::new(close.to_owned(), Modifier::CodeWrapper));
         }
     }
     if prev_strikethrough {
         let close = mapper.strikethrough_close();
         if !close.is_empty() {
-            result.push(MdNode::new(
-                close.to_owned(),
-                MdModifier::StrikethroughWrapper,
-            ));
+            result.push(Span::new(close.to_owned(), Modifier::StrikethroughWrapper));
         }
     }
     if prev_strong {
         let close = mapper.strong_close();
         if !close.is_empty() {
-            result.push(MdNode::new(
-                close.to_owned(),
-                MdModifier::StrongEmphasisWrapper,
-            ));
+            result.push(Span::new(close.to_owned(), Modifier::StrongEmphasisWrapper));
         }
     }
     if prev_emphasis {
         let close = mapper.emphasis_close();
         if !close.is_empty() {
-            result.push(MdNode::new(close.to_owned(), MdModifier::EmphasisWrapper));
+            result.push(Span::new(close.to_owned(), Modifier::EmphasisWrapper));
         }
     }
 
@@ -465,7 +450,7 @@ fn apply_mapper_to_spans<M: Mapper>(spans: Vec<MdNode>, mapper: &M) -> Vec<MdNod
 }
 
 /// Build prefix spans from nesting containers.
-fn nesting_to_prefix_spans<M: Mapper>(nesting: &[MdLineContainer], mapper: &M) -> Vec<MdNode> {
+fn nesting_to_prefix_spans<M: Mapper>(nesting: &[MdLineContainer], mapper: &M) -> Vec<Span> {
     let mut spans = Vec::new();
     let last_list_idx = nesting
         .iter()
@@ -474,9 +459,9 @@ fn nesting_to_prefix_spans<M: Mapper>(nesting: &[MdLineContainer], mapper: &M) -
     for (i, container) in nesting.iter().enumerate() {
         match container {
             MdLineContainer::Blockquote => {
-                spans.push(MdNode::new(
+                spans.push(Span::new(
                     mapper.blockquote_bar().to_owned(),
-                    MdModifier::BlockquoteBar,
+                    Modifier::BlockquoteBar,
                 ));
             }
             MdLineContainer::ListItem {
@@ -496,11 +481,11 @@ fn nesting_to_prefix_spans<M: Mapper>(nesting: &[MdLineContainer], mapper: &M) -
                             format!("{}{}", mapper.unordered_bullet(*b), mapper.task_unchecked())
                         }
                     };
-                    spans.push(MdNode::new(marker_text, MdModifier::ListMarker));
+                    spans.push(Span::new(marker_text, Modifier::ListMarker));
                 } else {
                     // Indentation for outer/continuation items
                     let indent_width = marker_width_for_mapper(marker, mapper);
-                    spans.push(MdNode::new(" ".repeat(indent_width), MdModifier::empty()));
+                    spans.push(Span::new(" ".repeat(indent_width), Modifier::empty()));
                 }
             }
         }
@@ -529,7 +514,7 @@ fn build_table_border_spans<M: Mapper>(
     column_info: &lines::TableColumnInfo,
     position: lines::BorderPosition,
     mapper: &M,
-) -> Vec<MdNode> {
+) -> Vec<Span> {
     let mut spans = Vec::new();
 
     let (left, mid, right) = match position {
@@ -553,31 +538,28 @@ fn build_table_border_spans<M: Mapper>(
     let horizontal = mapper.table_horizontal();
     let num_cols = column_info.widths.len();
 
-    spans.push(MdNode::new(left.to_owned(), MdModifier::TableBorder));
+    spans.push(Span::new(left.to_owned(), Modifier::TableBorder));
     for (i, &col_w) in column_info.widths.iter().enumerate() {
-        spans.push(MdNode::new(
-            horizontal.repeat(col_w),
-            MdModifier::TableBorder,
-        ));
+        spans.push(Span::new(horizontal.repeat(col_w), Modifier::TableBorder));
         if i < num_cols - 1 {
-            spans.push(MdNode::new(mid.to_owned(), MdModifier::TableBorder));
+            spans.push(Span::new(mid.to_owned(), Modifier::TableBorder));
         }
     }
-    spans.push(MdNode::new(right.to_owned(), MdModifier::TableBorder));
+    spans.push(Span::new(right.to_owned(), Modifier::TableBorder));
 
     spans
 }
 
 /// Build table row spans.
 fn build_table_row_spans<M: Mapper>(
-    cells: &[Vec<MdNode>],
+    cells: &[Vec<Span>],
     column_info: &lines::TableColumnInfo,
     mapper: &M,
-) -> Vec<MdNode> {
+) -> Vec<Span> {
     let mut spans = Vec::new();
     let vertical = mapper.table_vertical();
 
-    spans.push(MdNode::new(vertical.to_owned(), MdModifier::TableBorder));
+    spans.push(Span::new(vertical.to_owned(), Modifier::TableBorder));
 
     for (i, col_width) in column_info.widths.iter().enumerate() {
         let alignment = column_info
@@ -598,9 +580,9 @@ fn build_table_row_spans<M: Mapper>(
         };
 
         // Left padding + space
-        spans.push(MdNode::new(
+        spans.push(Span::new(
             format!("{}{}", " ", " ".repeat(left_pad)),
-            MdModifier::empty(),
+            Modifier::empty(),
         ));
 
         // Cell content (apply mapper to nested spans)
@@ -608,14 +590,14 @@ fn build_table_row_spans<M: Mapper>(
             let mut mapped_node = node.clone();
             if mapped_node
                 .modifiers
-                .contains(MdModifier::LinkDescriptionWrapper)
+                .contains(Modifier::LinkDescriptionWrapper)
             {
                 mapped_node.content = if mapped_node.content == "[" {
                     mapper.link_desc_open().to_owned()
                 } else {
                     mapper.link_desc_close().to_owned()
                 };
-            } else if mapped_node.modifiers.contains(MdModifier::LinkURLWrapper) {
+            } else if mapped_node.modifiers.contains(Modifier::LinkURLWrapper) {
                 mapped_node.content = if mapped_node.content == "(" {
                     mapper.link_url_open().to_owned()
                 } else {
@@ -626,20 +608,20 @@ fn build_table_row_spans<M: Mapper>(
         }
 
         // Right padding + space
-        spans.push(MdNode::new(
+        spans.push(Span::new(
             format!("{}{}", " ".repeat(right_pad), " "),
-            MdModifier::empty(),
+            Modifier::empty(),
         ));
 
-        spans.push(MdNode::new(vertical.to_owned(), MdModifier::TableBorder));
+        spans.push(Span::new(vertical.to_owned(), Modifier::TableBorder));
     }
 
     // Fill missing columns
     let num_cols = column_info.widths.len();
     for i in cells.len()..num_cols {
         let col_width = column_info.widths.get(i).copied().unwrap_or(3);
-        spans.push(MdNode::new(" ".repeat(col_width), MdModifier::empty()));
-        spans.push(MdNode::new(vertical.to_owned(), MdModifier::TableBorder));
+        spans.push(Span::new(" ".repeat(col_width), Modifier::empty()));
+        spans.push(Span::new(vertical.to_owned(), Modifier::TableBorder));
     }
 
     spans
@@ -800,7 +782,7 @@ mod tests {
 
     /// Convert MdLines to a string representation for testing.
     /// With the new flat API, all prefix spans are included in spans.
-    fn lines_to_string(lines: &[MdLine]) -> String {
+    fn lines_to_string(lines: &[Line]) -> String {
         lines
             .iter()
             .map(|line| {
@@ -837,19 +819,11 @@ mod tests {
         assert_eq!(line.spans.len(), 5);
         assert_eq!(line.spans[0].content, "Hello ");
         assert_eq!(line.spans[1].content, "*");
-        assert!(
-            line.spans[1]
-                .modifiers
-                .contains(MdModifier::EmphasisWrapper)
-        );
+        assert!(line.spans[1].modifiers.contains(Modifier::EmphasisWrapper));
         assert_eq!(line.spans[2].content, "world");
-        assert!(line.spans[2].modifiers.contains(MdModifier::Emphasis));
+        assert!(line.spans[2].modifiers.contains(Modifier::Emphasis));
         assert_eq!(line.spans[3].content, "*");
-        assert!(
-            line.spans[3]
-                .modifiers
-                .contains(MdModifier::EmphasisWrapper)
-        );
+        assert!(line.spans[3].modifiers.contains(Modifier::EmphasisWrapper));
         assert_eq!(line.spans[4].content, "!");
     }
 
@@ -883,7 +857,7 @@ mod tests {
 
         let line = &lines[0];
         // With flat API, first span should be the blockquote bar
-        assert!(line.spans[0].modifiers.contains(MdModifier::BlockquoteBar));
+        assert!(line.spans[0].modifiers.contains(Modifier::BlockquoteBar));
         assert_eq!(line.spans[0].content, "> ");
     }
 
@@ -915,15 +889,15 @@ mod tests {
         assert!(
             lines[1].spans[0]
                 .modifiers
-                .contains(MdModifier::EmphasisWrapper)
+                .contains(Modifier::EmphasisWrapper)
         );
         assert_eq!(lines[1].spans[1].content, "is");
-        assert!(lines[1].spans[1].modifiers.contains(MdModifier::Emphasis));
+        assert!(lines[1].spans[1].modifiers.contains(Modifier::Emphasis));
         assert_eq!(lines[1].spans[2].content, "*");
         assert!(
             lines[1].spans[2]
                 .modifiers
-                .contains(MdModifier::EmphasisWrapper)
+                .contains(Modifier::EmphasisWrapper)
         );
     }
 
@@ -987,13 +961,13 @@ Quote break.
         assert_eq!(
             spans,
             vec![
-                MdNode::new("See ".into(), MdModifier::empty()),
-                MdNode::new("(".into(), MdModifier::LinkURLWrapper),
-                MdNode::new("https://".into(), MdModifier::LinkURL),
-                MdNode::new("example.com/".into(), MdModifier::LinkURL),
-                MdNode::new("path".into(), MdModifier::LinkURL),
-                MdNode::new(")".into(), MdModifier::LinkURLWrapper),
-                MdNode::new(" ok?".into(), MdModifier::empty()),
+                Span::new("See ".into(), Modifier::empty()),
+                Span::new("(".into(), Modifier::LinkURLWrapper),
+                Span::new("https://".into(), Modifier::LinkURL),
+                Span::new("example.com/".into(), Modifier::LinkURL),
+                Span::new("path".into(), Modifier::LinkURL),
+                Span::new(")".into(), Modifier::LinkURLWrapper),
+                Span::new(" ok?".into(), Modifier::empty()),
             ]
         );
     }

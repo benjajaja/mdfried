@@ -1,7 +1,7 @@
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    markdown::{MdContainer, MdContent, MdNode, MdSection, TableAlignment},
+    markdown::{MdContainer, MdContent, MdSection, Span, TableAlignment},
     wrap::{wrap_md_spans, wrap_md_spans_lines},
 };
 
@@ -10,7 +10,7 @@ use crate::{
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct RawLine {
     /// The text spans making up this line.
-    pub spans: Vec<MdNode>,
+    pub spans: Vec<Span>,
     /// Metadata about this line.
     pub meta: LineMeta,
 }
@@ -137,7 +137,7 @@ pub(crate) enum RawLineKind {
     HorizontalRule,
     /// Table data row with cells preserved.
     TableRow {
-        cells: Vec<Vec<MdNode>>,
+        cells: Vec<Vec<Span>>,
         column_info: TableColumnInfo,
         is_header: bool,
     },
@@ -194,7 +194,7 @@ pub(crate) fn section_to_raw_lines(width: u16, section: &MdSection) -> Vec<RawLi
         }
         MdContent::Header { tier, text } => {
             vec![RawLine {
-                spans: vec![MdNode::from(text.clone())],
+                spans: vec![Span::from(text.clone())],
                 meta: LineMeta {
                     kind: RawLineKind::Header(*tier),
                     nesting,
@@ -213,7 +213,7 @@ pub(crate) fn section_to_raw_lines(width: u16, section: &MdSection) -> Vec<RawLi
             for (i, line) in code_lines.into_iter().enumerate() {
                 let is_last = i == last_idx;
                 result.push(RawLine {
-                    spans: vec![MdNode::from(line.to_owned())],
+                    spans: vec![Span::from(line.to_owned())],
                     meta: LineMeta {
                         kind: RawLineKind::CodeBlock {
                             language: language.clone(),
@@ -363,8 +363,8 @@ fn wrapped_lines_to_raw_lines(
 
 fn table_to_raw_lines(
     width: u16,
-    header: &[Vec<MdNode>],
-    rows: &[Vec<Vec<MdNode>>],
+    header: &[Vec<Span>],
+    rows: &[Vec<Vec<Span>>],
     alignments: &[TableAlignment],
     nesting: Vec<MdLineContainer>,
 ) -> Vec<RawLine> {
@@ -385,7 +385,7 @@ fn table_to_raw_lines(
     }
 
     // Calculate cell width
-    let cell_width = |cell: &[MdNode]| -> usize { cell.iter().map(|n| n.content.width()).sum() };
+    let cell_width = |cell: &[Span]| -> usize { cell.iter().map(|n| n.content.width()).sum() };
 
     // Find max width for each column
     let mut col_widths: Vec<usize> = header.iter().map(|c| cell_width(c)).collect();
@@ -420,12 +420,12 @@ fn table_to_raw_lines(
 
     // Wrap cells to fit column widths and emit rows
     let wrap_and_emit_row = |lines: &mut Vec<RawLine>,
-                             row: &[Vec<MdNode>],
+                             row: &[Vec<Span>],
                              is_header: bool,
                              column_info: &TableColumnInfo,
                              nesting: &Vec<MdLineContainer>| {
         // Wrap each cell's content to fit its column's inner width
-        let wrapped_cells: Vec<Vec<Vec<MdNode>>> = row
+        let wrapped_cells: Vec<Vec<Vec<Span>>> = row
             .iter()
             .enumerate()
             .map(|(i, cell)| {
@@ -445,7 +445,7 @@ fn table_to_raw_lines(
 
         // Emit one TableRow per wrapped line
         for line_idx in 0..max_lines {
-            let cells_for_line: Vec<Vec<MdNode>> = wrapped_cells
+            let cells_for_line: Vec<Vec<Span>> = wrapped_cells
                 .iter()
                 .map(|cell_lines| cell_lines.get(line_idx).cloned().unwrap_or_default())
                 .collect();

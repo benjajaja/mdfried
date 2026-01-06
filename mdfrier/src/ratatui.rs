@@ -5,10 +5,10 @@
 
 use ratatui::{
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span as RatatuiSpan},
 };
 
-use crate::{LineKind, MdLine, MdNode, mapper::Mapper, markdown::MdModifier};
+use crate::{Line as MdLine, LineKind, Span, mapper::Mapper, markdown::Modifier as MdModifier};
 
 // ============================================================================
 // Theme trait - extends Mapper with styling
@@ -350,16 +350,16 @@ pub fn render_line<T: Theme>(md_line: MdLine, theme: &T) -> (Line<'static>, Vec<
     (Line::from(line_spans), tags)
 }
 
-/// Convert an MdNode to a styled Span.
+/// Convert a Span to a styled ratatui Span.
 fn node_to_span<T: Theme>(
-    node: MdNode,
+    node: Span,
     current_bq_depth: usize,
     is_table_header: bool,
     is_code_block: bool,
     theme: &T,
     bq_depth_out: &mut usize,
-) -> Span<'static> {
-    let MdNode {
+) -> RatatuiSpan<'static> {
+    let Span {
         content,
         modifiers: extra,
     } = node;
@@ -368,41 +368,41 @@ fn node_to_span<T: Theme>(
     if extra.contains(MdModifier::BlockquoteBar) {
         let style = theme.blockquote_style(current_bq_depth);
         *bq_depth_out = current_bq_depth + 1;
-        return Span::styled(content, style);
+        return RatatuiSpan::styled(content, style);
     }
 
     if extra.contains(MdModifier::ListMarker) {
-        return Span::styled(content, theme.prefix_style());
+        return RatatuiSpan::styled(content, theme.prefix_style());
     }
 
     if extra.contains(MdModifier::TableBorder) {
-        return Span::styled(content, theme.table_border_style());
+        return RatatuiSpan::styled(content, theme.table_border_style());
     }
 
     if extra.contains(MdModifier::HorizontalRule) {
-        return Span::styled(content, theme.hr_style());
+        return RatatuiSpan::styled(content, theme.hr_style());
     }
 
     // Handle inline code and code blocks
     if extra.contains(MdModifier::Code) || is_code_block {
-        return Span::styled(content, theme.code_style());
+        return RatatuiSpan::styled(content, theme.code_style());
     }
 
     // Handle link wrappers
     if extra.contains(MdModifier::LinkDescriptionWrapper)
         || extra.contains(MdModifier::LinkURLWrapper)
     {
-        return Span::styled(content, theme.link_wrapper_style());
+        return RatatuiSpan::styled(content, theme.link_wrapper_style());
     }
 
     // Handle link URL
     if extra.contains(MdModifier::LinkURL) {
-        return Span::styled(content, theme.link_url_style());
+        return RatatuiSpan::styled(content, theme.link_url_style());
     }
 
     // Handle link description
     if extra.contains(MdModifier::LinkDescription) {
-        return Span::styled(content, theme.link_description_style());
+        return RatatuiSpan::styled(content, theme.link_description_style());
     }
 
     // Build style from modifiers
@@ -426,8 +426,8 @@ fn node_to_span<T: Theme>(
     }
 
     if style == Style::default() {
-        Span::from(content)
+        RatatuiSpan::from(content)
     } else {
-        Span::styled(content, style)
+        RatatuiSpan::styled(content, style)
     }
 }
