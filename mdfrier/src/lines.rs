@@ -32,7 +32,7 @@ impl MdLine {
             spans: Vec::new(),
             meta: LineMeta {
                 kind: LineKind::Blank,
-                nesting: vec![Container::Blockquote; depth],
+                nesting: vec![MdLineContainer::Blockquote; depth],
             },
         }
     }
@@ -59,7 +59,7 @@ pub struct LineMeta {
     /// The kind of line content.
     pub kind: LineKind,
     /// Nesting containers (blockquotes and list items).
-    pub nesting: Vec<Container>,
+    pub nesting: Vec<MdLineContainer>,
 }
 
 impl LineMeta {
@@ -67,7 +67,7 @@ impl LineMeta {
     pub fn blockquote_depth(&self) -> usize {
         self.nesting
             .iter()
-            .filter(|c| matches!(c, Container::Blockquote))
+            .filter(|c| matches!(c, MdLineContainer::Blockquote))
             .count()
     }
 
@@ -76,16 +76,16 @@ impl LineMeta {
         self.nesting
             .iter()
             .map(|c| match c {
-                Container::Blockquote => 2, // "▌ "
-                Container::ListItem { marker, .. } => marker.width(),
+                MdLineContainer::Blockquote => 2, // "▌ "
+                MdLineContainer::ListItem { marker, .. } => marker.width(),
             })
             .sum()
     }
 }
 
-/// A nesting container (blockquote or list item).
+/// A simplified nesting container for [`MdLine`].
 #[derive(Debug, Clone, PartialEq)]
-pub enum Container {
+pub enum MdLineContainer {
     /// Blockquote level.
     Blockquote,
     /// List item with marker type.
@@ -216,8 +216,8 @@ pub fn section_to_lines(width: u16, section: &MdSection) -> Vec<MdLine> {
             let prefix_width = nesting
                 .iter()
                 .map(|c| match c {
-                    Container::Blockquote => 2,
-                    Container::ListItem { marker, .. } => marker.width(),
+                    MdLineContainer::Blockquote => 2,
+                    MdLineContainer::ListItem { marker, .. } => marker.width(),
                 })
                 .sum();
             let wrapped_lines = wrap_md_spans(width, mdspans.clone(), prefix_width);
@@ -277,7 +277,7 @@ pub fn section_to_lines(width: u16, section: &MdSection) -> Vec<MdLine> {
 }
 
 /// Convert MdContainer nesting to Container nesting.
-fn convert_nesting(md_nesting: &[MdContainer], is_list_continuation: bool) -> Vec<Container> {
+fn convert_nesting(md_nesting: &[MdContainer], is_list_continuation: bool) -> Vec<MdLineContainer> {
     let mut nesting = Vec::new();
 
     // Find the index of the last ListItem to mark it as continuation if needed
@@ -288,7 +288,7 @@ fn convert_nesting(md_nesting: &[MdContainer], is_list_continuation: bool) -> Ve
     for (idx, c) in md_nesting.iter().enumerate() {
         match c {
             MdContainer::Blockquote(_) => {
-                nesting.push(Container::Blockquote);
+                nesting.push(MdLineContainer::Blockquote);
             }
             MdContainer::ListItem(marker) => {
                 let first_char = marker.original.chars().next().unwrap_or('-');
@@ -317,7 +317,7 @@ fn convert_nesting(md_nesting: &[MdContainer], is_list_continuation: bool) -> Ve
                 // Only the innermost list item can be a continuation
                 let continuation = is_list_continuation && last_list_item_idx == Some(idx);
 
-                nesting.push(Container::ListItem {
+                nesting.push(MdLineContainer::ListItem {
                     marker: list_marker,
                     continuation,
                 });
@@ -333,7 +333,7 @@ fn convert_nesting(md_nesting: &[MdContainer], is_list_continuation: bool) -> Ve
 
 fn wrapped_lines_to_mdlines(
     wrapped_lines: Vec<crate::wrap::WrappedLine>,
-    nesting: Vec<Container>,
+    nesting: Vec<MdLineContainer>,
 ) -> Vec<MdLine> {
     let mut lines = Vec::new();
 
@@ -354,8 +354,8 @@ fn wrapped_lines_to_mdlines(
             nesting
                 .iter()
                 .map(|c| match c {
-                    Container::Blockquote => Container::Blockquote,
-                    Container::ListItem { marker, .. } => Container::ListItem {
+                    MdLineContainer::Blockquote => MdLineContainer::Blockquote,
+                    MdLineContainer::ListItem { marker, .. } => MdLineContainer::ListItem {
                         marker: marker.clone(),
                         continuation: true,
                     },
@@ -397,15 +397,15 @@ fn table_to_mdlines(
     header: &[Vec<MdNode>],
     rows: &[Vec<Vec<MdNode>>],
     alignments: &[TableAlignment],
-    nesting: Vec<Container>,
+    nesting: Vec<MdLineContainer>,
 ) -> Vec<MdLine> {
     let mut lines = Vec::new();
 
     let prefix_width: usize = nesting
         .iter()
         .map(|c| match c {
-            Container::Blockquote => 2,
-            Container::ListItem { marker, .. } => marker.width(),
+            MdLineContainer::Blockquote => 2,
+            MdLineContainer::ListItem { marker, .. } => marker.width(),
         })
         .sum();
     let available_width = (width as usize).saturating_sub(prefix_width);
@@ -454,7 +454,7 @@ fn table_to_mdlines(
                              row: &[Vec<MdNode>],
                              is_header: bool,
                              column_info: &TableColumnInfo,
-                             nesting: &Vec<Container>| {
+                             nesting: &Vec<MdLineContainer>| {
         // Wrap each cell's content to fit its column's inner width
         let wrapped_cells: Vec<Vec<Vec<MdNode>>> = row
             .iter()

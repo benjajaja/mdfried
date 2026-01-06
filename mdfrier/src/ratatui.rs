@@ -10,7 +10,7 @@ use ratatui::{
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    lines::{BorderPosition, Container, LineKind, ListMarker, MdLine, TableColumnInfo},
+    lines::{BorderPosition, LineKind, ListMarker, MdLine, MdLineContainer, TableColumnInfo},
     markdown::{MdModifier, MdNode, TableAlignment},
 };
 
@@ -337,7 +337,7 @@ pub fn render_line<T: Theme>(md_line: MdLine, width: u16, theme: &T) -> (Line<'s
 
 fn render_paragraph<T: Theme>(
     spans: Vec<MdNode>,
-    nesting: &[Container],
+    nesting: &[MdLineContainer],
     theme: &T,
 ) -> (Line<'static>, Vec<Tag>) {
     let mut line_spans = Vec::new();
@@ -623,18 +623,18 @@ fn build_blockquote_prefix<T: Theme>(depth: usize, theme: &T) -> Vec<Span<'stati
 }
 
 /// Render prefix spans from nesting containers.
-fn render_nesting_prefix<T: Theme>(nesting: &[Container], theme: &T) -> Vec<Span<'static>> {
+fn render_nesting_prefix<T: Theme>(nesting: &[MdLineContainer], theme: &T) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     let mut blockquote_idx = 0;
 
     // Find the last (innermost) list item - only render that one with a marker
     let last_list_item_idx = nesting
         .iter()
-        .rposition(|c| matches!(c, Container::ListItem { .. }));
+        .rposition(|c| matches!(c, MdLineContainer::ListItem { .. }));
 
     for (i, container) in nesting.iter().enumerate() {
         match container {
-            Container::Blockquote => {
+            MdLineContainer::Blockquote => {
                 spans.push(Span::styled(
                     theme.blockquote_bar().to_owned(),
                     theme.blockquote_style(blockquote_idx),
@@ -642,7 +642,7 @@ fn render_nesting_prefix<T: Theme>(nesting: &[Container], theme: &T) -> Vec<Span
                 spans.push(Span::from(" "));
                 blockquote_idx += 1;
             }
-            Container::ListItem {
+            MdLineContainer::ListItem {
                 marker,
                 continuation,
             } => {
@@ -778,7 +778,7 @@ mod tests {
             spans: vec![MdNode::from("Quoted text")],
             meta: LineMeta {
                 kind: LineKind::Paragraph,
-                nesting: vec![Container::Blockquote],
+                nesting: vec![MdLineContainer::Blockquote],
             },
         };
 

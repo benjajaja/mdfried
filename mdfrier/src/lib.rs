@@ -1,16 +1,50 @@
-//! MdFrier - A markdown parser that produces styled terminal lines
+//! MdFrier - A markdown parser specialized for terminals
 //!
-//! This crate parses markdown text and produces an iterator of `MdLine` items
-//! that can be rendered to a terminal. The optional `ratatui` feature provides
-//! conversion to styled ratatui `Line` widgets.
+//! ⚠️ WARNING ⚠️ This crate is fundamentally not ready for usage out of mdfried (the app).
+//!
+//! This crate parses markdown with tree-sitter-md to lines output with a width limit.
+//! Each line consists of "spans", which are stylized (and tagged) fragments.
+//!
+//! The optional `ratatui` feature provides conversion to styled ratatui `Line` widgets directly.
 //!
 //! # Example
 //!
 //! ```
-//! use mdfrier::MdFrier;
+//! use mdfrier::{MdFrier, Container, MdModifier};
 //!
 //! let mut frier = MdFrier::new().unwrap();
-//! let lines: Vec<_> = frier.parse(80, "Hello *world*!".to_owned()).collect();
+//! let lines: Vec<_> = frier.parse(80, "Hello *world*!\n\n> This could be really great!\n\n  **--Socrates, probably**".to_owned()).collect();
+//!
+//! let mut test_output = String::new();
+//! for line in lines {
+//!     for container in line.meta.nesting {
+//!         match container {
+//!             Container::Blockquote => test_output.push_str("| "),
+//!             _ => {},
+//!         }
+//!     }
+//!     for span in line.spans {
+//!         match span.extra {
+//!             MdModifier::Emphasis => test_output.push('·'),
+//!             MdModifier::StrongEmphasis => test_output.push('˙'),
+//!             _ => {}
+//!         }
+//!         test_output.push_str(&span.content);
+//!         match span.extra {
+//!             MdModifier::Emphasis => test_output.push('·'),
+//!             MdModifier::StrongEmphasis => test_output.push('˙'),
+//!             _ => {}
+//!         }
+//!     }
+//!     test_output.push('\n');
+//! }
+//!
+//! assert_eq!(test_output, r#"Hello ·world·!
+//!
+//! | This could be really great!
+//!
+//!   ˙--Socrates, probably˙
+//! "#);
 //! ```
 
 mod lines;
@@ -27,7 +61,8 @@ use tree_sitter::Parser;
 use markdown::{MdContainer, MdContent, MdDocument, MdSection};
 
 pub use lines::{
-    BorderPosition, BulletStyle, Container, LineKind, LineMeta, ListMarker, MdLine, TableColumnInfo,
+    BorderPosition, BulletStyle, LineKind, LineMeta, ListMarker, MdLine, MdLineContainer,
+    TableColumnInfo,
 };
 pub use markdown::{MdModifier, MdNode, TableAlignment};
 
@@ -279,16 +314,16 @@ mod tests {
     }
 
     /// Build prefix string from nesting for test output.
-    fn nesting_to_prefix(nesting: &[lines::Container]) -> String {
-        use lines::{Container, ListMarker};
+    fn nesting_to_prefix(nesting: &[lines::MdLineContainer]) -> String {
+        use lines::{ListMarker, MdLineContainer};
         let mut prefix = String::new();
         let last_list_idx = nesting
             .iter()
-            .rposition(|c| matches!(c, Container::ListItem { .. }));
+            .rposition(|c| matches!(c, MdLineContainer::ListItem { .. }));
         for (i, c) in nesting.iter().enumerate() {
             match c {
-                Container::Blockquote => prefix.push_str("> "),
-                Container::ListItem {
+                MdLineContainer::Blockquote => prefix.push_str("> "),
+                MdLineContainer::ListItem {
                     marker,
                     continuation,
                 } => {
