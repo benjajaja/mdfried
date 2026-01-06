@@ -14,8 +14,8 @@ use ratatui_image::{Image, picker::Picker, protocol::Protocol};
 
 use crate::{
     Error,
+    document::{SectionContent, header_images, header_sections},
     setup::{BgColor, FontRenderer},
-    widget_sources::{WidgetSourceData, header_images, header_sources},
 };
 
 #[expect(clippy::too_many_lines)]
@@ -121,11 +121,11 @@ pub fn interactive_font_picker(
                         1,
                         false,
                     )?;
-                    let sources = header_sources(picker, inner_width, 0, dyn_imgs, false)?;
+                    let sections = header_sections(picker, inner_width, 0, dyn_imgs, false)?;
 
                     // Just render the first line if it got split.
-                    if let Some(source) = sources.into_iter().next() {
-                        if let WidgetSourceData::Image(_, proto) = source.data {
+                    if let Some(section) = sections.into_iter().next() {
+                        if let SectionContent::Image(_, proto) = section.content {
                             last_rendered = Some((first_match.clone(), proto));
                         }
                     }
