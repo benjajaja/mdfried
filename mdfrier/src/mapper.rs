@@ -12,7 +12,7 @@ use crate::lines::BulletStyle;
 /// This is applied before wrapping, so the decorator widths are accounted for
 /// in line-width calculations.
 ///
-/// For ratatui users, the `Theme` trait in the ratatui module extends this
+/// For ratatui users, the [`crate::ratatui::Theme`] trait in the [`ratatui`] module extends this
 /// with color/style information.
 pub trait Mapper {
     // ========================================================================

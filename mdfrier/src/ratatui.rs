@@ -1,7 +1,7 @@
 //! Ratatui integration for mdfrier.
 //!
-//! This module provides conversion from `MdLine` to styled ratatui `Line` widgets,
-//! along with semantic `Tag`s that can be used by the application.
+//! This module provides conversion from [`MdLine`] to styled ratatui `Line` widgets,
+//! along with semantic [`Tag`]s that can be used by the application.
 
 use ratatui::{
     style::{Color, Modifier, Style},
@@ -164,7 +164,7 @@ pub trait Theme: Mapper {
 
 /// The default theme with all standard styling.
 ///
-/// Delegates to [`StyledMapper`] for symbols and removes text decorators
+/// Delegates to [`crate::mapper::StyledMapper`] for symbols and removes text decorators
 /// since styling (bold, italic, colors) replaces the textual markers.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DefaultTheme;
