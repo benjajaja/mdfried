@@ -2,6 +2,7 @@ use std::{
     cmp::min,
     fmt::Display,
     fs,
+    num::{NonZero, NonZeroU16},
     path::PathBuf,
     sync::mpsc::{Receiver, Sender},
 };
@@ -31,7 +32,7 @@ pub struct Model {
     pub bg: Option<BgColor>,
     sources: WidgetSources,
     pub scroll: u16,
-    pub movement_count: i16,
+    pub movement_count: Option<NonZeroU16>,
     pub cursor: Cursor,
     pub log_snapshot: Option<flexi_logger::Snapshot>,
     original_file_path: Option<PathBuf>,
@@ -59,7 +60,7 @@ impl Model {
             screen_size,
             config,
             scroll: 0,
-            movement_count: 0,
+            movement_count: None,
             cursor: Cursor::default(),
             sources: WidgetSources::default(),
             cmd_tx,
@@ -298,8 +299,8 @@ impl Model {
     }
 
     pub fn scroll_by(&mut self, lines: i16) {
-        let lines = lines.saturating_mul(self.movement_count.max(1));
-        self.movement_count = 0;
+        let count = self.movement_count.take().map_or(1, NonZero::get);
+        let lines = lines.saturating_mul(count.try_into().unwrap_or(i16::MAX));
         self.scroll = min(
             self.scroll.saturating_add_signed(lines),
             self.total_lines()
@@ -338,20 +339,19 @@ impl Model {
                 ) {
                     self.cursor = Cursor::Links(pointer);
                 } else {
-                    self.movement_count = 0;
+                    self.movement_count = None;
                 }
             }
             Cursor::Links(current) => {
-                if let Some(pointer) = WidgetSources::find_next_cursor(
+                if let Some(pointer) = WidgetSources::find_nth_next_cursor(
                     self.sources.iter(),
                     current,
                     mode,
                     FindTarget::Link,
-                    self.movement_count.max(1),
+                    self.movement_count.take().map_or(1, NonZero::get),
                 ) {
                     self.cursor = Cursor::Links(pointer);
                 }
-                self.movement_count = 0;
             }
             Cursor::Search(_, pointer) => match pointer {
                 None => {
@@ -361,23 +361,24 @@ impl Model {
                         self.scroll,
                     );
                     if pointer.is_none() {
-                        self.movement_count = 0;
+                        self.movement_count = None;
                     }
                 }
                 Some(current) => {
-                    *pointer = WidgetSources::find_next_cursor(
+                    *pointer = WidgetSources::find_nth_next_cursor(
                         self.sources.iter(),
                         current,
                         mode,
                         FindTarget::Search,
-                        self.movement_count.max(1),
+                        self.movement_count.take().map_or(1, NonZero::get),
                     );
-                    self.movement_count = 0;
                 }
             },
         }
-        if self.movement_count > 1 {
-            self.movement_count -= 1;
+        if let Some(count) = self.movement_count.take().map(NonZero::get)
+            && count > 1
+        {
+            self.movement_count = NonZero::new(count - 1);
             return self.cursor_find(mode);
         }
         self.jump_to_pointer();
@@ -392,7 +393,7 @@ impl Model {
                 .ok()
         });
         for source in self.sources.iter_mut() {
-            source.add_search(&re);
+            source.add_search(re.as_ref());
         }
     }
 
@@ -454,7 +455,7 @@ impl Display for DocumentId {
 #[expect(clippy::unwrap_used)]
 mod tests {
 
-    use std::sync::mpsc;
+    use std::{num::NonZero, sync::mpsc};
 
     use ratatui::text::Line;
 
@@ -475,7 +476,7 @@ mod tests {
             screen_size: (80, 20).into(),
             config: UserConfig::default().into(),
             scroll: 0,
-            movement_count: 0,
+            movement_count: None,
             cursor: Cursor::default(),
             sources: WidgetSources::default(),
             cmd_tx,
@@ -760,19 +761,19 @@ mod tests {
             });
         }
 
-        model.movement_count = 3;
+        model.movement_count = NonZero::new(3);
         model.cursor_next();
         assert_cursor_link(&model, "http://3.com");
 
-        model.movement_count = 2;
+        model.movement_count = NonZero::new(2);
         model.cursor_prev();
         assert_cursor_link(&model, "http://1.com");
 
-        model.movement_count = 1;
+        model.movement_count = NonZero::new(1);
         model.cursor_prev();
         assert_cursor_link(&model, "http://9.com");
 
-        model.movement_count = 4;
+        model.movement_count = NonZero::new(4);
         model.cursor_next();
         assert_cursor_link(&model, "http://4.com");
     }

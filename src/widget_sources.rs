@@ -192,12 +192,12 @@ impl WidgetSources {
         first
     }
 
-    pub fn find_next_cursor<'b, Iter>(
+    pub fn find_nth_next_cursor<'b, Iter>(
         iter: Iter,
         current: &CursorPointer,
         mode: FindMode,
         target: FindTarget,
-        steps: i16,
+        steps: u16,
     ) -> Option<CursorPointer>
     where
         Iter: DoubleEndedIterator<Item = &'b WidgetSource> + Clone,
@@ -318,7 +318,7 @@ pub enum FindMode {
     Next,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum FindTarget {
     Link,
     Search,
@@ -349,7 +349,7 @@ pub enum WidgetSourceData {
 }
 
 impl WidgetSourceData {
-    pub fn add_search(&mut self, re: &Option<Regex>) {
+    pub fn add_search(&mut self, re: Option<&Regex>) {
         if let WidgetSourceData::Line(line, extras) = self {
             let line_string = line.to_string();
             extras.retain(|extra| !matches!(extra, LineExtra::SearchMatch(_, _, _)));
@@ -426,7 +426,7 @@ impl WidgetSource {
         }
     }
 
-    pub fn add_search(&mut self, re: &Option<Regex>) {
+    pub fn add_search(&mut self, re: Option<&Regex>) {
         self.data.add_search(re);
     }
 }
@@ -894,7 +894,7 @@ mod tests {
     fn add_search_offset() {
         let line = Line::from(vec![Span::from("▐").magenta(), Span::from(" hi")]);
         let mut wsd = WidgetSourceData::Line(line, Vec::new());
-        wsd.add_search(&Regex::new("hi").ok());
+        wsd.add_search(Regex::new("hi").ok().as_ref());
         let WidgetSourceData::Line(_, extra) = wsd else {
             panic!("Line");
         };
