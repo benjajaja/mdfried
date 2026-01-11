@@ -298,11 +298,15 @@ impl Model {
         }
     }
 
-    pub fn scroll_by(&mut self, lines: i16) {
-        let count = self.movement_count.take().map_or(1, NonZero::get);
-        let lines = lines.saturating_mul(count.try_into().unwrap_or(i16::MAX));
+    pub fn scroll_by(&mut self, lines: i32) {
+        let count = self.movement_count.take().map_or(1, NonZero::get) as i32;
+        let lines = lines.saturating_mul(count);
+        let new_scroll = (self.scroll as u32)
+            .saturating_add_signed(lines)
+            .min(u16::MAX as u32) as u16;
+
         self.scroll = min(
-            self.scroll.saturating_add_signed(lines),
+            new_scroll,
             self.total_lines()
                 .saturating_sub(self.inner_height(self.screen_size.height))
                 + 1,
@@ -403,9 +407,9 @@ impl Model {
             let pointer_y = self.sources.get_y(id);
             let (from, to) = self.visible_lines();
             if pointer_y > to {
-                self.scroll_by(pointer_y - to);
+                self.scroll_by((pointer_y - to) as i32);
             } else if pointer_y < from {
-                self.scroll_by(pointer_y - from);
+                self.scroll_by((pointer_y - from) as i32);
             }
         }
     }

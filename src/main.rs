@@ -378,7 +378,7 @@ fn run(
     let mut screen_size = terminal.size()?;
 
     loop {
-        let page_scroll_count = model.inner_height(screen_size.height) as i16 - 2;
+        let page_scroll_count = model.inner_height(screen_size.height) as i32 - 2;
 
         let (had_events, _) = model.process_events(screen_size.width)?;
 
