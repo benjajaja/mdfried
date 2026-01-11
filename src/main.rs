@@ -467,7 +467,6 @@ fn run(
                                     }
                                     KeyCode::Char('/') => {
                                         model.cursor = Cursor::Search(SearchState::default(), None);
-                                        // model.movement_count = None;
                                     }
                                     KeyCode::Char('n') => {
                                         model.cursor_next();
