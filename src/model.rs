@@ -31,7 +31,7 @@ pub struct Model {
     pub cursor: Cursor,
     pub log_snapshot: Option<flexi_logger::Snapshot>,
     original_file_path: Option<PathBuf>,
-    screen_size: Size,
+    pub screen_size: Size,
     config: Config,
     cmd_tx: Sender<Cmd>,
     event_rx: Receiver<Event>,
