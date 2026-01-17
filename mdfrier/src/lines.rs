@@ -1,4 +1,4 @@
-use unicode_width::UnicodeWidthStr;
+use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     markdown::{MdContainer, MdContent, MdSection, Span, TableAlignment},
@@ -219,9 +219,9 @@ pub(crate) fn section_to_raw_lines(width: u16, section: &MdSection) -> Vec<RawLi
                             language: language.clone(),
                         },
                         nesting: if is_last {
-                            nesting_owned.take().unwrap()
+                            nesting_owned.take().expect("is_last holds true")
                         } else {
-                            nesting_owned.as_ref().unwrap().clone()
+                            nesting_owned.as_ref().expect("is_last holds true").clone()
                         },
                     },
                 });
@@ -274,7 +274,7 @@ fn convert_nesting(md_nesting: &[MdContainer], is_list_continuation: bool) -> Ve
                         .original
                         .chars()
                         .take_while(|c| c.is_ascii_digit())
-                        .fold(0u32, |acc, c| {
+                        .fold(0_u32, |acc, c| {
                             acc.saturating_mul(10)
                                 .saturating_add(c.to_digit(10).unwrap_or(0))
                         });

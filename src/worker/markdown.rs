@@ -24,7 +24,7 @@ pub fn parse_to_events(
     width: u16,
     has_text_size_protocol: bool,
     theme: &Theme,
-    text: String,
+    text: &str,
 ) -> Result<(Vec<Event>, Option<usize>), Error> {
     let mut section_id: Option<usize> = None;
     let mut events = Vec::new();
@@ -166,7 +166,7 @@ mod tests {
             width,
             has_text_size_protocol,
             &Theme::default(),
-            text,
+            &text,
         )
         .unwrap();
         events

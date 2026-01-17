@@ -157,8 +157,8 @@ impl From<InstallError> for Error {
     }
 }
 
-impl From<mdfrier::Error> for Error {
-    fn from(_value: mdfrier::Error) -> Self {
+impl From<mdfrier::MarkdownParseError> for Error {
+    fn from(_value: mdfrier::MarkdownParseError) -> Self {
         Self::MarkdownParse
     }
 }

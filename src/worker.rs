@@ -75,7 +75,7 @@ pub fn worker_thread(
                             width,
                             has_text_size_protocol,
                             &theme,
-                            text,
+                            &text,
                         )?;
                         for event in events {
                             event_tx.send(event)?;

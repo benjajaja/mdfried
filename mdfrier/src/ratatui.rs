@@ -8,7 +8,11 @@ use ratatui::{
     text::{Line, Span as RatatuiSpan},
 };
 
-use crate::{Line as MdLine, LineKind, Span, mapper::Mapper, markdown::Modifier as MdModifier};
+use crate::{
+    Line as MdLine, LineKind, Span,
+    mapper::Mapper,
+    markdown::{Modifier as MdModifier, SourceContent},
+};
 
 // ============================================================================
 // Theme trait - extends Mapper with styling
@@ -264,7 +268,7 @@ pub enum Tag {
     /// Image reference (url, description).
     Image(String, String),
     /// Link reference (span index in rendered Line, url).
-    Link(usize, String),
+    Link(usize, SourceContent),
     /// Header with tier (1-6).
     Header(u8),
     /// Code block with optional language.
@@ -316,14 +320,12 @@ pub fn render_line<T: Theme>(md_line: MdLine, theme: &T) -> (Line<'static>, Vec<
             && !node.modifiers.contains(MdModifier::LinkURLWrapper)
         {
             // Use source_content if available (for wrapped/split URLs), otherwise content
-            let source_content = node.source_content.as_ref().map(|arc| arc.to_string());
-            let url = if let Some(link) = source_content {
-                link
+            let source_content = node.source_content.clone();
+            if let Some(link) = source_content {
+                tags.push(Tag::Link(line_spans.len(), link));
             } else {
-                // TODO: log? panic?
-                node.content.clone()
-            };
-            tags.push(Tag::Link(line_spans.len(), url));
+                log::error!("node has LinkURL but no source_content");
+            }
         }
 
         let span = node_to_span(
@@ -341,11 +343,11 @@ pub fn render_line<T: Theme>(md_line: MdLine, theme: &T) -> (Line<'static>, Vec<
     match kind {
         LineKind::Paragraph => {}
         LineKind::Header(tier) => tags.push(Tag::Header(tier)),
-        LineKind::CodeBlock { ref language } => {
+        LineKind::CodeBlock { language } => {
             tags.push(Tag::CodeBlock(if language.is_empty() {
                 None
             } else {
-                Some(language.clone())
+                Some(language)
             }));
         }
         LineKind::HorizontalRule => tags.push(Tag::HorizontalRule),
@@ -370,8 +372,8 @@ fn node_to_span<T: Theme>(
     let Span {
         content,
         modifiers,
-        source_content: _, // TODO: style once https://github.com/ratatui/ratatui/pull/1605 gets
-                           // merged.
+        ..
+        // TODO: make OSC links work when https://github.com/ratatui/ratatui/pull/1605
     } = node;
 
     // Handle special modifier-based styling
@@ -444,24 +446,22 @@ fn node_to_span<T: Theme>(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use super::*;
 
     /// Test that Tag::Link uses source_content for split URLs
     #[test]
     fn split_url_tag_uses_source_content() {
         let full_url = "https://example.com/path";
-        let source: Arc<str> = Arc::from(full_url);
+        let source = SourceContent::from(full_url);
 
         // Simulate a URL that was split across multiple spans due to wrapping
         let md_line = MdLine {
             spans: vec![
                 Span::new("See ".into(), MdModifier::empty()),
                 Span::new("(".into(), MdModifier::LinkURLWrapper),
-                Span::with_source("https://".into(), MdModifier::LinkURL, source.clone()),
-                Span::with_source("example".into(), MdModifier::LinkURL, source.clone()),
-                Span::with_source(".com/path".into(), MdModifier::LinkURL, source.clone()),
+                Span::source_link("https://".into(), MdModifier::LinkURL, source.clone()),
+                Span::source_link("example".into(), MdModifier::LinkURL, source.clone()),
+                Span::source_link(".com/path".into(), MdModifier::LinkURL, source.clone()),
                 Span::new(")".into(), MdModifier::LinkURLWrapper),
             ],
             kind: LineKind::Paragraph,
@@ -474,7 +474,7 @@ mod tests {
             .iter()
             .filter_map(|t| {
                 if let Tag::Link(_, url) = t {
-                    Some(url.as_str())
+                    Some(url)
                 } else {
                     None
                 }
@@ -482,7 +482,7 @@ mod tests {
             .collect();
 
         assert_eq!(link_tags.len(), 3);
-        assert!(link_tags.iter().all(|url| *url == full_url));
+        assert!(link_tags.iter().all(|url| url.as_ref() == full_url));
     }
 
     /// Test that Tag::Link falls back to content when source_content is None
@@ -499,7 +499,7 @@ mod tests {
             .iter()
             .filter_map(|t| {
                 if let Tag::Link(_, url) = t {
-                    Some(url.as_str())
+                    Some(url.as_ref())
                 } else {
                     None
                 }

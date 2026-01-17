@@ -193,8 +193,8 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
                     }
                 });
                 if let Some(url) = url {
-                    log::debug!("open link_cursor {url}");
-                    model.open_link(url)?;
+                    log::debug!("open link_cursor {}", *url);
+                    model.open_link(url.to_string())?;
                 }
             }
         }

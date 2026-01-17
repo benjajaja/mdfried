@@ -1,5 +1,5 @@
-use std::borrow::Cow;
 use std::sync::Arc;
+use std::{borrow::Cow, ops::Deref};
 
 use bitflags::bitflags;
 use regex::Regex;
@@ -7,31 +7,24 @@ use std::sync::LazyLock;
 use tree_sitter::{Node, Parser, Tree, TreeCursor};
 use unicode_width::UnicodeWidthStr;
 
-use crate::Error;
+use crate::MarkdownParseError;
 
 /// Default list marker when none can be determined.
 const DEFAULT_LIST_MARKER: &str = "-";
 
 pub(crate) struct MdDocument<'a> {
-    source: String,
+    source: &'a str,
     tree: Tree,
     inline_parser: &'a mut Parser,
 }
 
 impl<'a> MdDocument<'a> {
     pub fn new(
-        source: String,
+        source: &'a str,
         parser: &mut Parser,
         inline_parser: &'a mut Parser,
-    ) -> Result<Self, Error> {
-        // Ensure source ends with newline for proper tree-sitter-md parsing
-        let source = if source.ends_with('\n') {
-            source
-        } else {
-            source + "\n"
-        };
-        let tree = parser.parse(&source, None).ok_or(Error::MarkdownParse)?;
-
+    ) -> Result<Self, MarkdownParseError> {
+        let tree = parser.parse(source, None).ok_or(MarkdownParseError)?;
         Ok(Self {
             source,
             tree,
@@ -41,7 +34,7 @@ impl<'a> MdDocument<'a> {
 
     pub fn sections(&mut self) -> MdIterator<'_> {
         MdIterator {
-            source: &self.source,
+            source: self.source,
             cursor: self.tree.walk(),
             done: false,
             inline_parser: self.inline_parser,
@@ -394,6 +387,9 @@ impl<'a> MdIterator<'a> {
 }
 
 bitflags! {
+    /// Modifier flags for [`Span`]s.
+    ///
+    /// Similar to [ratatui](https://ratatui.rs)'s `Modifier`, but more related to the original markdown.
     #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
     pub struct Modifier: u32 {
         const Emphasis = 1 << 0;
@@ -421,13 +417,16 @@ bitflags! {
     }
 }
 
+/// Span with modifiers.
+///
+/// Also may have some [`SourceContent`], e.g. links.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Span {
     pub content: String,
     pub modifiers: Modifier,
     /// Original full content for spans that may be split (e.g., URLs that wrap across lines).
     /// When present, this should be used instead of `content` for semantic purposes like link targets.
-    pub source_content: Option<Arc<str>>,
+    pub source_content: Option<SourceContent>,
 }
 
 impl Span {
@@ -440,22 +439,49 @@ impl Span {
     }
 
     /// Create a span with source content (for URLs that may be split across lines).
-    pub fn with_source(content: String, modifiers: Modifier, source: Arc<str>) -> Self {
+    pub fn link(content: String, modifiers: Modifier) -> Self {
+        debug_assert!(
+            modifiers.contains(Modifier::LinkURL),
+            "link requires LinkURL"
+        );
+        let source_content = SourceContent::from(content.as_ref());
         Span {
             content,
             modifiers,
-            source_content: Some(source),
+            source_content: Some(source_content),
+        }
+    }
+
+    /// Create a span with source content (for URLs that may be split across lines).
+    pub fn source_link(
+        content: String,
+        modifiers: Modifier,
+        source_content: SourceContent,
+    ) -> Self {
+        debug_assert!(
+            modifiers.contains(Modifier::LinkURL),
+            "source_link requires LinkURL"
+        );
+        Span {
+            content,
+            modifiers,
+            source_content: Some(source_content),
         }
     }
 
     #[cfg(test)]
-    pub fn link(description: &str, url: &str) -> Vec<Self> {
+    pub fn test_link(description: &str, url: &str) -> Vec<Self> {
+        let source_content = SourceContent::from(url);
         vec![
             Self::new("[".to_owned(), Modifier::Link),
             Self::new(description.to_owned(), Modifier::Link),
             Self::new("]".to_owned(), Modifier::Link),
             Self::new("(".to_owned(), Modifier::Link),
-            Self::new(url.to_owned(), Modifier::Link | Modifier::LinkURL),
+            Self::source_link(
+                url.to_owned(),
+                Modifier::Link | Modifier::LinkURL,
+                source_content,
+            ),
             Self::new(")".to_owned(), Modifier::Link),
         ]
     }
@@ -492,6 +518,34 @@ impl UnicodeWidthStr for Span {
 
     fn width_cjk(&self) -> usize {
         self.content.width_cjk()
+    }
+}
+
+/// A source content, such as a URL.
+///
+/// Derefs to [`Arc<str>`] which is a unique content (e.g. URL).
+/// The pointer at [`Arc::as_ptr`] is intentionally shared across multiple [`Span`]s when some
+/// content has been line-wrapped.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SourceContent(Arc<str>);
+
+impl From<&str> for SourceContent {
+    fn from(value: &str) -> Self {
+        Self(Arc::from(value))
+    }
+}
+
+impl Deref for SourceContent {
+    type Target = Arc<str>;
+    fn deref(&self) -> &Arc<str> {
+        &self.0
+    }
+}
+
+#[cfg(test)]
+impl std::fmt::Display for SourceContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "SourceContent({:?},{})", self.0.as_ptr(), self.0)
     }
 }
 
@@ -648,12 +702,7 @@ fn inline_node_to_spans(node: Node, source: &str, extra: Modifier, _depth: usize
         "image" => Modifier::Image,
         "link_destination" => {
             let url = source[node.byte_range()].to_owned();
-            let source_content = Arc::from(url.as_str());
-            return vec![Span::with_source(
-                url,
-                extra.union(Modifier::LinkURL),
-                source_content,
-            )];
+            return vec![Span::link(url, extra.union(Modifier::LinkURL))];
         }
         _ => Modifier::default(),
     };
@@ -714,6 +763,7 @@ fn is_punctuation(kind: &str, parent_modifier: Modifier) -> bool {
 }
 
 /// Regex for detecting bare URLs (http:// or https://).
+#[expect(clippy::unwrap_used)]
 static URL_REGEX: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"https?://[^\s<>\[\]()]+").unwrap());
 
@@ -752,6 +802,7 @@ fn detect_bare_urls(mdspans: Vec<Span>) -> Vec<Span> {
                     first_emitted = true;
                     span.modifiers
                 };
+                #[expect(clippy::string_slice)]
                 result.push(Span::new(content[last_end..mat.start()].to_owned(), mods));
             }
 
@@ -766,12 +817,7 @@ fn detect_bare_urls(mdspans: Vec<Span>) -> Vec<Span> {
 
             // The URL itself - marked as LinkURL (never first, wrapper is always before)
             let url = mat.as_str().to_owned();
-            let source_content = Arc::from(url.as_str());
-            result.push(Span::with_source(
-                url,
-                base_modifiers | Modifier::LinkURL,
-                source_content,
-            ));
+            result.push(Span::link(url, base_modifiers | Modifier::LinkURL));
 
             // Closing wrapper
             result.push(Span::new(
@@ -784,6 +830,7 @@ fn detect_bare_urls(mdspans: Vec<Span>) -> Vec<Span> {
 
         if found_urls {
             // Text after the last URL
+            #[expect(clippy::string_slice)]
             if last_end < content.len() {
                 result.push(Span::new(content[last_end..].to_owned(), base_modifiers));
             }
@@ -834,6 +881,7 @@ fn split_newlines(mdspans: Vec<Span>) -> Vec<Span> {
 }
 
 #[cfg(test)]
+#[expect(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
@@ -880,7 +928,7 @@ mod tests {
         let source = r#"> First paragraph
 >
 > Second paragraph"#;
-        let mut doc = MdDocument::new(source.to_owned(), &mut parser, &mut inline_parser).unwrap();
+        let mut doc = MdDocument::new(source, &mut parser, &mut inline_parser).unwrap();
 
         let sections: Vec<_> = doc.sections().collect();
         assert_eq!(sections.len(), 3);
@@ -893,8 +941,7 @@ mod tests {
     fn parse_header() {
         let mut parser = make_parser();
         let mut inline_parser = make_inline_parser();
-        let mut doc =
-            MdDocument::new("# Hello".to_owned(), &mut parser, &mut inline_parser).unwrap();
+        let mut doc = MdDocument::new("# Hello\n", &mut parser, &mut inline_parser).unwrap();
         let sections: Vec<_> = doc.sections().collect();
         assert_eq!(sections.len(), 1);
         assert!(matches!(

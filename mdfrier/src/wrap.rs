@@ -51,17 +51,18 @@ pub(crate) fn wrap_md_spans(
             // Extract images from spans
             let images: Vec<ImageRef> = mdspans
                 .iter()
-                .filter(|s| {
-                    s.modifiers.contains(Modifier::LinkURL) && s.modifiers.contains(Modifier::Image)
-                })
-                .map(|s| ImageRef {
-                    // Use source_content if available (for wrapped/split URLs), otherwise content
-                    url: s
-                        .source_content
-                        .as_ref()
-                        .map(|arc| arc.to_string())
-                        .unwrap_or_else(|| s.content.clone()), // TODO: log or panic?
-                    description: String::new(),
+                .filter_map(|s| {
+                    if s.modifiers.contains(Modifier::LinkURL)
+                        && s.modifiers.contains(Modifier::Image)
+                        && let Some(source_content) = &s.source_content
+                    {
+                        Some(ImageRef {
+                            url: source_content.as_ref().to_owned(),
+                            description: String::new(),
+                        })
+                    } else {
+                        None
+                    }
                 })
                 .collect();
 

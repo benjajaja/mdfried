@@ -14,6 +14,7 @@ use image::{
     DynamicImage, GenericImage as _, ImageFormat, ImageReader, Pixel as _, Rgba, RgbaImage,
     imageops,
 };
+use mdfrier::SourceContent;
 use ratatui::{layout::Rect, text::Line};
 
 use ratatui_image::{Resize, picker::Picker, protocol::Protocol};
@@ -449,7 +450,7 @@ impl Display for Section {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum LineExtra {
-    Link(String, u16, u16),
+    Link(SourceContent, u16, u16),
     SearchMatch(usize, usize, String),
 }
 

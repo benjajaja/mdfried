@@ -7,6 +7,7 @@ use std::{
     sync::mpsc::{Receiver, Sender},
 };
 
+use mdfrier::SourceContent;
 use ratatui::{
     layout::{Rect, Size},
     style::Stylize as _,
@@ -18,10 +19,11 @@ use regex::RegexBuilder;
 use crate::{
     Cmd,
     config::{Config, PaddingConfig},
-    document::{Document, FindMode, FindTarget, Section, SectionContent},
+    cursor::{Cursor, CursorPointer},
+    document::{Document, FindMode, FindTarget, LineExtra, Section, SectionContent},
     error::Error,
 };
-use crate::{Event, MarkdownImage, cursor::Cursor, setup::BgColor};
+use crate::{Event, MarkdownImage, setup::BgColor};
 
 pub struct Model {
     pub bg: Option<BgColor>,
@@ -125,9 +127,14 @@ impl Model {
         &self,
         next_document_id: DocumentId,
         screen_size: Size,
-        text: String,
+        mut text: String,
     ) -> Result<(), Error> {
         let inner_width = self.inner_width(screen_size.width);
+        if !text.ends_with('\n') {
+            // mdfrier needs this, either because of its own limitation or something with
+            // tree-sitter-md. Doesn't really matter as long as we're reading a file.
+            text.push('\n');
+        }
         self.cmd_tx
             .send(Cmd::Parse(next_document_id, inner_width, text))?;
         Ok(())
@@ -354,6 +361,34 @@ impl Model {
         Ok(())
     }
 
+    /// Returns the URL of the currently selected link, if any.
+    pub fn selected_link_url(&self) -> Option<SourceContent> {
+        let Cursor::Links(CursorPointer { id, index }) = &self.cursor else {
+            return None;
+        };
+        self.url_at_pointer(&CursorPointer {
+            id: *id,
+            index: *index,
+        })
+    }
+
+    /// Returns the URL at a given cursor pointer, if it points to a link.
+    fn url_at_pointer(&self, pointer: &CursorPointer) -> Option<SourceContent> {
+        self.document.iter().find_map(|section| {
+            if section.id == pointer.id {
+                let SectionContent::Line(_, extras) = &section.content else {
+                    return None;
+                };
+                let LineExtra::Link(url, _, _) = extras.get(pointer.index)? else {
+                    return None;
+                };
+                Some(url.clone())
+            } else {
+                None
+            }
+        })
+    }
+
     pub fn cursor_next(&mut self, count: u16) {
         self.cursor_find(
             NonZero::new(count).expect("cursor_next expects NonZero raw u16"),
@@ -370,6 +405,14 @@ impl Model {
 
     fn cursor_find(&mut self, count: NonZero<u16>, mode: FindMode) {
         let mut recurse = true; // TODO: make Search + pointer-None work the same way.
+
+        // For Links cursor, get current URL and pointer before the match to avoid borrow issues
+        let (current_url, start_pointer) = if let Cursor::Links(current) = &self.cursor {
+            (self.url_at_pointer(current).clone(), Some(current.clone()))
+        } else {
+            (None, None)
+        };
+
         match &mut self.cursor {
             Cursor::None => {
                 if let Some(pointer) =
@@ -379,13 +422,36 @@ impl Model {
                 }
             }
             Cursor::Links(current) => {
-                if let Some(pointer) = Document::find_nth_next_cursor(
+                if let Some(mut pointer) = Document::find_nth_next_cursor(
                     self.document.iter(),
                     current,
                     mode,
                     FindTarget::Link,
                     count,
                 ) {
+                    // Skip link parts with the same URL (for wrapped URLs)
+                    if let (Some(current_url), Some(start)) = (&current_url, &start_pointer) {
+                        while self.url_at_pointer(&pointer).is_some_and(|source_content| {
+                            source_content.as_ptr() == current_url.as_ptr()
+                        }) && &pointer != start
+                        {
+                            if let Some(next) = Document::find_nth_next_cursor(
+                                self.document.iter(),
+                                &pointer,
+                                mode,
+                                FindTarget::Link,
+                                NonZero::new(1).expect("NonZero 1 for find_nth_next_cursor"),
+                            ) {
+                                if &next == start {
+                                    // Wrapped around to start, no different URL found
+                                    break;
+                                }
+                                pointer = next;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
                     self.cursor = Cursor::Links(pointer);
                     recurse = false;
                 }
@@ -413,7 +479,6 @@ impl Model {
             },
         }
         if recurse && count.get() > 1 {
-            eprintln!("sub: {}", count.get());
             let count = NonZero::new(count.get() - 1).expect("NonZero was > 1");
             return self.cursor_find(count, mode);
         }
@@ -493,6 +558,7 @@ mod tests {
 
     use std::sync::mpsc;
 
+    use mdfrier::SourceContent;
     use ratatui::text::Line;
 
     use crate::{
@@ -524,7 +590,7 @@ mod tests {
     }
 
     #[track_caller]
-    fn assert_cursor_link(model: &Model, expected_url: &str) {
+    fn assert_cursor_link(model: &Model, expected_url: &SourceContent) {
         let LineExtra::Link(url, ..) = model
             .document
             .find_extra_by_cursor(
@@ -543,20 +609,23 @@ mod tests {
                     .and_then(|p| model.document.find_extra_by_cursor(p))
             );
         };
-        assert_eq!(url, expected_url);
+        assert_eq!(url.as_ptr(), expected_url.as_ptr());
     }
 
     #[test]
     fn finds_link_per_line() {
         let mut model = test_model();
+        let link_a = SourceContent::from("http://a.com");
+        let link_b = SourceContent::from("http://b.com");
+        let link_c = SourceContent::from("http://c.com");
         model.document.push(Section {
             id: 1,
             height: 1,
             content: SectionContent::Line(
                 Line::from("http://a.com http://b.com"),
                 vec![
-                    LineExtra::Link("http://a.com".into(), 0, 11),
-                    LineExtra::Link("http://b.com".into(), 12, 21),
+                    LineExtra::Link(link_a.clone(), 0, 11),
+                    LineExtra::Link(link_b.clone(), 12, 21),
                 ],
             ),
         });
@@ -565,30 +634,33 @@ mod tests {
             height: 1,
             content: SectionContent::Line(
                 Line::from("http://c.com"),
-                vec![LineExtra::Link("http://c.com".into(), 0, 11)],
+                vec![LineExtra::Link(link_c.clone(), 0, 11)],
             ),
         });
 
         model.cursor_next(1);
-        assert_cursor_link(&model, "http://a.com");
+        assert_cursor_link(&model, &link_a);
 
         model.cursor_next(1);
-        assert_cursor_link(&model, "http://b.com");
+        assert_cursor_link(&model, &link_b);
 
         model.cursor_next(1);
-        assert_cursor_link(&model, "http://c.com");
+        assert_cursor_link(&model, &link_c);
     }
 
     #[test]
     fn finds_link_with_scroll() {
         let mut model = test_model();
+        let mut links = Vec::new();
         for i in 1..5 {
-            let link = format!("http://{}.com", i);
+            let url = format!("http://{}.com", i);
+            let link = SourceContent::from(url.as_str());
+            links.push(link.clone());
             model.document.push(Section {
                 id: i,
                 height: 1,
                 content: SectionContent::Line(
-                    Line::from(link.clone()),
+                    Line::from(url.clone()),
                     vec![LineExtra::Link(link, 0, 11)],
                 ),
             });
@@ -596,18 +668,19 @@ mod tests {
 
         model.scroll = 2;
         model.cursor_next(1);
-        assert_cursor_link(&model, "http://3.com");
+        assert_cursor_link(&model, &links[2]);
     }
 
     #[test]
     fn finds_link_with_scroll_wrapping() {
         let mut model = test_model();
+        let link = SourceContent::from("http://a.com");
         model.document.push(Section {
             id: 1,
             height: 1,
             content: SectionContent::Line(
                 Line::from("http://a.com"),
-                vec![LineExtra::Link("http://a.com".into(), 0, 11)],
+                vec![LineExtra::Link(link.clone(), 0, 11)],
             ),
         });
         for i in 2..5 {
@@ -620,20 +693,23 @@ mod tests {
 
         model.scroll = 2;
         model.cursor_next(1);
-        assert_cursor_link(&model, "http://a.com");
+        assert_cursor_link(&model, &link);
     }
 
     #[test]
     fn finds_multiple_links_per_line_next() {
         let mut model = test_model();
+        let link_a = SourceContent::from("http://a.com");
+        let link_b = SourceContent::from("http://b.com");
+        let link_c = SourceContent::from("http://c.com");
         model.document.push(Section {
             id: 1,
             height: 1,
             content: SectionContent::Line(
                 Line::from("http://a.com http://b.com"),
                 vec![
-                    LineExtra::Link("http://a.com".into(), 0, 11),
-                    LineExtra::Link("http://b.com".into(), 12, 21),
+                    LineExtra::Link(link_a.clone(), 0, 11),
+                    LineExtra::Link(link_b.clone(), 12, 21),
                 ],
             ),
         });
@@ -642,31 +718,34 @@ mod tests {
             height: 1,
             content: SectionContent::Line(
                 Line::from("http://c.com"),
-                vec![LineExtra::Link("http://c.com".into(), 0, 11)],
+                vec![LineExtra::Link(link_c.clone(), 0, 11)],
             ),
         });
 
         model.cursor_next(1);
-        assert_cursor_link(&model, "http://a.com");
+        assert_cursor_link(&model, &link_a);
 
         model.cursor_next(1);
-        assert_cursor_link(&model, "http://b.com");
+        assert_cursor_link(&model, &link_b);
 
         model.cursor_next(1);
-        assert_cursor_link(&model, "http://c.com");
+        assert_cursor_link(&model, &link_c);
     }
 
     #[test]
     fn finds_multiple_links_per_line_prev() {
         let mut model = test_model();
+        let link_a = SourceContent::from("http://a.com");
+        let link_b = SourceContent::from("http://b.com");
+        let link_c = SourceContent::from("http://c.com");
         model.document.push(Section {
             id: 1,
             height: 1,
             content: SectionContent::Line(
                 Line::from("http://a.com http://b.com"),
                 vec![
-                    LineExtra::Link("http://a.com".into(), 0, 11),
-                    LineExtra::Link("http://b.com".into(), 12, 21),
+                    LineExtra::Link(link_a.clone(), 0, 11),
+                    LineExtra::Link(link_b.clone(), 12, 21),
                 ],
             ),
         });
@@ -675,18 +754,18 @@ mod tests {
             height: 1,
             content: SectionContent::Line(
                 Line::from("http://c.com"),
-                vec![LineExtra::Link("http://c.com".into(), 0, 11)],
+                vec![LineExtra::Link(link_c.clone(), 0, 11)],
             ),
         });
 
         model.cursor_prev(1);
-        assert_cursor_link(&model, "http://a.com");
+        assert_cursor_link(&model, &link_a);
 
         model.cursor_prev(1);
-        assert_cursor_link(&model, "http://c.com");
+        assert_cursor_link(&model, &link_c);
 
         model.cursor_prev(1);
-        assert_cursor_link(&model, "http://b.com");
+        assert_cursor_link(&model, &link_b);
     }
 
     #[test]
@@ -739,17 +818,18 @@ mod tests {
                 content: SectionContent::Line(Line::from(format!("line {}", i + 1)), Vec::new()),
             });
         }
+        let link = SourceContent::from("http://a.com");
         model.document.push(Section {
             id: 30,
             height: 1,
             content: SectionContent::Line(
                 Line::from("http://a.com"),
-                vec![LineExtra::Link("http://a.com".into(), 0, 11)],
+                vec![LineExtra::Link(link.clone(), 0, 11)],
             ),
         });
 
         model.cursor_next(1);
-        assert_cursor_link(&model, "http://a.com");
+        assert_cursor_link(&model, &link);
 
         assert_eq!(model.scroll, 12);
         assert_eq!(model.visible_lines(), (12, 30));
@@ -770,34 +850,37 @@ mod tests {
         let LineExtra::Link(url, _, _) = &extra[0] else {
             panic!("expected Link");
         };
-        assert_eq!("http://a.com", url);
+        assert_eq!("http://a.com", url.as_ref());
     }
 
     #[test]
     fn finds_links_with_count() {
         let mut model = test_model();
+        let mut links = Vec::new();
         for i in 1..10 {
-            let link = format!("http://{}.com", i);
+            let url = format!("http://{}.com", i);
+            let link = SourceContent::from(url.as_str());
             model.document.push(Section {
                 id: i,
                 height: 1,
                 content: SectionContent::Line(
-                    Line::from(link.clone()),
-                    vec![LineExtra::Link(link, 0, 11)],
+                    Line::from(url),
+                    vec![LineExtra::Link(link.clone(), 0, 11)],
                 ),
             });
+            links.push(link);
         }
 
         model.cursor_next(3);
-        assert_cursor_link(&model, "http://3.com");
+        assert_cursor_link(&model, &links[2]);
 
         model.cursor_prev(2);
-        assert_cursor_link(&model, "http://1.com");
+        assert_cursor_link(&model, &links[0]);
 
         model.cursor_prev(1);
-        assert_cursor_link(&model, "http://9.com");
+        assert_cursor_link(&model, &links[8]);
 
         model.cursor_next(4);
-        assert_cursor_link(&model, "http://4.com");
+        assert_cursor_link(&model, &links[3]);
     }
 }
