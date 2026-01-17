@@ -4,15 +4,15 @@ use std::{
 };
 
 use ratatui::{
-    crossterm::event::{self, KeyCode, KeyEventKind, KeyModifiers, MouseEventKind},
+    crossterm::event::{self, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseEventKind},
     layout::Size,
 };
 
 use crate::{
     Error,
-    cursor::{Cursor, CursorPointer, SearchState},
+    cursor::{Cursor, CursorPointer},
     document::{LineExtra, SectionContent},
-    model::Model,
+    model::{InputQueue, Model},
 };
 
 pub enum PollResult {
@@ -27,158 +27,10 @@ pub fn poll(had_events: bool, model: &mut Model) -> Result<PollResult, Error> {
     } else {
         Duration::from_millis(100)
     })? {
-        let page_scroll_count = model.inner_height(model.screen_size.height) as i32 - 2;
         match event::read()? {
             event::Event::Key(key) => {
                 if key.kind == KeyEventKind::Press {
-                    match model.cursor {
-                        Cursor::Search(ref mut mode, _) if !mode.accepted => match key.code {
-                            KeyCode::Char(c) => {
-                                let mut needle = std::mem::take(&mut mode.needle);
-                                needle.push(c);
-                                model.add_searches(Some(&needle));
-                                let Cursor::Search(mode, _) = &mut model.cursor else {
-                                    unreachable!("model.add_searches should not modify cursor");
-                                };
-                                mode.needle = needle;
-                            }
-                            KeyCode::Backspace => {
-                                let mut needle = std::mem::take(&mut mode.needle);
-                                needle.pop();
-                                model.add_searches(Some(&needle));
-                                let Cursor::Search(mode, _) = &mut model.cursor else {
-                                    unreachable!("model.add_searches should not modify cursor");
-                                };
-                                mode.needle = needle;
-                            }
-                            KeyCode::Esc if model.movement_count.is_none() => {
-                                model.cursor = Cursor::None;
-                            }
-                            KeyCode::Esc => {
-                                model.movement_count = None;
-                            }
-                            KeyCode::Enter => {
-                                mode.accepted = true;
-                                model.cursor_next();
-                            }
-                            _ => {}
-                        },
-                        _ => {
-                            match key.code {
-                                KeyCode::Char('q') => {
-                                    return Ok(PollResult::Quit);
-                                }
-                                KeyCode::Char('c')
-                                    if key.modifiers.contains(KeyModifiers::CONTROL) =>
-                                {
-                                    return Ok(PollResult::Quit);
-                                }
-                                KeyCode::Char('r') => {
-                                    model.reload(model.screen_size)?;
-                                }
-                                KeyCode::Char('j') | KeyCode::Down => {
-                                    model.scroll_by(1);
-                                }
-                                KeyCode::Char('k') | KeyCode::Up => {
-                                    model.scroll_by(-1);
-                                }
-                                KeyCode::Char('d') => {
-                                    model.scroll_by((page_scroll_count + 1) / 2);
-                                }
-                                KeyCode::Char('u') => {
-                                    model.scroll_by(-(page_scroll_count + 1) / 2);
-                                }
-                                KeyCode::Char('f' | ' ') | KeyCode::PageDown => {
-                                    model.scroll_by(page_scroll_count);
-                                }
-                                KeyCode::Char('b') | KeyCode::PageUp => {
-                                    model.scroll_by(-page_scroll_count);
-                                }
-                                KeyCode::Char('G') if model.movement_count.is_none() => {
-                                    model.scroll = model.total_lines().saturating_sub(
-                                        page_scroll_count as u16 + 1, // Why +1?
-                                    );
-                                }
-                                KeyCode::Char('g' | 'G') => {
-                                    model.scroll =
-                                        model.movement_count.take().map_or(1, NonZero::get);
-                                    model.scroll_by(0);
-                                }
-                                KeyCode::Char('/') => {
-                                    model.cursor = Cursor::Search(SearchState::default(), None);
-                                }
-                                KeyCode::Char('n') => {
-                                    model.cursor_next();
-                                }
-                                KeyCode::Char('N') => {
-                                    model.cursor_prev();
-                                }
-                                KeyCode::F(11) => {
-                                    model.log_snapshot = match model.log_snapshot {
-                                        None => Some(flexi_logger::Snapshot::new()),
-                                        Some(_) => None,
-                                    };
-                                }
-                                KeyCode::Enter => {
-                                    if let Cursor::Links(CursorPointer { id, index }) = model.cursor
-                                    {
-                                        let url = model.sections().find_map(|section| {
-                                            if section.id == id {
-                                                let SectionContent::Line(_, extras) =
-                                                    &section.content
-                                                else {
-                                                    return None;
-                                                };
-
-                                                match extras.get(index) {
-                                                    Some(LineExtra::Link(url, _, _)) => {
-                                                        Some(url.clone())
-                                                    }
-                                                    _ => None,
-                                                }
-                                            } else {
-                                                None
-                                            }
-                                        });
-                                        if let Some(url) = url {
-                                            log::debug!("open link_cursor {url}");
-                                            model.open_link(url)?;
-                                        }
-                                    }
-                                }
-                                KeyCode::Esc if model.movement_count.is_none() => {
-                                    if let Cursor::Search(SearchState { accepted, .. }, _) =
-                                        model.cursor
-                                        && accepted
-                                    {
-                                        model.cursor = Cursor::None;
-                                    } else if let Cursor::Links(_) = model.cursor {
-                                        model.cursor = Cursor::None;
-                                    }
-                                }
-                                KeyCode::Esc => {
-                                    model.movement_count = None;
-                                }
-                                KeyCode::Backspace => {
-                                    model.movement_count = model
-                                        .movement_count
-                                        .and_then(|x| NonZeroU16::new(x.get() / 10));
-                                }
-                                KeyCode::Char(x) if x.is_ascii_digit() => {
-                                    let x = x as u16 - '0' as u16;
-                                    model.movement_count = model
-                                        .movement_count
-                                        .map(|value| {
-                                            value
-                                                .saturating_mul(NonZero::new(10).expect("10 != 0"))
-                                                .saturating_add(x)
-                                        })
-                                        .or(NonZero::new(x));
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
+                    return match_keycode(key, model);
                 }
             }
             event::Event::Resize(new_width, new_height) => {
@@ -187,58 +39,209 @@ pub fn poll(had_events: bool, model: &mut Model) -> Result<PollResult, Error> {
                     let screen_size = Size::new(new_width, new_height);
                     model.reload(screen_size)?;
                 }
+                return Ok(PollResult::HadInput);
             }
             event::Event::Mouse(mouse) => match mouse.kind {
                 MouseEventKind::ScrollUp => {
                     model.scroll_by(-2);
+                    return Ok(PollResult::HadInput);
                 }
                 MouseEventKind::ScrollDown => {
                     model.scroll_by(2);
+                    return Ok(PollResult::HadInput);
                 }
                 _ => {}
             },
             _ => {}
         }
-        return Ok(PollResult::HadInput);
     }
     Ok(PollResult::None)
 }
 
-// pub enum KeypressEvent {
-// Quit,
-// Reload(Option<Size>),
-// OpenDebug,
-// Movement(KeypressEventMovement),
-// Search(KeypressEventSearch),
-// Move(KeypressEventMove),
-// }
-//
-// pub enum KeypressEventMove {
-// Down,
-// Up,
-// HalfPageDown,
-// HalfPageUp,
-// PageDown,
-// PageUp,
-// End,
-// Home,
-// }
-//
-// pub enum KeypressEventMovement {
-// Push(u16),
-// Pop,
-// Clear,
-// }
-//
-// pub enum KeypressEventSearch {
-// Edit(KeypressEventEditSearch),
-// Next,
-// Prev,
-// }
-//
-// pub enum KeypressEventEditSearch {
-// Push(char),
-// Pop,
-// Clear,
-// Accept,
-// }
+fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> {
+    // TODO: adjust padding or whatever properly
+    let page_scroll_count = model.inner_height(model.screen_size.height) as i32 - 2;
+
+    match key.code {
+        // Search-input mode captures any `KeyCode::Char(_)`.
+        KeyCode::Char(c) if matches!(model.input_queue, InputQueue::Search(_)) => {
+            // We could also match over (key.code, model.input_queue).
+            let InputQueue::Search(needle) = &mut model.input_queue else {
+                panic!("invariant InputQueue::Search");
+            };
+            needle.push(c);
+            let clone = needle.clone();
+            model.add_searches(Some(&clone));
+            model.cursor = Cursor::Search(clone, None);
+        }
+        // Digits start a movement-count.
+        KeyCode::Char(x)
+            if x.is_ascii_digit() && (model.input_queue != InputQueue::None || x != '0') =>
+        {
+            let x = x as u16 - '0' as u16;
+            match &mut model.input_queue {
+                InputQueue::None => {
+                    model.input_queue =
+                        InputQueue::MovementCount(NonZero::new(x).expect("is_ascii_digit"));
+                }
+                InputQueue::MovementCount(count) => {
+                    *count = count
+                        .saturating_mul(NonZero::new(10).expect("10 != 0"))
+                        .saturating_add(x);
+                }
+                InputQueue::Search(_) => {
+                    panic!("invariant is_ascii_digit while in search");
+                }
+            }
+        }
+        // Ways to quit
+        KeyCode::Char('q') => {
+            return Ok(PollResult::Quit);
+        }
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            return Ok(PollResult::Quit);
+        }
+        // Movements
+        KeyCode::Char('j') | KeyCode::Down => {
+            let count = model.input_queue.take_count_or_unit_i32();
+            model.scroll_by(count);
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            let count = model.input_queue.take_count_or_unit_i32();
+            model.scroll_by(-count);
+        }
+        KeyCode::Char('d') => {
+            let count = model.input_queue.take_count_or_unit_i32();
+            model.scroll_by(((page_scroll_count + 1) / 2).saturating_mul(count));
+        }
+        KeyCode::Char('u') => {
+            let count = model.input_queue.take_count_or_unit_i32();
+            model.scroll_by((-(page_scroll_count + 1) / 2).saturating_mul(count));
+        }
+        KeyCode::Char('f' | ' ') | KeyCode::PageDown => {
+            let count = model.input_queue.take_count_or_unit_i32();
+            model.scroll_by(page_scroll_count.saturating_mul(count));
+        }
+        KeyCode::Char('b') | KeyCode::PageUp => {
+            let count = model.input_queue.take_count_or_unit_i32();
+            model.scroll_by((-page_scroll_count).saturating_mul(count));
+        }
+        KeyCode::Char('g') => {
+            let scroll = if let InputQueue::MovementCount(count) = model.input_queue {
+                model.input_queue = InputQueue::None;
+                count.get()
+            } else {
+                0
+            };
+            model.scroll = scroll;
+        }
+        KeyCode::Char('G') => {
+            let scroll = if let InputQueue::MovementCount(count) = model.input_queue {
+                model.input_queue = InputQueue::None;
+                count.get()
+            } else {
+                model.total_lines().saturating_sub(
+                    page_scroll_count as u16 + 1, // Why +1?
+                )
+            };
+            model.scroll = scroll;
+        }
+        // Cursor movements
+        KeyCode::Char('n') => {
+            let count = model.input_queue.take_count_or_unit_u16();
+            model.cursor_next(count);
+        }
+        KeyCode::Char('N') => {
+            let count = model.input_queue.take_count_or_unit_u16();
+            model.cursor_prev(count);
+        }
+        // Others
+        KeyCode::Char('r') => {
+            model.reload(model.screen_size)?;
+        }
+        KeyCode::Char('/') => {
+            model.input_queue = InputQueue::Search(String::new());
+            model.cursor = Cursor::Search(String::new(), None);
+        }
+        KeyCode::F(11) => {
+            model.log_snapshot = match model.log_snapshot {
+                None => Some(flexi_logger::Snapshot::new()),
+                Some(_) => None,
+            };
+        }
+        KeyCode::Enter if matches!(model.input_queue, InputQueue::Search(_)) => {
+            // Exit search...
+            model.input_queue = InputQueue::None;
+            // ...and jump to first match.
+            model.cursor_next(1);
+        }
+        KeyCode::Enter => {
+            // Open links with xdg-open
+            if let Cursor::Links(CursorPointer { id, index }) = model.cursor {
+                let url = model.sections().find_map(|section| {
+                    if section.id == id {
+                        let SectionContent::Line(_, extras) = &section.content else {
+                            return None;
+                        };
+
+                        match extras.get(index) {
+                            Some(LineExtra::Link(url, _, _)) => Some(url.clone()),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    }
+                });
+                if let Some(url) = url {
+                    log::debug!("open link_cursor {url}");
+                    model.open_link(url)?;
+                }
+            }
+        }
+        KeyCode::Esc => match model.input_queue {
+            InputQueue::None => {
+                // This is not vim-canon: Esc is the equivalent of `:noh`. This works because we
+                // don't have any real "modes".
+                match &model.cursor {
+                    Cursor::Search(_, _) | Cursor::Links(_) => {
+                        model.cursor = Cursor::None;
+                    }
+                    _ => {}
+                }
+            }
+            InputQueue::MovementCount(_) => {
+                // Abort movement-count input.
+                model.input_queue = InputQueue::None;
+            }
+            InputQueue::Search(_) => {
+                // Abort search input.
+                model.input_queue = InputQueue::None;
+                model.cursor = Cursor::None;
+            }
+        },
+        KeyCode::Backspace => match &mut model.input_queue {
+            // Edit input queue.
+            InputQueue::None => {}
+            InputQueue::MovementCount(count) => {
+                let value = count.get();
+                if value > 10 {
+                    *count = NonZeroU16::new(count.get() / 10).expect("checked >10");
+                }
+            }
+            InputQueue::Search(needle) => {
+                if needle.is_empty() {
+                    model.input_queue = InputQueue::None;
+                    model.cursor = Cursor::None;
+                } else {
+                    needle.pop();
+                    let clone = needle.clone();
+                    model.add_searches(Some(&clone));
+                }
+            }
+        },
+        _ => {
+            return Ok(PollResult::None);
+        }
+    }
+    Ok(PollResult::HadInput)
+}

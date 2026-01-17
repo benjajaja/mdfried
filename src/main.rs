@@ -42,11 +42,11 @@ use setup::{SetupResult, setup_graphics};
 use crate::{
     big_text::BigText,
     config::Config,
-    cursor::{Cursor, CursorPointer, SearchState},
+    cursor::{Cursor, CursorPointer},
     document::{LineExtra, Section, SectionContent, SectionID},
     error::Error,
     keybindings::PollResult,
-    model::{DocumentId, Model},
+    model::{DocumentId, InputQueue, Model},
     watch::watch,
     worker::worker_thread,
 };
@@ -441,7 +441,7 @@ fn view(model: &Model, frame: &mut Frame) {
                                 cursor_positioned = Some((x, y));
                             }
                         }
-                        Cursor::Search(SearchState { .. }, pointer) => {
+                        Cursor::Search(_, pointer) => {
                             for (i, extra) in extras.iter().enumerate() {
                                 if let LineExtra::SearchMatch(start, end, text) = extra {
                                     let x = frame_area.x + padding.left + (*start as u16);
@@ -493,47 +493,41 @@ fn view(model: &Model, frame: &mut Frame) {
         }
     }
 
-    match (&model.cursor, model.movement_count) {
-        (Cursor::None, None) => {
-            frame.set_cursor_position((0, frame_area.height - 1));
-        }
-        (Cursor::Links(_), None) => {
-            let mut line = Line::default();
-            line.spans.push(Span::from("Links").fg(Color::Indexed(32)));
-            let width = line.width() as u16;
-            let searchbar = Paragraph::new(line);
-            frame.render_widget(searchbar, Rect::new(0, frame_area.height - 1, width, 1));
-            if cursor_positioned.is_none() {
+    match &model.input_queue {
+        InputQueue::None => match &model.cursor {
+            Cursor::None => frame.set_cursor_position((0, frame_area.height - 1)),
+            Cursor::Links(_) => {
+                let mut line = Line::default();
+                line.spans.push(Span::from("Links").fg(Color::Indexed(32)));
+                let width = line.width() as u16;
+                let searchbar = Paragraph::new(line);
+                frame.render_widget(searchbar, Rect::new(0, frame_area.height - 1, width, 1));
+                if cursor_positioned.is_none() {
+                    frame.set_cursor_position((0, frame_area.height - 1));
+                }
+            }
+            Cursor::Search(needle, _) => {
+                let mut line = Line::default();
+                line.spans.push(Span::from("/").fg(Color::Indexed(148)));
+                let needle = Span::from(needle.clone()).fg(Color::Indexed(148));
+                line.spans.push(needle);
+                let width = line.width() as u16;
+                let searchbar = Paragraph::new(line);
+                frame.render_widget(searchbar, Rect::new(0, frame_area.height - 1, width, 1));
                 frame.set_cursor_position((0, frame_area.height - 1));
             }
-        }
-        (Cursor::Search(mode, _), None)
-        | (
-            Cursor::Search(
-                mode @ SearchState {
-                    accepted: false, ..
-                },
-                _,
-            ),
-            _,
-        ) => {
+        },
+        InputQueue::Search(needle) => {
             let mut line = Line::default();
             line.spans.push(Span::from("/").fg(Color::Indexed(148)));
-            let mut needle = Span::from(mode.needle.clone());
-            if mode.accepted {
-                needle = needle.fg(Color::Indexed(148));
-            }
+            let needle = Span::from(needle.clone());
             line.spans.push(needle);
             let width = line.width() as u16;
             let searchbar = Paragraph::new(line);
             frame.render_widget(searchbar, Rect::new(0, frame_area.height - 1, width, 1));
-            if !mode.accepted {
-                frame.set_cursor_position((width, frame_area.height - 1));
-            } else if cursor_positioned.is_none() {
-                frame.set_cursor_position((0, frame_area.height - 1));
-            }
+            frame.set_cursor_position((width, frame_area.height - 1));
         }
-        (_, Some(movement_count)) => {
+        InputQueue::MovementCount(movement_count) => {
             let movement_count = movement_count.get();
             let mut line = Line::default();
             let mut span = Span::from(movement_count.to_string()).fg(Color::Indexed(250));

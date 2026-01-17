@@ -1,6 +1,7 @@
 use std::{
     any::Any as _,
     fmt::{Debug, Display},
+    num::NonZero,
     ops::{Deref, DerefMut},
     path::PathBuf,
     sync::Arc,
@@ -156,6 +157,7 @@ impl Document {
         y
     }
 
+    // Find first should be slightly more efficient.
     pub fn find_first_cursor<'b, Iter: Iterator<Item = &'b Section>>(
         iter: Iter,
         target: FindTarget,
@@ -192,12 +194,13 @@ impl Document {
         first
     }
 
+    // Find nth (nonzero) next cursor.
     pub fn find_nth_next_cursor<'b, Iter>(
         iter: Iter,
         current: &CursorPointer,
         mode: FindMode,
         target: FindTarget,
-        steps: u16,
+        steps: NonZero<u16>,
     ) -> Option<CursorPointer>
     where
         Iter: DoubleEndedIterator<Item = &'b Section> + Clone,
@@ -209,7 +212,7 @@ impl Document {
             return iter.next();
         };
         let total = curr_pos + 1 + iter2.count();
-        let index = (curr_pos + steps as usize) % total;
+        let index = (curr_pos + steps.get() as usize) % total;
         if index == curr_pos {
             return Some(current.clone());
         }

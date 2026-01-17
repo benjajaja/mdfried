@@ -5,7 +5,7 @@ pub enum Cursor {
     #[default]
     None,
     Links(CursorPointer),
-    Search(SearchState, Option<CursorPointer>),
+    Search(String, Option<CursorPointer>),
 }
 
 impl Cursor {
@@ -25,10 +25,4 @@ pub struct CursorPointer {
     pub id: SectionID,
     // The matched LineExtra part index
     pub index: usize,
-}
-
-#[derive(Default, Debug, PartialEq, Eq)]
-pub struct SearchState {
-    pub needle: String,
-    pub accepted: bool,
 }

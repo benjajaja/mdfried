@@ -2,7 +2,7 @@ use std::{
     cmp::min,
     fmt::Display,
     fs,
-    num::{NonZero, NonZeroU16},
+    num::NonZero,
     path::PathBuf,
     sync::mpsc::{Receiver, Sender},
 };
@@ -25,19 +25,55 @@ use crate::{Event, MarkdownImage, cursor::Cursor, setup::BgColor};
 
 pub struct Model {
     pub bg: Option<BgColor>,
-    document: Document,
     pub scroll: u16,
-    pub movement_count: Option<NonZeroU16>,
     pub cursor: Cursor,
+    pub input_queue: InputQueue,
     pub log_snapshot: Option<flexi_logger::Snapshot>,
-    original_file_path: Option<PathBuf>,
     pub screen_size: Size,
+    document: Document,
+    document_id: DocumentId,
+    original_file_path: Option<PathBuf>,
     config: Config,
     cmd_tx: Sender<Cmd>,
     event_rx: Receiver<Event>,
-    document_id: DocumentId,
     #[cfg(test)]
     pub pending_image_count: usize,
+}
+
+// The temporary keypress input queue for operations like search or movement-count prefix.
+// Stored in model, but the model methods should usually not be responsible for changing it.
+#[derive(PartialEq)]
+pub enum InputQueue {
+    None,
+    MovementCount(NonZero<u16>),
+    Search(String),
+}
+impl InputQueue {
+    // Convenience for model "cursor_find" method. Consumes the input, resets self to
+    // `InputQueue::None`.
+    pub fn take_count_or_unit_u16(&mut self) -> u16 {
+        self.take_count()
+            .unwrap_or(NonZero::new(1).expect("NonZero::new(1)"))
+            .get()
+    }
+    // Convenience for model "scroll" methods. Consumes the input, resets self to
+    // `InputQueue::None`.
+    pub fn take_count_or_unit_i32(&mut self) -> i32 {
+        self.take_count()
+            .unwrap_or(NonZero::new(1).expect("NonZero::new(1)"))
+            .get()
+            .into()
+    }
+    // Consumes the input, resets self to `InputQueue::None`.
+    fn take_count(&mut self) -> Option<NonZero<u16>> {
+        if let InputQueue::MovementCount(count) = self {
+            let icount = *count;
+            *self = InputQueue::None;
+            Some(icount)
+        } else {
+            None
+        }
+    }
 }
 
 impl Model {
@@ -55,7 +91,7 @@ impl Model {
             screen_size,
             config,
             scroll: 0,
-            movement_count: None,
+            input_queue: InputQueue::None,
             cursor: Cursor::default(),
             document: Document::default(),
             cmd_tx,
@@ -285,17 +321,15 @@ impl Model {
                 // due to possibly different line breaks.
                 // Might be fixed after search over line breaks is implemented.
             }
-            Cursor::Search(state, _) => {
+            Cursor::Search(needle, _) => {
                 // TODO: See above
-                self.add_searches(Some(&state.needle));
-                self.cursor = Cursor::Search(state, None);
+                self.add_searches(Some(&needle));
+                self.cursor = Cursor::Search(needle, None);
             }
         }
     }
 
     pub fn scroll_by(&mut self, lines: i32) {
-        let count = self.movement_count.take().map_or(1, NonZero::get) as i32;
-        let lines = lines.saturating_mul(count);
         let new_scroll = (self.scroll as u32)
             .saturating_add_signed(lines)
             .min(u16::MAX as u32) as u16;
@@ -320,23 +354,28 @@ impl Model {
         Ok(())
     }
 
-    pub fn cursor_next(&mut self) {
-        self.cursor_find(FindMode::Next)
+    pub fn cursor_next(&mut self, count: u16) {
+        self.cursor_find(
+            NonZero::new(count).expect("cursor_next expects NonZero raw u16"),
+            FindMode::Next,
+        )
     }
 
-    pub fn cursor_prev(&mut self) {
-        self.cursor_find(FindMode::Prev)
+    pub fn cursor_prev(&mut self, count: u16) {
+        self.cursor_find(
+            NonZero::new(count).expect("cursor_prev expects NonZero raw u16"),
+            FindMode::Prev,
+        )
     }
 
-    fn cursor_find(&mut self, mode: FindMode) {
+    fn cursor_find(&mut self, count: NonZero<u16>, mode: FindMode) {
+        let mut recurse = true; // TODO: make Search + pointer-None work the same way.
         match &mut self.cursor {
             Cursor::None => {
                 if let Some(pointer) =
                     Document::find_first_cursor(self.document.iter(), FindTarget::Link, self.scroll)
                 {
                     self.cursor = Cursor::Links(pointer);
-                } else {
-                    self.movement_count = None;
                 }
             }
             Cursor::Links(current) => {
@@ -345,9 +384,10 @@ impl Model {
                     current,
                     mode,
                     FindTarget::Link,
-                    self.movement_count.take().map_or(1, NonZero::get),
+                    count,
                 ) {
                     self.cursor = Cursor::Links(pointer);
+                    recurse = false;
                 }
             }
             Cursor::Search(_, pointer) => match pointer {
@@ -358,7 +398,7 @@ impl Model {
                         self.scroll,
                     );
                     if pointer.is_none() {
-                        self.movement_count = None;
+                        recurse = false;
                     }
                 }
                 Some(current) => {
@@ -367,16 +407,15 @@ impl Model {
                         current,
                         mode,
                         FindTarget::Search,
-                        self.movement_count.take().map_or(1, NonZero::get),
+                        count,
                     );
                 }
             },
         }
-        if let Some(count) = self.movement_count.take().map(NonZero::get)
-            && count > 1
-        {
-            self.movement_count = NonZero::new(count - 1);
-            return self.cursor_find(mode);
+        if recurse && count.get() > 1 {
+            eprintln!("sub: {}", count.get());
+            let count = NonZero::new(count.get() - 1).expect("NonZero was > 1");
+            return self.cursor_find(count, mode);
         }
         self.jump_to_pointer();
     }
@@ -452,16 +491,16 @@ impl Display for DocumentId {
 #[expect(clippy::unwrap_used)]
 mod tests {
 
-    use std::{num::NonZero, sync::mpsc};
+    use std::sync::mpsc;
 
     use ratatui::text::Line;
 
     use crate::{
         Cmd, DocumentId, Event,
         config::UserConfig,
-        cursor::{Cursor, CursorPointer, SearchState},
+        cursor::{Cursor, CursorPointer},
         document::{Document, LineExtra, Section, SectionContent},
-        model::Model,
+        model::{InputQueue, Model},
     };
 
     fn test_model() -> Model {
@@ -473,7 +512,7 @@ mod tests {
             screen_size: (80, 20).into(),
             config: UserConfig::default().into(),
             scroll: 0,
-            movement_count: None,
+            input_queue: InputQueue::None,
             cursor: Cursor::default(),
             document: Document::default(),
             cmd_tx,
@@ -530,13 +569,13 @@ mod tests {
             ),
         });
 
-        model.cursor_next();
+        model.cursor_next(1);
         assert_cursor_link(&model, "http://a.com");
 
-        model.cursor_next();
+        model.cursor_next(1);
         assert_cursor_link(&model, "http://b.com");
 
-        model.cursor_next();
+        model.cursor_next(1);
         assert_cursor_link(&model, "http://c.com");
     }
 
@@ -556,7 +595,7 @@ mod tests {
         }
 
         model.scroll = 2;
-        model.cursor_next();
+        model.cursor_next(1);
         assert_cursor_link(&model, "http://3.com");
     }
 
@@ -580,7 +619,7 @@ mod tests {
         }
 
         model.scroll = 2;
-        model.cursor_next();
+        model.cursor_next(1);
         assert_cursor_link(&model, "http://a.com");
     }
 
@@ -607,13 +646,13 @@ mod tests {
             ),
         });
 
-        model.cursor_next();
+        model.cursor_next(1);
         assert_cursor_link(&model, "http://a.com");
 
-        model.cursor_next();
+        model.cursor_next(1);
         assert_cursor_link(&model, "http://b.com");
 
-        model.cursor_next();
+        model.cursor_next(1);
         assert_cursor_link(&model, "http://c.com");
     }
 
@@ -640,13 +679,13 @@ mod tests {
             ),
         });
 
-        model.cursor_prev();
+        model.cursor_prev(1);
         assert_cursor_link(&model, "http://a.com");
 
-        model.cursor_prev();
+        model.cursor_prev(1);
         assert_cursor_link(&model, "http://c.com");
 
-        model.cursor_prev();
+        model.cursor_prev(1);
         assert_cursor_link(&model, "http://b.com");
     }
 
@@ -662,19 +701,13 @@ mod tests {
         }
 
         // Just outside of view (terminal height is 20, we don't render on last line)
-        model.cursor = Cursor::Search(
-            SearchState::default(),
-            Some(CursorPointer { id: 19, index: 0 }),
-        );
+        model.cursor = Cursor::Search(String::new(), Some(CursorPointer { id: 19, index: 0 }));
         model.jump_to_pointer();
         assert_eq!(model.scroll, 1);
 
         model.scroll = 0;
         // Towards the end
-        model.cursor = Cursor::Search(
-            SearchState::default(),
-            Some(CursorPointer { id: 30, index: 0 }),
-        );
+        model.cursor = Cursor::Search(String::new(), Some(CursorPointer { id: 30, index: 0 }));
         model.jump_to_pointer();
         assert_eq!(model.scroll, 12);
     }
@@ -691,10 +724,7 @@ mod tests {
         }
 
         model.scroll = 12;
-        model.cursor = Cursor::Search(
-            SearchState::default(),
-            Some(CursorPointer { id: 0, index: 0 }),
-        );
+        model.cursor = Cursor::Search(String::new(), Some(CursorPointer { id: 0, index: 0 }));
         model.jump_to_pointer();
         assert_eq!(model.scroll, 0);
     }
@@ -718,7 +748,7 @@ mod tests {
             ),
         });
 
-        model.cursor_next();
+        model.cursor_next(1);
         assert_cursor_link(&model, "http://a.com");
 
         assert_eq!(model.scroll, 12);
@@ -758,20 +788,16 @@ mod tests {
             });
         }
 
-        model.movement_count = NonZero::new(3);
-        model.cursor_next();
+        model.cursor_next(3);
         assert_cursor_link(&model, "http://3.com");
 
-        model.movement_count = NonZero::new(2);
-        model.cursor_prev();
+        model.cursor_prev(2);
         assert_cursor_link(&model, "http://1.com");
 
-        model.movement_count = NonZero::new(1);
-        model.cursor_prev();
+        model.cursor_prev(1);
         assert_cursor_link(&model, "http://9.com");
 
-        model.movement_count = NonZero::new(4);
-        model.cursor_next();
+        model.cursor_next(4);
         assert_cursor_link(&model, "http://4.com");
     }
 }
