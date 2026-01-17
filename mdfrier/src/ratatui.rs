@@ -315,7 +315,15 @@ pub fn render_line<T: Theme>(md_line: MdLine, theme: &T) -> (Line<'static>, Vec<
         if node.modifiers.contains(MdModifier::LinkURL)
             && !node.modifiers.contains(MdModifier::LinkURLWrapper)
         {
-            tags.push(Tag::Link(line_spans.len(), node.content.clone()));
+            // Use source_content if available (for wrapped/split URLs), otherwise content
+            let source_content = node.source_content.as_ref().map(|arc| arc.to_string());
+            let url = if let Some(link) = source_content {
+                link
+            } else {
+                // TODO: log? panic?
+                node.content.clone()
+            };
+            tags.push(Tag::Link(line_spans.len(), url));
         }
 
         let span = node_to_span(
@@ -361,47 +369,49 @@ fn node_to_span<T: Theme>(
 ) -> RatatuiSpan<'static> {
     let Span {
         content,
-        modifiers: extra,
+        modifiers,
+        source_content: _, // TODO: style once https://github.com/ratatui/ratatui/pull/1605 gets
+                           // merged.
     } = node;
 
     // Handle special modifier-based styling
-    if extra.contains(MdModifier::BlockquoteBar) {
+    if modifiers.contains(MdModifier::BlockquoteBar) {
         let style = theme.blockquote_style(current_bq_depth);
         *bq_depth_out = current_bq_depth + 1;
         return RatatuiSpan::styled(content, style);
     }
 
-    if extra.contains(MdModifier::ListMarker) {
+    if modifiers.contains(MdModifier::ListMarker) {
         return RatatuiSpan::styled(content, theme.prefix_style());
     }
 
-    if extra.contains(MdModifier::TableBorder) {
+    if modifiers.contains(MdModifier::TableBorder) {
         return RatatuiSpan::styled(content, theme.table_border_style());
     }
 
-    if extra.contains(MdModifier::HorizontalRule) {
+    if modifiers.contains(MdModifier::HorizontalRule) {
         return RatatuiSpan::styled(content, theme.hr_style());
     }
 
     // Handle inline code and code blocks
-    if extra.contains(MdModifier::Code) || is_code_block {
+    if modifiers.contains(MdModifier::Code) || is_code_block {
         return RatatuiSpan::styled(content, theme.code_style());
     }
 
     // Handle link wrappers
-    if extra.contains(MdModifier::LinkDescriptionWrapper)
-        || extra.contains(MdModifier::LinkURLWrapper)
+    if modifiers.contains(MdModifier::LinkDescriptionWrapper)
+        || modifiers.contains(MdModifier::LinkURLWrapper)
     {
         return RatatuiSpan::styled(content, theme.link_wrapper_style());
     }
 
     // Handle link URL
-    if extra.contains(MdModifier::LinkURL) {
+    if modifiers.contains(MdModifier::LinkURL) {
         return RatatuiSpan::styled(content, theme.link_url_style());
     }
 
     // Handle link description
-    if extra.contains(MdModifier::LinkDescription) {
+    if modifiers.contains(MdModifier::LinkDescription) {
         return RatatuiSpan::styled(content, theme.link_description_style());
     }
 
@@ -412,16 +422,16 @@ fn node_to_span<T: Theme>(
         Style::default()
     };
 
-    if extra.contains(MdModifier::Emphasis) {
+    if modifiers.contains(MdModifier::Emphasis) {
         style = style.patch(theme.emphasis_style());
     }
-    if extra.contains(MdModifier::StrongEmphasis) {
+    if modifiers.contains(MdModifier::StrongEmphasis) {
         style = style.patch(theme.strong_emphasis_style());
     }
-    if extra.contains(MdModifier::Strikethrough) {
+    if modifiers.contains(MdModifier::Strikethrough) {
         style = style.patch(theme.strikethrough_style());
     }
-    if extra.contains(MdModifier::Link) {
+    if modifiers.contains(MdModifier::Link) {
         style = style.patch(theme.link_description_style());
     }
 
@@ -429,5 +439,73 @@ fn node_to_span<T: Theme>(
         RatatuiSpan::from(content)
     } else {
         RatatuiSpan::styled(content, style)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::*;
+
+    /// Test that Tag::Link uses source_content for split URLs
+    #[test]
+    fn split_url_tag_uses_source_content() {
+        let full_url = "https://example.com/path";
+        let source: Arc<str> = Arc::from(full_url);
+
+        // Simulate a URL that was split across multiple spans due to wrapping
+        let md_line = MdLine {
+            spans: vec![
+                Span::new("See ".into(), MdModifier::empty()),
+                Span::new("(".into(), MdModifier::LinkURLWrapper),
+                Span::with_source("https://".into(), MdModifier::LinkURL, source.clone()),
+                Span::with_source("example".into(), MdModifier::LinkURL, source.clone()),
+                Span::with_source(".com/path".into(), MdModifier::LinkURL, source.clone()),
+                Span::new(")".into(), MdModifier::LinkURLWrapper),
+            ],
+            kind: LineKind::Paragraph,
+        };
+
+        let (_line, tags) = render_line(md_line, &DefaultTheme);
+
+        // Should have 3 Link tags (one for each URL span), all with the full URL
+        let link_tags: Vec<_> = tags
+            .iter()
+            .filter_map(|t| {
+                if let Tag::Link(_, url) = t {
+                    Some(url.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert_eq!(link_tags.len(), 3);
+        assert!(link_tags.iter().all(|url| *url == full_url));
+    }
+
+    /// Test that Tag::Link falls back to content when source_content is None
+    #[test]
+    fn url_tag_without_source_content() {
+        let md_line = MdLine {
+            spans: vec![Span::new("https://example.com".into(), MdModifier::LinkURL)],
+            kind: LineKind::Paragraph,
+        };
+
+        let (_line, tags) = render_line(md_line, &DefaultTheme);
+
+        let link_tags: Vec<_> = tags
+            .iter()
+            .filter_map(|t| {
+                if let Tag::Link(_, url) = t {
+                    Some(url.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert_eq!(link_tags, vec!["https://example.com"]);
     }
 }

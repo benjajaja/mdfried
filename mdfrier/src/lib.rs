@@ -777,6 +777,8 @@ impl RawLineProcessor {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use pretty_assertions::assert_eq;
 
@@ -958,14 +960,15 @@ Quote break.
             &DefaultMapper,
         );
         let spans: Vec<_> = lines.into_iter().flat_map(|l| l.spans).collect();
+        let url_source: Arc<str> = Arc::from("https://example.com/path");
         assert_eq!(
             spans,
             vec![
                 Span::new("See ".into(), Modifier::empty()),
                 Span::new("(".into(), Modifier::LinkURLWrapper),
-                Span::new("https://".into(), Modifier::LinkURL),
-                Span::new("example.com/".into(), Modifier::LinkURL),
-                Span::new("path".into(), Modifier::LinkURL),
+                Span::with_source("https://".into(), Modifier::LinkURL, url_source.clone()),
+                Span::with_source("example.com/".into(), Modifier::LinkURL, url_source.clone()),
+                Span::with_source("path".into(), Modifier::LinkURL, url_source.clone()),
                 Span::new(")".into(), Modifier::LinkURLWrapper),
                 Span::new(" ok?".into(), Modifier::empty()),
             ]

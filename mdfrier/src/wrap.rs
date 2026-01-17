@@ -55,7 +55,12 @@ pub(crate) fn wrap_md_spans(
                     s.modifiers.contains(Modifier::LinkURL) && s.modifiers.contains(Modifier::Image)
                 })
                 .map(|s| ImageRef {
-                    url: s.content.clone(),
+                    // Use source_content if available (for wrapped/split URLs), otherwise content
+                    url: s
+                        .source_content
+                        .as_ref()
+                        .map(|arc| arc.to_string())
+                        .unwrap_or_else(|| s.content.clone()), // TODO: log or panic?
                     description: String::new(),
                 })
                 .collect();
@@ -152,7 +157,12 @@ pub(crate) fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>) -> Vec<Vec<Spa
                     } else {
                         extra.remove(Modifier::NewLine);
                     }
-                    line.push(Span::new(part_content, extra));
+                    // Preserve source_content when splitting spans (for wrapped URLs)
+                    line.push(Span {
+                        content: part_content,
+                        modifiers: extra,
+                        source_content: mdspan.source_content.clone(),
+                    });
                     line_width += part_width;
                 }
             } else {

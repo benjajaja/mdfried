@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::sync::Arc;
 
 use bitflags::bitflags;
 use regex::Regex;
@@ -424,6 +425,9 @@ bitflags! {
 pub struct Span {
     pub content: String,
     pub modifiers: Modifier,
+    /// Original full content for spans that may be split (e.g., URLs that wrap across lines).
+    /// When present, this should be used instead of `content` for semantic purposes like link targets.
+    pub source_content: Option<Arc<str>>,
 }
 
 impl Span {
@@ -431,6 +435,16 @@ impl Span {
         Span {
             content,
             modifiers: extra,
+            source_content: None,
+        }
+    }
+
+    /// Create a span with source content (for URLs that may be split across lines).
+    pub fn with_source(content: String, modifiers: Modifier, source: Arc<str>) -> Self {
+        Span {
+            content,
+            modifiers,
+            source_content: Some(source),
         }
     }
 
@@ -449,7 +463,11 @@ impl Span {
 
 impl From<String> for Span {
     fn from(value: String) -> Self {
-        Self::new(value, Modifier::default())
+        Span {
+            content: value,
+            modifiers: Modifier::default(),
+            source_content: None,
+        }
     }
 }
 
@@ -629,9 +647,12 @@ fn inline_node_to_spans(node: Node, source: &str, extra: Modifier, _depth: usize
         "inline_link" => Modifier::Link,
         "image" => Modifier::Image,
         "link_destination" => {
-            return vec![Span::new(
-                source[node.byte_range()].to_owned(),
+            let url = source[node.byte_range()].to_owned();
+            let source_content = Arc::from(url.as_str());
+            return vec![Span::with_source(
+                url,
                 extra.union(Modifier::LinkURL),
+                source_content,
             )];
         }
         _ => Modifier::default(),
@@ -744,9 +765,12 @@ fn detect_bare_urls(mdspans: Vec<Span>) -> Vec<Span> {
             result.push(Span::new("(".to_owned(), wrapper_mods));
 
             // The URL itself - marked as LinkURL (never first, wrapper is always before)
-            result.push(Span::new(
-                mat.as_str().to_owned(),
+            let url = mat.as_str().to_owned();
+            let source_content = Arc::from(url.as_str());
+            result.push(Span::with_source(
+                url,
                 base_modifiers | Modifier::LinkURL,
+                source_content,
             ));
 
             // Closing wrapper
@@ -801,6 +825,8 @@ fn split_newlines(mdspans: Vec<Span>) -> Vec<Span> {
                 } else {
                     mdspan.modifiers.union(Modifier::NewLine)
                 },
+                // Preserve source_content across all split parts
+                source_content: mdspan.source_content.clone(),
             });
         }
     }
