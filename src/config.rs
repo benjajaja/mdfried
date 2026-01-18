@@ -28,7 +28,10 @@ impl From<UserConfig> for Config {
             watch_debounce_milliseconds: uc.watch_debounce_milliseconds.unwrap_or(100),
             enable_mouse_capture: uc.enable_mouse_capture.unwrap_or(false),
             debug_override_protocol_type: uc.debug_override_protocol_type,
-            theme: uc.theme.unwrap_or_default(),
+            theme: uc.theme.unwrap_or_else(|| Theme {
+                hide_urls: Some(true),
+                ..Default::default()
+            }),
         }
     }
 }
@@ -67,6 +70,9 @@ pub struct Theme {
     pub hr_color: Option<Color>,
     pub table_border_color: Option<Color>,
     pub table_header_color: Option<Color>,
+
+    // Other options
+    pub hide_urls: Option<bool>,
 }
 
 // Delegate to StyledMapper for defaults
@@ -167,6 +173,9 @@ impl mdfrier::Mapper for Theme {
     }
     fn strikethrough_close(&self) -> &str {
         STYLED.strikethrough_close()
+    }
+    fn hide_urls(&self) -> bool {
+        self.hide_urls.unwrap_or(false)
     }
 }
 

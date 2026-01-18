@@ -407,7 +407,12 @@ fn apply_mapper_to_spans<M: Mapper>(spans: Vec<Span>, mapper: &M) -> Vec<Span> {
             };
         }
 
-        result.push(span);
+        let skip = span.modifiers.intersects(Modifier::LinkURL)
+            && !span.modifiers.contains(Modifier::BareLink)
+            && mapper.hide_urls();
+        if !skip {
+            result.push(span);
+        }
 
         prev_emphasis = has_emphasis;
         prev_strong = has_strong;

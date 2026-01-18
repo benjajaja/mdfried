@@ -396,24 +396,25 @@ bitflags! {
         const StrongEmphasis = 1 << 1;
         const Code = 1 << 2;
         const Link = 1 << 3;
-        const LinkDescription = 1 << 4;
-        const LinkDescriptionWrapper = 1 << 5;
-        const LinkURL = 1 << 6;
-        const LinkURLWrapper = 1 << 7;
-        const Image = 1 << 8;
-        const NewLine = 1 << 9;
+        const BareLink = 1 << 4;
+        const LinkDescription = 1 << 5;
+        const LinkDescriptionWrapper = 1 << 6;
+        const LinkURL = 1 << 7;
+        const LinkURLWrapper = 1 << 8;
+        const Image = 1 << 9;
+        const NewLine = 1 << 10;
         // Prefix/structural elements (added for mapper support)
-        const BlockquoteBar = 1 << 10;
-        const ListMarker = 1 << 11;
-        const TableBorder = 1 << 12;
-        const HorizontalRule = 1 << 13;
+        const BlockquoteBar = 1 << 11;
+        const ListMarker = 1 << 12;
+        const TableBorder = 1 << 13;
+        const HorizontalRule = 1 << 14;
         // Wrapper elements for decorators
-        const EmphasisWrapper = 1 << 14;
-        const StrongEmphasisWrapper = 1 << 15;
-        const CodeWrapper = 1 << 16;
+        const EmphasisWrapper = 1 << 15;
+        const StrongEmphasisWrapper = 1 << 16;
+        const CodeWrapper = 1 << 17;
         // Strikethrough
-        const Strikethrough = 1 << 17;
-        const StrikethroughWrapper = 1 << 18;
+        const Strikethrough = 1 << 18;
+        const StrikethroughWrapper = 1 << 19;
     }
 }
 
@@ -817,7 +818,10 @@ fn detect_bare_urls(mdspans: Vec<Span>) -> Vec<Span> {
 
             // The URL itself - marked as LinkURL (never first, wrapper is always before)
             let url = mat.as_str().to_owned();
-            result.push(Span::link(url, base_modifiers | Modifier::LinkURL));
+            result.push(Span::link(
+                url,
+                base_modifiers | Modifier::LinkURL | Modifier::BareLink,
+            ));
 
             // Closing wrapper
             result.push(Span::new(

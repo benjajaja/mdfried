@@ -195,6 +195,10 @@ pub trait Mapper {
     fn strikethrough_close(&self) -> &str {
         "~~"
     }
+
+    fn hide_urls(&self) -> bool {
+        false
+    }
 }
 
 /// Default mapper preserving markdown decorators.
