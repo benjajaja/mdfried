@@ -1,5 +1,7 @@
 Render and style markdown in a terminal.
 
+**NOTE**: This crate is not used by [mdfried](https://github.com/benjajaja/mdfried) anymore, so it is not actively maintained. The replacement is [mdfrier](https://crates.io/crates/mdfrier), which has slightly more features and should be well-tested by mdfried.
+
 > How hard can it be?
 
 Well, as it turns out, rendering from markdown *AST* (which you get from the myriad of parsing

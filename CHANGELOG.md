@@ -19,6 +19,7 @@
 
 ### Removed
 - `chafa-libload` feature, has been removed from ratatui-image. Simply use halfblocks directly.
+- `ratskin` as workspace, as it has been superseded by `mdfrier`.
 
 ## [0.17.4] - 2025-12-25
 
