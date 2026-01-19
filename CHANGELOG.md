@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-01-19
+
 ### Added
 - Movement-count, similar to vim, typing a number N before a movement repeats the movement N times.
 
