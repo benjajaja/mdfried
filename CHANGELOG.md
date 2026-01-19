@@ -2,11 +2,20 @@
 
 ## [Unreleased]
 
+### Added
+- Movement-count, similar to vim, typing a number N before a movement repeats the movement N times.
+
 ### Changed
 - Use tree-sitter / tree-sitter-md for markdown parsing.
   - Added workspace / crate `mdfrier` that deals with markdown parsing.
   - Flow: `Parse markdown -> Map formatting / decorators -> Wrap lines -> Stylize`
   - Prepares groundwork for various bugfixes that need deeper insight into the markdown source.
+  - New "theme" config.
+  - Updated to ratatui v0.30.0 and latest ratatui-image.
+
+### Fixed
+- Linewrapped links are now recognized.
+- Search matches rendering over status line.
 
 ### Removed
 - `chafa-libload` feature, has been removed from ratatui-image. Simply use halfblocks directly.
