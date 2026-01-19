@@ -1,6 +1,6 @@
 [package]
 name = "ratskin"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 authors = ["Benjamin Große <ste3ls@gmail.com>"]
 description = "A wrapper around termimad that produces ratatui widgets from markdown"
