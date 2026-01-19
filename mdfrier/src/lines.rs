@@ -1,3 +1,4 @@
+use textwrap::{Options, wrap};
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
@@ -207,24 +208,67 @@ pub(crate) fn section_to_raw_lines(width: u16, section: &MdSection) -> Vec<RawLi
             if num_lines == 0 {
                 return vec![];
             }
-            let mut result = Vec::with_capacity(num_lines);
-            let last_idx = num_lines - 1;
+
+            // Calculate available width for wrapping
+            let prefix_width: usize = nesting
+                .iter()
+                .map(|c| match c {
+                    MdLineContainer::Blockquote => 2,
+                    MdLineContainer::ListItem { marker, .. } => marker.width(),
+                })
+                .sum();
+            let available_width = (width as usize).saturating_sub(prefix_width).max(1);
+
+            let mut result = Vec::new();
+            let last_source_idx = num_lines - 1;
             let mut nesting_owned = Some(nesting);
-            for (i, line) in code_lines.into_iter().enumerate() {
-                let is_last = i == last_idx;
-                result.push(RawLine {
-                    spans: vec![Span::from(line.to_owned())],
-                    meta: LineMeta {
-                        kind: RawLineKind::CodeBlock {
-                            language: language.clone(),
+
+            for (source_idx, line) in code_lines.into_iter().enumerate() {
+                let is_last_source = source_idx == last_source_idx;
+                let line_width = line.width();
+
+                if line_width > available_width {
+                    // Wrap this line
+                    let options = Options::new(available_width)
+                        .break_words(true)
+                        .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation);
+                    let parts: Vec<_> = wrap(line, options).into_iter().collect();
+                    let num_parts = parts.len();
+                    let last_part_idx = num_parts.saturating_sub(1);
+
+                    for (part_idx, part) in parts.into_iter().enumerate() {
+                        let is_last_part = part_idx == last_part_idx;
+                        let is_last = is_last_source && is_last_part;
+                        result.push(RawLine {
+                            spans: vec![Span::from(part.into_owned())],
+                            meta: LineMeta {
+                                kind: RawLineKind::CodeBlock {
+                                    language: language.clone(),
+                                },
+                                nesting: if is_last {
+                                    nesting_owned.take().expect("is_last holds true")
+                                } else {
+                                    nesting_owned.as_ref().expect("is_last holds true").clone()
+                                },
+                            },
+                        });
+                    }
+                } else {
+                    // Line fits, no wrapping needed
+                    result.push(RawLine {
+                        spans: vec![Span::from(line.to_owned())],
+                        meta: LineMeta {
+                            kind: RawLineKind::CodeBlock {
+                                language: language.clone(),
+                            },
+                            nesting: if is_last_source {
+                                nesting_owned.take().expect("is_last holds true")
+                            } else {
+                                nesting_owned.as_ref().expect("is_last holds true").clone()
+                            },
                         },
-                        nesting: if is_last {
-                            nesting_owned.take().expect("is_last holds true")
-                        } else {
-                            nesting_owned.as_ref().expect("is_last holds true").clone()
-                        },
-                    },
-                });
+                    });
+                }
             }
             result
         }
