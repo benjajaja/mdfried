@@ -407,7 +407,9 @@ fn apply_mapper_to_spans<M: Mapper>(spans: Vec<Span>, mapper: &M) -> Vec<Span> {
             };
         }
 
-        let skip = span.modifiers.intersects(Modifier::LinkURL)
+        let skip = span
+            .modifiers
+            .intersects(Modifier::LinkURL | Modifier::LinkURLWrapper)
             && !span.modifiers.contains(Modifier::BareLink)
             && mapper.hide_urls();
         if !skip {
@@ -963,9 +965,21 @@ Quote break.
             vec![
                 Span::new("See ".into(), Modifier::empty()),
                 Span::new("(".into(), Modifier::LinkURLWrapper),
-                Span::source_link("https://".into(), Modifier::LinkURL, url_source.clone()),
-                Span::source_link("example.com/".into(), Modifier::LinkURL, url_source.clone()),
-                Span::source_link("path".into(), Modifier::LinkURL, url_source.clone()),
+                Span::source_link(
+                    "https://".into(),
+                    Modifier::LinkURL | Modifier::BareLink,
+                    url_source.clone()
+                ),
+                Span::source_link(
+                    "example.com/".into(),
+                    Modifier::LinkURL | Modifier::BareLink,
+                    url_source.clone()
+                ),
+                Span::source_link(
+                    "path".into(),
+                    Modifier::LinkURL | Modifier::BareLink,
+                    url_source.clone()
+                ),
                 Span::new(")".into(), Modifier::LinkURLWrapper),
                 Span::new(" ok?".into(), Modifier::empty()),
             ]
@@ -1050,5 +1064,39 @@ Quote break.
         let lines = frier.parse(5, input, &DefaultMapper);
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].spans[0].content, "abcde");
+    }
+
+    #[test]
+    fn hide_urls() {
+        let mut frier = MdFrier::new().unwrap();
+        struct HideUrlsMapper {}
+        impl Mapper for HideUrlsMapper {
+            fn hide_urls(&self) -> bool {
+                true
+            }
+        }
+        let mapper = HideUrlsMapper {};
+        let lines = frier.parse(80, "[desc](https://url)", &mapper);
+        assert_eq!(lines.len(), 1);
+
+        let url_source = SourceContent::from("https://url");
+        assert_eq!(
+            lines[0].spans,
+            vec![
+                Span::new(
+                    "[".into(),
+                    Modifier::Link | Modifier::LinkDescriptionWrapper
+                ),
+                Span::source_link(
+                    "desc".into(),
+                    Modifier::Link | Modifier::LinkDescription,
+                    url_source.clone()
+                ),
+                Span::new(
+                    "]".into(),
+                    Modifier::Link | Modifier::LinkDescriptionWrapper
+                ),
+            ]
+        );
     }
 }

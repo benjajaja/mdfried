@@ -88,12 +88,20 @@ impl mdfrier::Mapper for Theme {
     fn link_desc_open(&self) -> &str {
         self.link_desc_open
             .as_deref()
-            .unwrap_or(STYLED.link_desc_open())
+            .unwrap_or(if self.hide_urls() {
+                ""
+            } else {
+                STYLED.link_desc_open()
+            })
     }
     fn link_desc_close(&self) -> &str {
         self.link_desc_close
             .as_deref()
-            .unwrap_or(STYLED.link_desc_close())
+            .unwrap_or(if self.hide_urls() {
+                ""
+            } else {
+                STYLED.link_desc_close()
+            })
     }
     fn link_url_open(&self) -> &str {
         self.link_url_open
@@ -175,7 +183,7 @@ impl mdfrier::Mapper for Theme {
         STYLED.strikethrough_close()
     }
     fn hide_urls(&self) -> bool {
-        self.hide_urls.unwrap_or(false)
+        self.hide_urls.unwrap_or(true)
     }
 }
 

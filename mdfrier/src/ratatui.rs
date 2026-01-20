@@ -118,7 +118,10 @@ pub trait Theme: Mapper {
 
     /// Style for link description text.
     fn link_description_style(&self) -> Style {
-        Style::default().fg(self.link_fg()).bg(self.link_bg())
+        Style::default()
+            .fg(self.link_fg())
+            .bg(self.link_bg())
+            .underlined()
     }
 
     /// Style for link bracket wrappers.
@@ -316,7 +319,10 @@ pub fn render_line<T: Theme>(md_line: MdLine, theme: &T) -> (Line<'static>, Vec<
 
     for node in spans {
         // Track links for tags
-        if node.modifiers.contains(MdModifier::LinkURL)
+        if (node.modifiers.contains(MdModifier::LinkDescription)
+            || node
+                .modifiers
+                .intersects(MdModifier::BareLink | MdModifier::LinkURL))
             && !node.modifiers.contains(MdModifier::LinkURLWrapper)
         {
             // Use source_content if available (for wrapped/split URLs), otherwise content
@@ -412,17 +418,16 @@ fn node_to_span<T: Theme>(
         return RatatuiSpan::styled(content, theme.link_url_style());
     }
 
-    // Handle link description
-    if modifiers.contains(MdModifier::LinkDescription) {
-        return RatatuiSpan::styled(content, theme.link_description_style());
-    }
-
     // Build style from modifiers
     let mut style = if is_table_header {
         theme.table_header_style()
     } else {
         Style::default()
     };
+
+    if modifiers.contains(MdModifier::LinkDescription) {
+        style = style.patch(theme.link_description_style());
+    }
 
     if modifiers.contains(MdModifier::Emphasis) {
         style = style.patch(theme.emphasis_style());

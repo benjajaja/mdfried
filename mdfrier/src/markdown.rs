@@ -161,7 +161,8 @@ impl<'a> MdIterator<'a> {
                     .filter(|(_, c)| matches!(c, MdContainer::Blockquote(_)))
                     .count();
 
-                let mdspans = inline_node_to_spans(tree.root_node(), text, Modifier::default(), 0);
+                let (mdspans, _) =
+                    inline_node_to_spans(tree.root_node(), text, Modifier::default(), 0);
                 let mdspans = split_newlines(mdspans);
                 let mdspans = detect_bare_urls(mdspans);
                 // Strip blockquote markers from line-start spans and filter empty/marker-only spans
@@ -304,7 +305,7 @@ impl<'a> MdIterator<'a> {
                 if cell_text.is_empty() {
                     cells.push(Vec::new());
                 } else if let Some(tree) = self.inline_parser.parse(cell_text, None) {
-                    let mdspans =
+                    let (mdspans, _) =
                         inline_node_to_spans(tree.root_node(), cell_text, Modifier::default(), 0);
                     let mdspans = detect_bare_urls(mdspans);
                     cells.push(mdspans);
@@ -440,12 +441,12 @@ impl Span {
     }
 
     /// Create a span with source content (for URLs that may be split across lines).
-    pub fn link(content: String, modifiers: Modifier) -> Self {
+    pub fn link(content: String, modifiers: Modifier, url: Option<SourceContent>) -> Self {
         debug_assert!(
             modifiers.contains(Modifier::LinkURL),
             "link requires LinkURL"
         );
-        let source_content = SourceContent::from(content.as_ref());
+        let source_content = url.unwrap_or_else(|| SourceContent::from(content.as_ref()));
         Span {
             content,
             modifiers,
@@ -454,15 +455,12 @@ impl Span {
     }
 
     /// Create a span with source content (for URLs that may be split across lines).
+    #[cfg(test)]
     pub fn source_link(
         content: String,
         modifiers: Modifier,
         source_content: SourceContent,
     ) -> Self {
-        debug_assert!(
-            modifiers.contains(Modifier::LinkURL),
-            "source_link requires LinkURL"
-        );
         Span {
             content,
             modifiers,
@@ -674,12 +672,22 @@ fn is_blockquote_marker_only(s: &str) -> bool {
     has_space
 }
 
+/// Convert an inline node to Spans, recursively.
+///
+/// Returns list of spans. The second item of the tuple is just used internally to lift
+/// [`SourceContent`] URLs into the link descriptions too. This allows mapper/themes to hide the
+/// URL part entirely.
 #[expect(clippy::string_slice)]
-fn inline_node_to_spans(node: Node, source: &str, extra: Modifier, _depth: usize) -> Vec<Span> {
+fn inline_node_to_spans(
+    node: Node,
+    source: &str,
+    extra: Modifier,
+    _depth: usize,
+) -> (Vec<Span>, Option<SourceContent>) {
     let kind = node.kind();
 
     if kind.contains("delimiter") {
-        return vec![];
+        return (vec![], None);
     }
 
     let current_extra = match kind {
@@ -690,11 +698,17 @@ fn inline_node_to_spans(node: Node, source: &str, extra: Modifier, _depth: usize
             // Strip the backtick delimiters from code span content
             let content = &source[node.byte_range()];
             let stripped = content.trim_start_matches('`').trim_end_matches('`').trim(); // Also trim inner whitespace that some code spans have
-            return vec![Span::new(stripped.to_owned(), extra.union(Modifier::Code))];
+            return (
+                vec![Span::new(stripped.to_owned(), extra.union(Modifier::Code))],
+                None,
+            );
         }
         "hard_line_break" | "soft_break" => {
             // GFM hard line break (two trailing spaces + newline) or soft break
-            return vec![Span::new(String::new(), extra.union(Modifier::NewLine))];
+            return (
+                vec![Span::new(String::new(), extra.union(Modifier::NewLine))],
+                None,
+            );
         }
         "[" | "]" => Modifier::LinkDescriptionWrapper,
         "(" | ")" => Modifier::LinkURLWrapper,
@@ -703,7 +717,15 @@ fn inline_node_to_spans(node: Node, source: &str, extra: Modifier, _depth: usize
         "image" => Modifier::Image,
         "link_destination" => {
             let url = source[node.byte_range()].to_owned();
-            return vec![Span::link(url, extra.union(Modifier::LinkURL))];
+            let source_content = SourceContent::from(url.as_ref());
+            return (
+                vec![Span::link(
+                    url,
+                    extra.union(Modifier::LinkURL),
+                    Some(source_content.clone()),
+                )],
+                Some(source_content),
+            );
         }
         _ => Modifier::default(),
     };
@@ -716,10 +738,13 @@ fn inline_node_to_spans(node: Node, source: &str, extra: Modifier, _depth: usize
     };
 
     if node.child_count() == 0 {
-        return vec![Span::new(
-            source[newline_offset + node.start_byte()..node.end_byte()].to_owned(),
-            extra,
-        )];
+        return (
+            vec![Span::new(
+                source[newline_offset + node.start_byte()..node.end_byte()].to_owned(),
+                extra,
+            )],
+            None,
+        );
     }
 
     let mut spans = Vec::new();
@@ -741,7 +766,17 @@ fn inline_node_to_spans(node: Node, source: &str, extra: Modifier, _depth: usize
         } else {
             extra
         };
-        spans.extend(inline_node_to_spans(child, source, extra, _depth + 1));
+
+        let (child_spans, source_content) = inline_node_to_spans(child, source, extra, _depth + 1);
+        if let Some(source_content) = source_content {
+            if let Some(desc) = spans
+                .iter_mut()
+                .find(|span| span.modifiers.contains(Modifier::LinkDescription))
+            {
+                desc.source_content = Some(source_content);
+            }
+        }
+        spans.extend(child_spans);
         pos = child.end_byte();
     }
 
@@ -749,7 +784,7 @@ fn inline_node_to_spans(node: Node, source: &str, extra: Modifier, _depth: usize
         spans.push(Span::new(source[pos..node.end_byte()].to_owned(), extra));
     }
 
-    spans
+    (spans, None)
 }
 
 #[inline]
@@ -821,6 +856,7 @@ fn detect_bare_urls(mdspans: Vec<Span>) -> Vec<Span> {
             result.push(Span::link(
                 url,
                 base_modifiers | Modifier::LinkURL | Modifier::BareLink,
+                None,
             ));
 
             // Closing wrapper

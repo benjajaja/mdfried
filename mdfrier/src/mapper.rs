@@ -196,6 +196,10 @@ pub trait Mapper {
         "~~"
     }
 
+    /// Hide URLs of links
+    ///
+    /// Except bare links, can make something like `[click me](http://example.com)` into just
+    /// `[click me]`.
     fn hide_urls(&self) -> bool {
         false
     }

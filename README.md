@@ -15,7 +15,7 @@ https://github.com/user-attachments/assets/e69154a7-bea8-4e14-a677-be7ccf0d3cac
 
 # Why?
 
-You can [cook](https://ratatui.rs/) a terminal. But can you **deep fry** a terminal?
+You can *[cook](https://ratatui.rs/)* a terminal. But can you **deep fry** a terminal?
 *YES!* You can **cook *and* fry** your `tty`! ~~Run before it's too late!~~
 
 > The terminal is usually in "cooked" mode, or canonical mode.
