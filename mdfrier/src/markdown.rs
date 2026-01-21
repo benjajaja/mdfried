@@ -769,6 +769,9 @@ fn inline_node_to_spans(
 
         let (child_spans, source_content) = inline_node_to_spans(child, source, extra, _depth + 1);
         if let Some(source_content) = source_content {
+            // This is why we return Option<SourceContent>, *only* LinkURL spans return
+            // Some(SourceContent). That is, if there was some other SourceContent on some spans,
+            // it should NOT be returned (without changing this block).
             if let Some(desc) = spans
                 .iter_mut()
                 .find(|span| span.modifiers.contains(Modifier::LinkDescription))

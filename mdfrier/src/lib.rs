@@ -407,12 +407,15 @@ fn apply_mapper_to_spans<M: Mapper>(spans: Vec<Span>, mapper: &M) -> Vec<Span> {
             };
         }
 
-        let skip = span
-            .modifiers
-            .intersects(Modifier::LinkURL | Modifier::LinkURLWrapper)
-            && !span.modifiers.contains(Modifier::BareLink)
-            && mapper.hide_urls();
-        if !skip {
+        // Hide (omit) URL spans if configured so, is LinkURL or LinkURLWrapper (e.g. the
+        // `(http://url)` part, and this is not a BareLink. Bare links have no description, so
+        // there's nothing we can omit.
+        let hide = mapper.hide_urls()
+            && span
+                .modifiers
+                .intersects(Modifier::LinkURL | Modifier::LinkURLWrapper)
+            && !span.modifiers.contains(Modifier::BareLink);
+        if !hide {
             result.push(span);
         }
 

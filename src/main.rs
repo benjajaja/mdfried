@@ -36,6 +36,7 @@ use ratatui::{
     widgets::{Block, Paragraph, Widget},
 };
 
+use mdfrier::Mapper as _;
 use ratatui_image::{Image, picker::ProtocolType};
 use setup::{SetupResult, setup_graphics};
 
@@ -433,7 +434,10 @@ fn view(model: &Model, frame: &mut Frame) {
     let mut cursor_positioned = None;
 
     // Get the selected link URL if in Links mode (for highlighting all spans of wrapped URLs)
-    let selected_url = model.selected_link_url();
+    let selected_url = match &model.cursor {
+        Cursor::Links(pointer) => model.selected_link_url(pointer),
+        _ => None,
+    };
 
     let mut y: i16 = 0 - (model.scroll as i16);
     for section in model.sections() {
@@ -523,8 +527,19 @@ fn view(model: &Model, frame: &mut Frame) {
         InputQueue::None => match &model.cursor {
             Cursor::None => frame.set_cursor_position((0, frame_area.height - 1)),
             Cursor::Links(_) => {
-                let mut line = Line::default();
-                line.spans.push(Span::from("Links").fg(Color::Indexed(32)));
+                let (fg, bg) = (Color::Indexed(15), Color::Indexed(32));
+                let line = if model.theme().hide_urls()
+                    && let Some(selected_url) = selected_url
+                {
+                    let url_display = selected_url.as_ref().to_owned();
+                    Line::from(vec![
+                        Span::from(model.theme().link_url_open()).fg(bg),
+                        Span::from(url_display).fg(fg).bg(bg),
+                        Span::from(model.theme().link_url_close()).fg(bg),
+                    ])
+                } else {
+                    Line::from(Span::from("Links").fg(Color::Indexed(32)))
+                };
                 let width = line.width() as u16;
                 let searchbar = Paragraph::new(line);
                 frame.render_widget(searchbar, Rect::new(0, frame_area.height - 1, width, 1));

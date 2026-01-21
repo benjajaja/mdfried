@@ -18,7 +18,7 @@ use regex::RegexBuilder;
 
 use crate::{
     Cmd,
-    config::{Config, PaddingConfig},
+    config::{Config, PaddingConfig, Theme},
     cursor::{Cursor, CursorPointer},
     document::{Document, FindMode, FindTarget, LineExtra, Section, SectionContent},
     error::Error,
@@ -362,14 +362,8 @@ impl Model {
     }
 
     /// Returns the URL of the currently selected link, if any.
-    pub fn selected_link_url(&self) -> Option<SourceContent> {
-        let Cursor::Links(CursorPointer { id, index }) = &self.cursor else {
-            return None;
-        };
-        self.url_at_pointer(&CursorPointer {
-            id: *id,
-            index: *index,
-        })
+    pub fn selected_link_url(&self, pointer: &CursorPointer) -> Option<SourceContent> {
+        self.url_at_pointer(pointer)
     }
 
     /// Returns the URL at a given cursor pointer, if it points to a link.
@@ -513,6 +507,10 @@ impl Model {
 
     pub fn sections(&self) -> impl Iterator<Item = &Section> {
         self.document.iter()
+    }
+
+    pub fn theme(&self) -> &Theme {
+        &self.config.theme
     }
 }
 
