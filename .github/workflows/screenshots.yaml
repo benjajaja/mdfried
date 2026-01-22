@@ -148,7 +148,7 @@ jobs:
       - name: Read PR number
         id: pr
         run: |
-          PR_NUMBER=$(cat pr-number/pr-number.txt)
+          PR_NUMBER=$(cat pr-number.txt)
           echo "number=$PR_NUMBER" >> $GITHUB_OUTPUT
 
       - name: Deploy to external repo
