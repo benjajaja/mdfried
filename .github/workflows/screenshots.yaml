@@ -18,12 +18,14 @@ jobs:
       actions: read  # Needed to download artifacts from another workflow
     steps:
       - name: Download all screenshot artifacts
-        uses: actions/download-artifact@v4
+        uses: dawidd6/action-download-artifact@v6
         with:
-          pattern: screenshot-*
+          workflow: build.yml
+          run_id: ${{ github.event.workflow_run.id }}
+          name: screenshot-*
+          name_is_regexp: true
           path: screenshots
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ github.token }}
+          github_token: ${{ github.token }}
 
       - name: Get terminal list from artifacts
         id: terminals
@@ -135,16 +137,18 @@ jobs:
           done
 
       - name: Download PR number artifact
-        uses: actions/download-artifact@v4
+        uses: dawidd6/action-download-artifact@v6
         with:
+          workflow: build.yml
+          run_id: ${{ github.event.workflow_run.id }}
           name: pr-number
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ github.token }}
+          path: .
+          github_token: ${{ github.token }}
 
       - name: Read PR number
         id: pr
         run: |
-          PR_NUMBER=$(cat pr-number.txt)
+          PR_NUMBER=$(cat pr-number/pr-number.txt)
           echo "number=$PR_NUMBER" >> $GITHUB_OUTPUT
 
       - name: Deploy to external repo
@@ -217,13 +221,14 @@ jobs:
       actions: read
     steps:
       - name: Download all screenshot artifacts
-        uses: actions/download-artifact@v4
+        uses: dawidd6/action-download-artifact@v6
         with:
-          pattern: screenshot-*
+          workflow: build.yml
+          run_id: ${{ github.event.workflow_run.id }}
+          name: screenshot-*
+          name_is_regexp: true
           path: screenshots
-          merge-multiple: false
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ github.token }}
+          github_token: ${{ github.token }}
 
       - name: Get terminal list from artifacts
         id: terminals
