@@ -17,21 +17,20 @@ jobs:
       pull-requests: write
       actions: read  # Needed to download artifacts from another workflow
     steps:
-      - name: Download all screenshot artifacts
+      - name: Download screenshots artifact
         uses: dawidd6/action-download-artifact@v6
         with:
           workflow: build.yml
           run_id: ${{ github.event.workflow_run.id }}
-          name: screenshot-*
-          name_is_regexp: true
+          name: screenshots
           path: screenshots
           github_token: ${{ github.token }}
 
-      - name: Get terminal list from artifacts
+      - name: Get terminal list from screenshots
         id: terminals
         run: |
-          # List downloaded artifact directories and extract terminal names
-          terminal_list=$(ls screenshots | sed 's/screenshot-//' | tr '\n' ' ')
+          # List screenshot images and extract terminal names
+          terminal_list=$(ls screenshots/images/screenshot-*.png | xargs -n1 basename | sed 's/screenshot-//;s/\.png//' | tr '\n' ' ')
           echo "list=$terminal_list" >> $GITHUB_OUTPUT
 
       - name: Check for terminal changes
@@ -86,12 +85,12 @@ jobs:
           terminal_list="${{ steps.terminals.outputs.list }}"
 
           for terminal in $terminal_list; do
-            if [ -f "screenshots/screenshot-${terminal}/screenshot-${terminal}.png" ] && [ -f "reference-screenshots/screenshot-${terminal}.png" ]; then
+            if [ -f "screenshots/images/screenshot-${terminal}.png" ] && [ -f "reference-screenshots/screenshot-${terminal}.png" ]; then
               echo "Creating diff for ${terminal}..."
 
               # Run dify and capture exit code (which indicates amount of difference)
               set +e  # Disable exit on error temporarily
-              ./dify "reference-screenshots/screenshot-${terminal}.png" "screenshots/screenshot-${terminal}/screenshot-${terminal}.png"
+              ./dify "reference-screenshots/screenshot-${terminal}.png" "screenshots/images/screenshot-${terminal}.png"
               diff_amount=$?
               set -e  # Re-enable exit on error
               echo "Difference amount for ${terminal}: ${diff_amount}"
@@ -105,7 +104,7 @@ jobs:
               fi
             else
               echo "Missing screenshot files for ${terminal}, skipping diff"
-              if [ ! -f "screenshots/screenshot-${terminal}/screenshot-${terminal}.png" ]; then
+              if [ ! -f "screenshots/images/screenshot-${terminal}.png" ]; then
                 echo "  Missing current screenshot"
               fi
               if [ ! -f "reference-screenshots/screenshot-${terminal}.png" ]; then
@@ -122,8 +121,8 @@ jobs:
           terminal_list="${{ steps.terminals.outputs.list }}"
 
           for terminal in $terminal_list; do
-            if [ -f "screenshots/screenshot-${terminal}/screenshot-${terminal}.png" ]; then
-              cp "screenshots/screenshot-${terminal}/screenshot-${terminal}.png" "pages/screenshot-${terminal}.png"
+            if [ -f "screenshots/images/screenshot-${terminal}.png" ]; then
+              cp "screenshots/images/screenshot-${terminal}.png" "pages/screenshot-${terminal}.png"
               echo "Copied screenshot for ${terminal}"
             fi
           done
@@ -220,75 +219,14 @@ jobs:
       contents: read
       actions: read
     steps:
-      - name: Download all screenshot artifacts
+      - name: Download screenshots artifact
         uses: dawidd6/action-download-artifact@v6
         with:
           workflow: build.yml
           run_id: ${{ github.event.workflow_run.id }}
-          name: screenshot-*
-          name_is_regexp: true
-          path: screenshots
+          name: screenshots
+          path: pages
           github_token: ${{ github.token }}
-
-      - name: Get terminal list from artifacts
-        id: terminals
-        run: |
-          terminal_list=$(ls screenshots | sed 's/screenshot-//' | tr '\n' ' ')
-          echo "list=$terminal_list" >> $GITHUB_OUTPUT
-
-      - name: Organize screenshots for Pages
-        run: |
-          mkdir -p pages/images
-
-          # Move screenshot images to pages/images directory
-          terminal_list="${{ steps.terminals.outputs.list }}"
-
-          for terminal in $terminal_list; do
-            if [ -f "screenshots/screenshot-${terminal}/screenshot-${terminal}.png" ]; then
-              cp "screenshots/screenshot-${terminal}/screenshot-${terminal}.png" "pages/images/screenshot-${terminal}.png"
-              echo "Copied screenshot for ${terminal}"
-            else
-              echo "Warning: Screenshot file not found for ${terminal}"
-            fi
-          done
-
-          # Create an index page with timestamp
-          timestamp=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-          cat > pages/index.html << EOF
-          <!DOCTYPE html>
-          <html>
-          <head>
-            <title>Screenshots</title>
-            <style>
-              body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 2rem; }
-              .terminal { margin: 2rem 0; }
-              img { max-width: 100%; border: 1px solid #ddd; border-radius: 8px; }
-              h1 { text-align: center; }
-              .container { max-width: 1200px; margin: 0 auto; }
-            </style>
-          </head>
-          <body>
-            <div class="container">
-              <h1>mdfried Terminal Screenshots</h1>
-              <p style="text-align: center; color: #666;">Screenshots from various terminal emulators</p>
-              <p style="text-align: center; color: #999; font-size: 0.9em;">Last updated: ${timestamp}</p>
-          EOF
-
-          # Add screenshots to index using local images
-          for terminal in $terminal_list; do
-            echo "<div class='terminal'>" >> pages/index.html
-            echo "<h2 id=\"$terminal\">$terminal</h2>" >> pages/index.html
-
-            # Check if image exists and add to HTML
-            if [ -f "pages/images/screenshot-${terminal}.png" ]; then
-              echo "<img src='images/screenshot-${terminal}.png' alt='$terminal screenshot'>" >> pages/index.html
-            else
-              echo "<p>No screenshot available</p>" >> pages/index.html
-            fi
-            echo "</div>" >> pages/index.html
-          done
-
-          echo "</div></body></html>" >> pages/index.html
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
