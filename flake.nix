@@ -237,6 +237,27 @@
           checks = self.checks.${system};
 
           packages =
+            let
+              screenshotDiffsScript = pkgs.writeShellScriptBin "screenshotDiffs" ''
+                set -e
+
+                echo "Building current screenshots sequentially..."
+                for terminal in foot kitty wezterm alacritty; do
+                  echo "  Building screenshot-test-$terminal..."
+                  nix build ".#screenshot-test-$terminal" --print-build-logs
+                done
+
+                echo "Building master screenshots..."
+                REFERENCE=$(nix build "git+file://$PWD?ref=master#screenshots" --print-out-paths --impure)
+
+                echo "Building diffs..."
+                REFERENCE=$REFERENCE nix build .#screenshotDiffs --impure --print-build-logs
+
+                URL="file://$(readlink -f result)/index.html"
+                echo ""
+                printf '\e]8;;%s\e\\%s\e]8;;\e\\\n' "$URL" "Click here to open in browser"
+              '';
+            in
             with pkgs;
             [
               nixfmt
@@ -245,6 +266,7 @@
               chafa
               glib.dev # for glib-2.0.pc (chafa dependency)
               cargo-insta
+              screenshotDiffsScript
             ]
             ++ lib.optionals pkgs.stdenv.isLinux [
               perf

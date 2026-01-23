@@ -1,10 +1,17 @@
-{ pkgs, src, mdfriedStatic, }:
+{ pkgs, src, mdfriedStatic }:
 
 let
   inherit (pkgs) lib;
 
+  # When REFERENCE is set (building diffs), bust cache with currentTime
+  # Otherwise use normal caching for standalone screenshot builds
+  referenceScreenshotsPath = builtins.getEnv "REFERENCE";
+  timestamp = if referenceScreenshotsPath != ""
+    then toString builtins.currentTime
+    else "";
+
   makeScreenshotTest = { terminal, terminalCommand, terminalPackages, setup ? null, xwayland ? false }: pkgs.testers.nixosTest {
-    name = "mdfried-test-wayland-${terminal}";
+    name = "mdfried-test-wayland-${terminal}${lib.optionalString (timestamp != "") "-${timestamp}"}";
 
     nodes.machine = { pkgs, ... }: {
       virtualisation.memorySize = 4096;
@@ -120,7 +127,7 @@ let
 
   terminals = map (name: lib.removePrefix "screenshot-test-" name) (builtins.attrNames screenshotTests);
 
-  screenshots = pkgs.runCommand "mdfried-screenshots" {
+  screenshots = pkgs.runCommand "mdfried-screenshots${lib.optionalString (timestamp != "") "-${timestamp}"}" {
     buildInputs = builtins.attrValues screenshotTests;
   } ''
     mkdir -p $out/images
@@ -167,5 +174,117 @@ let
     HTMLEOF
   '';
 
+  # Dify binary for image diffing
+  dify = pkgs.fetchurl {
+    url = "https://github.com/jihchi/dify/releases/download/v0.7.4/dify-x86_64-unknown-linux-gnu-v0.7.4.tar.gz";
+    sha256 = "1cc3pzrn1bn88r72957jwznkzjlkblpjylvsv44vnqszragk1f8c";
+  };
+
+  difyBin = pkgs.stdenv.mkDerivation {
+    name = "dify";
+    src = dify;
+    nativeBuildInputs = [ pkgs.autoPatchelfHook pkgs.gnutar pkgs.gzip ];
+    buildInputs = [ pkgs.stdenv.cc.cc.lib ];
+    sourceRoot = ".";
+    unpackPhase = ''
+      tar -xzf $src
+    '';
+    installPhase = ''
+      mkdir -p $out/bin
+      cp dify $out/bin/
+      chmod +x $out/bin/dify
+    '';
+  };
+
+  # Reference screenshots from master branch
+  # Pass via environment variable: REFERENCE=$(nix build "git+file://$PWD?ref=master#screenshots" --print-out-paths --impure)
+  # Then: nix build .#screenshotDiffs --impure
+  hasReference = referenceScreenshotsPath != "";
+  referenceScreenshots = if hasReference then /. + referenceScreenshotsPath else null;
+
+  # Screenshot diffs comparing current screenshots against reference (master)
+  screenshotDiffs = pkgs.runCommand "mdfried-screenshot-diffs" {
+    nativeBuildInputs = [ difyBin ];
+  } ''
+    ${lib.optionalString (!hasReference) ''
+      echo "ERROR: REFERENCE environment variable not set."
+      echo "Run: REFERENCE=\$(nix build \"git+file://\$PWD?ref=master#screenshots\" --print-out-paths --impure) nix build .#screenshotDiffs --impure"
+      exit 1
+    ''}
+
+    mkdir -p $out/images $out/diffs
+
+    # Copy current screenshots
+    ${lib.concatMapStringsSep "\n" (terminal: ''
+      cp ${screenshots}/images/screenshot-${terminal}.png $out/images/screenshot-${terminal}.png
+    '') terminals}
+
+    # Copy reference screenshots
+    ${lib.optionalString hasReference (lib.concatMapStringsSep "\n" (terminal: ''
+      if [ -f "${referenceScreenshots}/images/screenshot-${terminal}.png" ]; then
+        cp "${referenceScreenshots}/images/screenshot-${terminal}.png" "$out/images/reference-${terminal}.png"
+      fi
+    '') terminals)}
+
+    # Create diffs against reference screenshots
+    ${lib.optionalString hasReference (lib.concatMapStringsSep "\n" (terminal: ''
+      if [ -f "${referenceScreenshots}/images/screenshot-${terminal}.png" ]; then
+        echo "Creating diff for ${terminal}..."
+        dify "${referenceScreenshots}/images/screenshot-${terminal}.png" "$out/images/screenshot-${terminal}.png" || true
+        if [ -f "diff.png" ]; then
+          mv diff.png "$out/diffs/diff-${terminal}.png"
+        fi
+      else
+        echo "No reference screenshot for ${terminal}, skipping diff"
+      fi
+    '') terminals)}
+
+    # Generate body.html (shared content, uses IMAGE_BASE_URL placeholder)
+    cat > $out/body.html << 'HTMLEOF'
+<h2>Screenshot Diffs vs Master</h2>
+<p><a href="IMAGE_BASE_URL/index.html">View full comparison</a></p>
+HTMLEOF
+
+    ${lib.concatMapStringsSep "\n" (terminal: ''
+      has_diff=""
+      if [ -f "$out/diffs/diff-${terminal}.png" ]; then
+        has_diff="yes"
+      fi
+
+      cat >> $out/body.html << TERMEOF
+<h3>${terminal}</h3>
+<p><strong>Current:</strong></p>
+<img src="IMAGE_BASE_URL/images/screenshot-${terminal}.png" alt="${terminal} current">
+TERMEOF
+
+      if [ -f "$out/images/reference-${terminal}.png" ]; then
+        cat >> $out/body.html << TERMEOF
+<p><strong>Reference (master):</strong></p>
+<img src="IMAGE_BASE_URL/images/reference-${terminal}.png" alt="${terminal} reference">
+TERMEOF
+      fi
+
+      if [ -n "$has_diff" ]; then
+        cat >> $out/body.html << TERMEOF
+<p><strong>Diff:</strong></p>
+<img src="IMAGE_BASE_URL/diffs/diff-${terminal}.png" alt="${terminal} diff">
+TERMEOF
+      fi
+    '') terminals}
+
+    # Generate index.html (body.html with relative URLs wrapped in html structure)
+    cat > $out/index.html << 'HTMLEOF'
+<!DOCTYPE html>
+<html>
+<head><title>Screenshot Diffs</title></head>
+<body>
+HTMLEOF
+    sed 's|IMAGE_BASE_URL/||g' $out/body.html >> $out/index.html
+    cat >> $out/index.html << 'HTMLEOF'
+</body>
+</html>
+HTMLEOF
+  '';
+
 in
-screenshotTests // { inherit screenshots; }
+screenshotTests // { inherit screenshots screenshotDiffs; }

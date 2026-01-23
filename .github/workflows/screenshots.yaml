@@ -15,125 +15,28 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
-      actions: read  # Needed to download artifacts from another workflow
+      actions: read
     steps:
-      - name: Download screenshots artifact
-        uses: dawidd6/action-download-artifact@v6
+      - name: Checkout Code
+        uses: actions/checkout@v4
         with:
-          workflow: build.yml
-          run_id: ${{ github.event.workflow_run.id }}
-          name: screenshots
-          path: screenshots
-          github_token: ${{ github.token }}
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0  # Need full history for git+file ref to master
 
-      - name: Get terminal list from screenshots
-        id: terminals
+      - name: Install Nix
+        uses: cachix/install-nix-action@v24
+
+      - name: Cachix
+        uses: cachix/cachix-action@v12
+        with:
+          name: mdfried-ci
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+
+      - name: Build screenshot diffs
         run: |
-          # List screenshot images and extract terminal names
-          terminal_list=$(ls screenshots/images/screenshot-*.png | xargs -n1 basename | sed 's/screenshot-//;s/\.png//' | tr '\n' ' ')
-          echo "list=$terminal_list" >> $GITHUB_OUTPUT
-
-      - name: Check for terminal changes
-        id: terminal-changes
-        run: |
-          # Get terminals from master (reference screenshots)
-          master_terminals=$(curl -s "https://api.github.com/repos/benjajaja/mdfried-screenshots/contents/images?ref=gh-pages" | jq -r '.[].name' | grep '^screenshot-' | sed 's/screenshot-//;s/\.png//' | sort) || true
-
-          # Get terminals from PR
-          pr_terminals=$(echo "${{ steps.terminals.outputs.list }}" | tr ' ' '\n' | grep -v '^$' | sort)
-
-          # Find missing terminals (in master but not in PR)
-          missing=$(comm -23 <(echo "$master_terminals") <(echo "$pr_terminals") | tr '\n' ' ')
-
-          # Find added terminals (in PR but not in master)
-          added=$(comm -13 <(echo "$master_terminals") <(echo "$pr_terminals") | tr '\n' ' ')
-
-          if [ -n "$missing" ] && [ "$missing" != " " ]; then
-            echo "::warning::Missing terminals compared to master: $missing"
-            echo "missing=$missing" >> $GITHUB_OUTPUT
-          fi
-
-          if [ -n "$added" ] && [ "$added" != " " ]; then
-            echo "::notice::New terminals added: $added"
-            echo "added=$added" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Download dify binary
-        run: |
-          curl -L https://github.com/jihchi/dify/releases/download/v0.7.4/dify-x86_64-unknown-linux-gnu-v0.7.4.tar.gz -o dify.tar.gz
-          tar -xzf dify.tar.gz
-          chmod +x dify
-
-      - name: Download reference screenshots from master
-        run: |
-          mkdir -p reference-screenshots
-
-          # Base URL for master branch screenshots
-          BASE_URL="https://raw.githubusercontent.com/benjajaja/mdfried-screenshots/gh-pages/images"
-
-          terminal_list="${{ steps.terminals.outputs.list }}"
-
-          for terminal in $terminal_list; do
-            echo "Downloading reference screenshot for ${terminal}..."
-            curl -f -L "${BASE_URL}/screenshot-${terminal}.png" -o "reference-screenshots/screenshot-${terminal}.png" || echo "No reference screenshot found for ${terminal}"
-          done
-
-      - name: Create image diffs
-        run: |
-          mkdir -p diffs
-
-          terminal_list="${{ steps.terminals.outputs.list }}"
-
-          for terminal in $terminal_list; do
-            if [ -f "screenshots/images/screenshot-${terminal}.png" ] && [ -f "reference-screenshots/screenshot-${terminal}.png" ]; then
-              echo "Creating diff for ${terminal}..."
-
-              # Run dify and capture exit code (which indicates amount of difference)
-              set +e  # Disable exit on error temporarily
-              ./dify "reference-screenshots/screenshot-${terminal}.png" "screenshots/images/screenshot-${terminal}.png"
-              diff_amount=$?
-              set -e  # Re-enable exit on error
-              echo "Difference amount for ${terminal}: ${diff_amount}"
-
-              # Check if diff.png was created and move it
-              if [ -f "diff.png" ]; then
-                mv diff.png "diffs/diff-${terminal}.png"
-                echo "Created diff for ${terminal}"
-              else
-                echo "No diff.png file created for ${terminal}"
-              fi
-            else
-              echo "Missing screenshot files for ${terminal}, skipping diff"
-              if [ ! -f "screenshots/images/screenshot-${terminal}.png" ]; then
-                echo "  Missing current screenshot"
-              fi
-              if [ ! -f "reference-screenshots/screenshot-${terminal}.png" ]; then
-                echo "  Missing reference screenshot"
-              fi
-            fi
-          done
-
-      - name: Organize screenshots for deployment
-        run: |
-          mkdir -p pages
-
-          # Copy screenshots to pages directory
-          terminal_list="${{ steps.terminals.outputs.list }}"
-
-          for terminal in $terminal_list; do
-            if [ -f "screenshots/images/screenshot-${terminal}.png" ]; then
-              cp "screenshots/images/screenshot-${terminal}.png" "pages/screenshot-${terminal}.png"
-              echo "Copied screenshot for ${terminal}"
-            fi
-          done
-
-          # Copy diff images to pages directory
-          for terminal in $terminal_list; do
-            if [ -f "diffs/diff-${terminal}.png" ]; then
-              cp "diffs/diff-${terminal}.png" "pages/diff-${terminal}.png"
-              echo "Copied diff for ${terminal}"
-            fi
-          done
+          REFERENCE=$(nix build "git+file://$PWD?ref=master#screenshots" --print-out-paths --impure)
+          REFERENCE=$REFERENCE nix build .#screenshotDiffs --impure --print-build-logs
+          cp -rL result pages
 
       - name: Download PR number artifact
         uses: dawidd6/action-download-artifact@v6
@@ -159,56 +62,17 @@ jobs:
           publish_branch: pr-${{ steps.pr.outputs.number }}
           force_orphan: true
 
-      - name: Create combined comment
+      - name: Generate PR comment
         run: |
-          terminal_list="${{ steps.terminals.outputs.list }}"
-          missing_terminals="${{ steps.terminal-changes.outputs.missing }}"
-          added_terminals="${{ steps.terminal-changes.outputs.added }}"
+          PR_NUM="${{ steps.pr.outputs.number }}"
+          BASE_URL="https://raw.githubusercontent.com/benjajaja/mdfried-screenshots/pr-${PR_NUM}"
+          sed "s|IMAGE_BASE_URL|${BASE_URL}|g" pages/body.html > comment.html
 
-          # Base URL for raw GitHub content
-          BASE_URL="https://raw.githubusercontent.com/benjajaja/mdfried-screenshots/pr-${{ steps.pr.outputs.number }}"
-
-          # Initialize comment body
-          echo "Merge of ${{ github.event.workflow_run.head_sha }} to \`master\`" > comment_body.txt
-          echo "" >> comment_body.txt
-
-          # Add warning if terminals are missing
-          if [ -n "$missing_terminals" ] && [ "$missing_terminals" != " " ]; then
-            echo "**Warning: Missing terminals compared to master:** $missing_terminals" >> comment_body.txt
-            echo "" >> comment_body.txt
-          fi
-
-          # Add notice if terminals are added
-          if [ -n "$added_terminals" ] && [ "$added_terminals" != " " ]; then
-            echo "**New terminals added:** $added_terminals" >> comment_body.txt
-            echo "" >> comment_body.txt
-          fi
-
-          echo "Screenshots from all terminal emulators:" >> comment_body.txt
-          echo "" >> comment_body.txt
-
-          for terminal in $terminal_list; do
-            echo "### ${terminal}" >> comment_body.txt
-            echo "![${terminal} screenshot](${BASE_URL}/screenshot-${terminal}.png)" >> comment_body.txt
-            echo "" >> comment_body.txt
-
-            # Check if diff image exists by trying to fetch it
-            diff_url="${BASE_URL}/diff-${terminal}.png"
-            if curl -f -s -I "$diff_url" > /dev/null 2>&1; then
-              echo "**Image diff vs master:**" >> comment_body.txt
-              echo "![${terminal} diff]($diff_url)" >> comment_body.txt
-              echo "" >> comment_body.txt
-            else
-              echo "**No diff available** (no changes detected)" >> comment_body.txt
-              echo "" >> comment_body.txt
-            fi
-          done
-
-      - name: Comment on PR with all screenshots
+      - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2
         with:
           number: ${{ steps.pr.outputs.number }}
-          path: comment_body.txt
+          path: comment.html
 
   deploy-screenshots-master:
     name: Deploy master screenshots to external repo
