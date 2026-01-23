@@ -1,6 +1,8 @@
 { pkgs, src, mdfriedStatic, }:
 
 let
+  inherit (pkgs) lib;
+
   makeScreenshotTest = { terminal, terminalCommand, terminalPackages, setup ? null, xwayland ? false }: pkgs.testers.nixosTest {
     name = "mdfried-test-wayland-${terminal}";
 
@@ -115,5 +117,55 @@ let
       terminalPackages = [ pkgs.alacritty ];
     };
   };
+
+  terminals = map (name: lib.removePrefix "screenshot-test-" name) (builtins.attrNames screenshotTests);
+
+  screenshots = pkgs.runCommand "mdfried-screenshots" {
+    buildInputs = builtins.attrValues screenshotTests;
+  } ''
+    mkdir -p $out/images
+
+    # Copy all screenshots from individual test results
+    ${lib.concatMapStringsSep "\n" (terminal: ''
+      cp ${screenshotTests."screenshot-test-${terminal}"}/screenshot-${terminal}.png $out/images/screenshot-${terminal}.png
+    '') terminals}
+
+    # Generate index.html
+    cat > $out/index.html << 'HTMLEOF'
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Screenshots</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 2rem; }
+        .terminal { margin: 2rem 0; }
+        img { max-width: 100%; border: 1px solid #ddd; border-radius: 8px; }
+        h1 { text-align: center; }
+        .container { max-width: 1200px; margin: 0 auto; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <h1>mdfried Terminal Screenshots</h1>
+        <p style="text-align: center; color: #666;">Screenshots from various terminal emulators</p>
+    HTMLEOF
+
+    # Add each terminal section
+    ${lib.concatMapStringsSep "\n" (terminal: ''
+      cat >> $out/index.html << 'TERMEOF'
+        <div class="terminal">
+          <h2 id="${terminal}">${terminal}</h2>
+          <img src="images/screenshot-${terminal}.png" alt="${terminal} screenshot">
+        </div>
+    TERMEOF
+    '') terminals}
+
+    cat >> $out/index.html << 'HTMLEOF'
+      </div>
+    </body>
+    </html>
+    HTMLEOF
+  '';
+
 in
-screenshotTests
+screenshotTests // { inherit screenshots; }
