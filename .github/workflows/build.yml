@@ -8,20 +8,6 @@ on:
   workflow_call:
 
 jobs:
-  save-pr-number:
-    name: Save PR number
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: Save PR number
-        run: echo "${{ github.event.number }}" > pr-number.txt
-
-      - name: Upload PR number
-        uses: actions/upload-artifact@v4
-        with:
-          name: pr-number
-          path: pr-number.txt
-
   nix-flake-test:
     name: Flake check ❄️
     runs-on: ubuntu-latest
@@ -235,6 +221,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Nix
         uses: cachix/install-nix-action@v24
@@ -247,7 +235,7 @@ jobs:
 
       - name: Run screenshot test for ${{ matrix.terminal }}
         run: |
-          nix build .#screenshot-test-${{ matrix.terminal }} --print-build-logs
+          SCREENSHOT_CACHE_KEY=${{ github.run_id }} nix build .#screenshot-test-${{ matrix.terminal }} --impure --print-build-logs
 
   nix-flake-screenshots-combined:
     name: Combine screenshots ❄️
@@ -255,9 +243,12 @@ jobs:
     needs: [nix-flake-screenshots]
     permissions:
       contents: read
+      pull-requests: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for git+file ref to master
 
       - name: Install Nix
         uses: cachix/install-nix-action@v24
@@ -270,10 +261,56 @@ jobs:
 
       - name: Build combined screenshots
         run: |
-          nix build .#screenshots --print-build-logs
+          SCREENSHOT_CACHE_KEY=${{ github.run_id }} nix build .#screenshots --impure --print-build-logs
 
       - name: Upload combined screenshots artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: actions/upload-artifact@v4
         with:
           name: screenshots
           path: result/
+
+      - name: Fetch master branch (PR only)
+        if: github.event_name == 'pull_request'
+        run: git fetch origin master:master
+
+      - name: Build screenshot diffs (PR only)
+        if: github.event_name == 'pull_request'
+        run: |
+          REFERENCE=$(nix build "git+file://$PWD?ref=master#screenshots" --print-out-paths --impure)
+          echo "Master REFERENCE: $REFERENCE"
+          SCREENSHOT_CACHE_KEY=${{ github.run_id }} REFERENCE=$REFERENCE nix build .#screenshotDiffs --impure --print-build-logs
+          cp -rL result diffs
+
+      - name: Upload images to catbox.moe (PR only)
+        if: github.event_name == 'pull_request'
+        run: |
+          # Upload all images and create URL mapping
+          declare -A URL_MAP
+
+          for file in diffs/images/*.png diffs/diffs/*.png; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file..."
+              url=$(curl -s -F "reqtype=fileupload" -F "fileToUpload=@$file" https://catbox.moe/user/api.php)
+              # Get relative path from diffs/ directory
+              relpath="${file#diffs/}"
+              URL_MAP["$relpath"]="$url"
+              echo "  -> $url"
+            fi
+          done
+
+          # Generate comment HTML by replacing IMAGE_BASE_URL/path with actual URLs
+          cp diffs/body.html comment.html
+          for relpath in "${!URL_MAP[@]}"; do
+            url="${URL_MAP[$relpath]}"
+            # Replace IMAGE_BASE_URL/relpath with actual URL
+            sed -i "s|IMAGE_BASE_URL/${relpath}|${url}|g" comment.html
+          done
+          # Remove any remaining IMAGE_BASE_URL references (e.g., index.html link)
+          sed -i 's|<p><a href="IMAGE_BASE_URL/index.html">View full comparison</a></p>||g' comment.html
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          path: comment.html

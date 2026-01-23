@@ -3,15 +3,14 @@
 let
   inherit (pkgs) lib;
 
-  # When REFERENCE is set (building diffs), bust cache with currentTime
-  # Otherwise use normal caching for standalone screenshot builds
   referenceScreenshotsPath = builtins.getEnv "REFERENCE";
-  timestamp = if referenceScreenshotsPath != ""
-    then toString builtins.currentTime
-    else "";
+  # Optional cache key - if set, appends to derivation names to bust cache
+  # e.g. SCREENSHOT_CACHE_KEY=${{ github.run_id }} for per-run fresh builds
+  cacheKey = builtins.getEnv "SCREENSHOT_CACHE_KEY";
+  cacheSuffix = lib.optionalString (cacheKey != "") "-${cacheKey}";
 
   makeScreenshotTest = { terminal, terminalCommand, terminalPackages, setup ? null, xwayland ? false }: pkgs.testers.nixosTest {
-    name = "mdfried-test-wayland-${terminal}${lib.optionalString (timestamp != "") "-${timestamp}"}";
+    name = "mdfried-test-wayland-${terminal}${cacheSuffix}";
 
     nodes.machine = { pkgs, ... }: {
       virtualisation.memorySize = 4096;
@@ -127,7 +126,7 @@ let
 
   terminals = map (name: lib.removePrefix "screenshot-test-" name) (builtins.attrNames screenshotTests);
 
-  screenshots = pkgs.runCommand "mdfried-screenshots${lib.optionalString (timestamp != "") "-${timestamp}"}" {
+  screenshots = pkgs.runCommand "mdfried-screenshots${cacheSuffix}" {
     buildInputs = builtins.attrValues screenshotTests;
   } ''
     mkdir -p $out/images
