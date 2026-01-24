@@ -15,7 +15,7 @@ Some paragraph now, which should get wrapped without breaking up words, nor whit
 
 # Tier 1 looooooooooooooooong heading that should wrap around neatly
 
-### Tier 2 break-up a word: looooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooong
+### Tier 2 break-up a word: ABCDEFGHIJKLMNOPQRSTUVWXYZÁÉÍÓÚÑÜÇÈÊÄÖ߯ÆØÞÐ¡¿ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ!?
 
 ```rust
 use mdfrier::DeepFrier;
