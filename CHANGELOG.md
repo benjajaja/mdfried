@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-01-24
+
 ### Added
 - Links don't display de URL part by default.
   The URL is rendered in the status bar when the cursor is over the link description.
