@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+- Links don't display de URL part by default.
+  The URL is rendered in the status bar when the cursor is over the link description.
+  Bare URLs are rendered as usual.
+  The setting is at `theme.hide_urls` and can be set to `false` in the config file.
+
+### Fixed
+- Kitty text-sizing-protocol emoji (or any >1 wide graphemes) rendering bugs
+
 ## [0.18.0] - 2026-01-19
 
 ### Added
