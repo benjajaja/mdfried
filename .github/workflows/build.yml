@@ -75,22 +75,26 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            container: ubuntu:22.04 # chafa 1.18.0, glibc 2.35
-            artifact_name: mdfried-ubuntu-22.04
-            deb: true
-          - os: ubuntu-latest
-            container: ubuntu:24.04 # chafa 1.14.0, glibc 2.39
+          - container: ubuntu:24.04 # chafa 1.14.0, glibc 2.39
+            os: ubuntu-latest
             artifact_name: mdfried-ubuntu-24.04
             deb: null
+            publish_dry_run: true
+          - container: ubuntu:22.04 # chafa 1.18.0, glibc 2.35
+            os: ubuntu-latest
+            artifact_name: mdfried-ubuntu-22.04
+            deb: true
+            publish_dry_run: null
           - os: macos-15-intel
             container: null
             artifact_name: mdfried_macos_x86_64
             deb: null
+            publish_dry_run: null
           - os: macos-latest
             container: null
             artifact_name: mdfried_macos_aarch64
             deb: null
+            publish_dry_run: null
     container: ${{ matrix.container }}
     outputs:
       artifact_path: ${{ steps.upload-artifact.outputs.artifact_path }}
@@ -180,6 +184,14 @@ jobs:
         with:
           name: mdfried-deb
           path: ./target/debian/*.deb
+
+      - name: Check mdfrier is publishable
+        if: matrix.publish_dry_run && github.ref == 'refs/heads/master'
+        run: cargo publish -p mdfrier --dry-run
+
+      - name: Check mdfried is publishable
+        if: matrix.publish_dry_run && github.ref == 'refs/heads/master'
+        run: cargo publish -p mdfried --dry-run
 
   nix-build-windows:
     name: Nix build (windows) ❄️
