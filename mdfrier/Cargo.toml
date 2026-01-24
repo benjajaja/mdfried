@@ -32,6 +32,10 @@ pretty_assertions = "1.4"
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
 
+[package.metadata.release]
+sign-commit = true
+sign-tag = true
+
 [lints.rust]
 explicit_outlives_requirements = "warn"
 macro_use_extern_crate = "warn"
