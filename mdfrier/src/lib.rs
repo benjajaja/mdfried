@@ -970,17 +970,17 @@ Quote break.
                 Span::new("(".into(), Modifier::LinkURLWrapper),
                 Span::source_link(
                     "https://".into(),
-                    Modifier::LinkURL | Modifier::BareLink,
+                    Modifier::LinkURL | Modifier::BareLink | Modifier::Wrapped,
                     url_source.clone()
                 ),
                 Span::source_link(
                     "example.com/".into(),
-                    Modifier::LinkURL | Modifier::BareLink,
+                    Modifier::LinkURL | Modifier::BareLink | Modifier::Wrapped,
                     url_source.clone()
                 ),
                 Span::source_link(
                     "path".into(),
-                    Modifier::LinkURL | Modifier::BareLink,
+                    Modifier::LinkURL | Modifier::BareLink | Modifier::Wrapped,
                     url_source.clone()
                 ),
                 Span::new(")".into(), Modifier::LinkURLWrapper),

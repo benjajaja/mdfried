@@ -416,6 +416,8 @@ bitflags! {
         // Strikethrough
         const Strikethrough = 1 << 18;
         const StrikethroughWrapper = 1 << 19;
+        const Wrapped = 1 << 20;
+        const WrappedEnd = 1 << 21;
     }
 }
 
@@ -466,6 +468,12 @@ impl Span {
             modifiers,
             source_content: Some(source_content),
         }
+    }
+
+    #[cfg(test)]
+    pub fn modifiers(mut self, modifiers: Modifier) -> Self {
+        self.modifiers = modifiers;
+        self
     }
 
     #[cfg(test)]

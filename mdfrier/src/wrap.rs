@@ -1,4 +1,11 @@
-use textwrap::{Options, wrap};
+use textwrap::{
+    Options,
+    WordSeparator::UnicodeBreakProperties,
+    WordSplitter,
+    core::{Fragment, Word, break_words},
+    wrap,
+    wrap_algorithms::{Penalties, wrap_optimal_fit},
+};
 use unicode_width::UnicodeWidthStr;
 
 use crate::markdown::{Modifier, Span};
@@ -30,6 +37,7 @@ pub(crate) struct WrappedLine {
     pub images: Vec<ImageRef>,
 }
 
+/// Wrap into a WrappedLine
 pub(crate) fn wrap_md_spans(
     width: u16,
     mdspans: Vec<Span>,
@@ -81,13 +89,65 @@ pub(crate) fn wrap_md_spans(
         .collect()
 }
 
-pub(crate) fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>) -> Vec<Vec<Span>> {
+/// Wrapper around [`Word`] with a flag that indicates that the word has been broken.
+/// The following [`TaggedWord`] would be the next part, and so on.
+#[derive(Debug)]
+struct TaggedWord<'a> {
+    word: Word<'a>,
+    broken: bool,
+    is_last: bool,
+}
+impl<'a> TaggedWord<'a> {
+    fn broken(word: Word<'a>, is_last: bool) -> Self {
+        Self {
+            word,
+            broken: true,
+            is_last,
+        }
+    }
+    fn width_with_whitespace(&self) -> u16 {
+        self.word.width() as u16 + self.word.whitespace.width() as u16
+    }
+}
+
+impl<'a> From<Word<'a>> for TaggedWord<'a> {
+    fn from(word: Word<'a>) -> Self {
+        TaggedWord {
+            word,
+            broken: false,
+            is_last: false,
+        }
+    }
+}
+
+impl Fragment for TaggedWord<'_> {
+    fn width(&self) -> f64 {
+        self.word.width()
+    }
+
+    fn whitespace_width(&self) -> f64 {
+        self.word.whitespace_width()
+    }
+
+    fn penalty_width(&self) -> f64 {
+        self.word.penalty_width()
+    }
+}
+
+impl<'a> From<TaggedWord<'a>> for Word<'a> {
+    fn from(value: TaggedWord<'a>) -> Self {
+        value.word
+    }
+}
+
+/// Wrap a Vec<Span>, for example for wrapping table cell content.
+pub(crate) fn wrap_md_spans_lines(width: u16, spans: Vec<Span>) -> Vec<Vec<Span>> {
     let mut lines: Vec<Vec<Span>> = Vec::new();
     let mut line: Vec<Span> = Vec::new();
     let mut after_newline = false;
 
-    for mdspan in mdspans {
-        if mdspan.modifiers.contains(Modifier::NewLine) {
+    for span in spans {
+        if span.modifiers.contains(Modifier::NewLine) {
             if let Some(last) = line.last_mut() {
                 last.content.truncate(last.content.trim_end().len());
             }
@@ -96,13 +156,13 @@ pub(crate) fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>) -> Vec<Vec<Spa
         }
 
         // Strip leading whitespace from content after a hard line break
-        let mut mdspan = mdspan;
-        if after_newline && !mdspan.content.is_empty() {
-            trim_start_inplace(&mut mdspan.content);
+        let mut span = span;
+        if after_newline && !span.content.is_empty() {
+            trim_start_inplace(&mut span.content);
             after_newline = false;
         }
 
-        let span_width = mdspan.content.width() as u16;
+        let span_width = span.content.width() as u16;
         let mut line_width = line.iter().map(UnicodeWidthStr::width).sum::<usize>() as u16;
         let would_overflow = line_width + span_width > width;
         if would_overflow {
@@ -123,58 +183,140 @@ pub(crate) fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>) -> Vec<Vec<Spa
                 }
             }
             if span_width > width {
-                let options = Options::new(width as usize)
-                    .break_words(true)
-                    .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation);
-                let parts: Vec<_> = wrap(&mdspan.content, options).into_iter().collect();
+                let unicode_words = UnicodeBreakProperties.find_words(&span.content);
+
+                let split_words: Vec<TaggedWord> = unicode_words
+                    .flat_map(|mut word| {
+                        let split_points = WordSplitter::NoHyphenation.split_points(&word);
+                        if split_points.len() == 0 {
+                            return vec![word];
+                        }
+
+                        let mut split_words: Vec<Word> = Vec::new();
+                        for mid in split_points {
+                            let (a, b) = word.word.split_at(mid);
+                            let mut clone = word.clone();
+                            word.word = b;
+                            clone.word = a;
+                            split_words.push(clone);
+                        }
+                        split_words.push(word);
+                        return split_words;
+                    })
+                    .flat_map(|word| {
+                        if word.word.width() <= width as usize {
+                            return vec![word.into()];
+                        }
+                        let parts: Vec<Word> = word.break_apart(width as usize).collect();
+                        parts
+                            .iter()
+                            .enumerate()
+                            .map(|(i, word)| TaggedWord::broken(*word, i == parts.len() - 1))
+                            .collect()
+                    })
+                    .collect();
+
+                // let broken_words = break_words(&split_words, width as usize);
+                // let word_lines =
+                // wrap_optimal_fit(&split_words, &[width as f64], &Penalties::default())
+                // .expect("overflow error");
+                //
+                // for word_line in word_lines {
+                // let line: Vec<Span> = word_line
+                // .into_iter()
+                // .enumerate()
+                // .map(|(i, word)| {
+                // let mut content = String::from(word.word.word);
+                // if i < word_line.len() - 1 {
+                // content.push_str(word.word.whitespace);
+                // }
+                // let modifiers = span.modifiers.union(word.modifier());
+                // Span {
+                // content,
+                // modifiers,
+                // source_content: span.source_content.clone(),
+                // }
+                // })
+                // .collect();
+                // lines.push(line);
+                // }
+                // continue;
+
+                // let options = Options::new(width as usize)
+                // .break_words(true)
+                // .word_splitter(WordSplitter::NoHyphenation);
+                // let parts: Vec<_> = wrap(&span.content, options).into_iter().collect();
+                let parts = split_words;
                 let num_parts = parts.len();
-                let ends_with_space = mdspan.content.ends_with(' ');
+                let ends_with_space = span.content.ends_with(' ');
                 let mut copied_newline = false;
-                for (i, part) in parts.into_iter().enumerate() {
+                for (i, tagged) in parts.into_iter().enumerate() {
+                    eprintln!("part #{i} \"{:?}\"", tagged);
                     let is_last = i == num_parts - 1;
                     let is_first = i == 0;
-                    let mut part_content: String = if is_last && ends_with_space {
-                        let mut s = String::with_capacity(part.len() + 1);
-                        s.push_str(&part);
-                        s.push(' ');
-                        s
+                    // TODO: review and decide if we can use tagged.is_last instead.
+                    // let mut part_content: String = if !is_last && ends_with_space
+                    //&& !tagged.word.whitespace.is_empty()
+                    // !tagged.word.whitespace.is_empty()
+                    // && !tagged.is_last
+                    // && !ends_with_space
+                    // {
+                    // let mut s = String::with_capacity(tagged.word.len() + 1);
+                    // s.push_str(&tagged.word);
+                    // s.push_str(&tagged.word.whitespace);
+                    // s
+                    // } else {
+                    // tagged.word.word.to_owned()
+                    // };
+                    // if is_first && starting_new_line && !span.modifiers.contains(Modifier::NewLine)
+                    // {
+                    // trim_start_inplace(&mut part_content);
+                    // }
+                    // let part_width = part_content.width() as u16;
+                    let carriage_return = line_width + tagged.width_with_whitespace() > width;
+                    let part_content = if carriage_return {
+                        tagged.word.word.to_owned()
                     } else {
-                        part.into_owned()
+                        let mut s = String::with_capacity(tagged.word.len() + 1);
+                        s.push_str(&tagged.word);
+                        s.push_str(&tagged.word.whitespace);
+                        s
                     };
-                    if is_first
-                        && starting_new_line
-                        && !mdspan.modifiers.contains(Modifier::NewLine)
-                    {
-                        trim_start_inplace(&mut part_content);
-                    }
-                    let part_width = part_content.width() as u16;
-                    if line_width + part_width > width {
+
+                    if carriage_return {
                         lines.push(std::mem::take(&mut line));
                         line_width = 0;
                     }
-                    let mut extra = mdspan.modifiers;
+                    let mut extra = span.modifiers;
                     if !copied_newline {
                         copied_newline = true;
                     } else {
                         extra.remove(Modifier::NewLine);
                     }
+                    if tagged.broken {
+                        extra = extra.union(if tagged.is_last {
+                            Modifier::WrappedEnd
+                        } else {
+                            Modifier::Wrapped
+                        });
+                    }
                     // Preserve source_content when splitting spans (for wrapped URLs)
                     line.push(Span {
                         content: part_content,
                         modifiers: extra,
-                        source_content: mdspan.source_content.clone(),
+                        source_content: span.source_content.clone(),
                     });
-                    line_width += part_width;
+                    line_width += tagged.width_with_whitespace();
                 }
             } else {
-                let mut mdspan = mdspan;
+                let mut mdspan = span;
                 if starting_new_line && !mdspan.modifiers.contains(Modifier::NewLine) {
                     trim_start_inplace(&mut mdspan.content);
                 }
                 line.push(mdspan);
             }
         } else {
-            line.push(mdspan);
+            line.push(span);
         }
     }
 
@@ -216,10 +358,10 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                vec![Span::from("on")],
-                vec![Span::from("e")],
-                vec![Span::from("tw")],
-                vec![Span::from("o")]
+                vec![Span::from("on").modifiers(Modifier::Wrapped)],
+                vec![Span::from("e").modifiers(Modifier::WrappedEnd)],
+                vec![Span::from("tw").modifiers(Modifier::Wrapped)],
+                vec![Span::from("o").modifiers(Modifier::WrappedEnd)]
             ]
         );
     }
