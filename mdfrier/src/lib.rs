@@ -966,21 +966,16 @@ Quote break.
         assert_eq!(
             spans,
             vec![
-                Span::new("See ".into(), Modifier::empty()),
+                Span::new("See".into(), Modifier::empty()),
                 Span::new("(".into(), Modifier::LinkURLWrapper),
                 Span::source_link(
-                    "https://".into(),
+                    "https://example".into(),
                     Modifier::LinkURL | Modifier::BareLink | Modifier::Wrapped,
                     url_source.clone()
                 ),
                 Span::source_link(
-                    "example.com/".into(),
-                    Modifier::LinkURL | Modifier::BareLink | Modifier::Wrapped,
-                    url_source.clone()
-                ),
-                Span::source_link(
-                    "path".into(),
-                    Modifier::LinkURL | Modifier::BareLink | Modifier::Wrapped,
+                    ".com/path".into(),
+                    Modifier::LinkURL | Modifier::BareLink | Modifier::WrappedEnd,
                     url_source.clone()
                 ),
                 Span::new(")".into(), Modifier::LinkURLWrapper),

@@ -1,10 +1,7 @@
 use textwrap::{
-    Options,
-    WordSeparator::UnicodeBreakProperties,
+    WordSeparator::AsciiSpace,
     WordSplitter,
-    core::{Fragment, Word, break_words},
-    wrap,
-    wrap_algorithms::{Penalties, wrap_optimal_fit},
+    core::{Fragment, Word},
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -89,8 +86,9 @@ pub(crate) fn wrap_md_spans(
         .collect()
 }
 
-/// Wrapper around [`Word`] with a flag that indicates that the word has been broken.
-/// The following [`TaggedWord`] would be the next part, and so on.
+/// Wrapper around [`Word`] with a flag that indicates that the word has been broken up.
+/// The following [`TaggedWord`] in a sequence would be the next part, and so on. The last part is
+/// indicated via the is_last flag.
 #[derive(Debug)]
 struct TaggedWord<'a> {
     word: Word<'a>,
@@ -140,7 +138,9 @@ impl<'a> From<TaggedWord<'a>> for Word<'a> {
     }
 }
 
-/// Wrap a Vec<Span>, for example for wrapping table cell content.
+/// Wrap a Vec<Span>.
+///
+/// Used by wrap_md_spans but also when wrapping cells in tables.
 pub(crate) fn wrap_md_spans_lines(width: u16, spans: Vec<Span>) -> Vec<Vec<Span>> {
     let mut lines: Vec<Vec<Span>> = Vec::new();
     let mut line: Vec<Span> = Vec::new();
@@ -174,7 +174,7 @@ pub(crate) fn wrap_md_spans_lines(width: u16, spans: Vec<Span>) -> Vec<Vec<Span>
                 });
                 let moved_paren = if move_paren { line.pop() } else { None };
 
-                lines.push(std::mem::take(&mut line));
+                lines.push(carriage_return(&mut line));
                 line_width = 0;
 
                 if let Some(paren) = moved_paren {
@@ -182,26 +182,27 @@ pub(crate) fn wrap_md_spans_lines(width: u16, spans: Vec<Span>) -> Vec<Vec<Span>
                     line_width = 1;
                 }
             }
+
             if span_width > width {
-                let unicode_words = UnicodeBreakProperties.find_words(&span.content);
+                let unicode_words = AsciiSpace.find_words(&span.content);
 
                 let split_words: Vec<TaggedWord> = unicode_words
                     .flat_map(|mut word| {
                         let split_points = WordSplitter::NoHyphenation.split_points(&word);
-                        if split_points.len() == 0 {
+                        if split_points.is_empty() {
                             return vec![word];
                         }
 
                         let mut split_words: Vec<Word> = Vec::new();
                         for mid in split_points {
                             let (a, b) = word.word.split_at(mid);
-                            let mut clone = word.clone();
+                            let mut next = word; // Copy
                             word.word = b;
-                            clone.word = a;
-                            split_words.push(clone);
+                            next.word = a;
+                            split_words.push(next);
                         }
                         split_words.push(word);
-                        return split_words;
+                        split_words
                     })
                     .flat_map(|word| {
                         if word.word.width() <= width as usize {
@@ -216,75 +217,16 @@ pub(crate) fn wrap_md_spans_lines(width: u16, spans: Vec<Span>) -> Vec<Vec<Span>
                     })
                     .collect();
 
-                // let broken_words = break_words(&split_words, width as usize);
-                // let word_lines =
-                // wrap_optimal_fit(&split_words, &[width as f64], &Penalties::default())
-                // .expect("overflow error");
-                //
-                // for word_line in word_lines {
-                // let line: Vec<Span> = word_line
-                // .into_iter()
-                // .enumerate()
-                // .map(|(i, word)| {
-                // let mut content = String::from(word.word.word);
-                // if i < word_line.len() - 1 {
-                // content.push_str(word.word.whitespace);
-                // }
-                // let modifiers = span.modifiers.union(word.modifier());
-                // Span {
-                // content,
-                // modifiers,
-                // source_content: span.source_content.clone(),
-                // }
-                // })
-                // .collect();
-                // lines.push(line);
-                // }
-                // continue;
-
-                // let options = Options::new(width as usize)
-                // .break_words(true)
-                // .word_splitter(WordSplitter::NoHyphenation);
-                // let parts: Vec<_> = wrap(&span.content, options).into_iter().collect();
                 let parts = split_words;
-                let num_parts = parts.len();
-                let ends_with_space = span.content.ends_with(' ');
                 let mut copied_newline = false;
-                for (i, tagged) in parts.into_iter().enumerate() {
-                    eprintln!("part #{i} \"{:?}\"", tagged);
-                    let is_last = i == num_parts - 1;
-                    let is_first = i == 0;
-                    // TODO: review and decide if we can use tagged.is_last instead.
-                    // let mut part_content: String = if !is_last && ends_with_space
-                    //&& !tagged.word.whitespace.is_empty()
-                    // !tagged.word.whitespace.is_empty()
-                    // && !tagged.is_last
-                    // && !ends_with_space
-                    // {
-                    // let mut s = String::with_capacity(tagged.word.len() + 1);
-                    // s.push_str(&tagged.word);
-                    // s.push_str(&tagged.word.whitespace);
-                    // s
-                    // } else {
-                    // tagged.word.word.to_owned()
-                    // };
-                    // if is_first && starting_new_line && !span.modifiers.contains(Modifier::NewLine)
-                    // {
-                    // trim_start_inplace(&mut part_content);
-                    // }
-                    // let part_width = part_content.width() as u16;
-                    let carriage_return = line_width + tagged.width_with_whitespace() > width;
-                    let part_content = if carriage_return {
-                        tagged.word.word.to_owned()
-                    } else {
-                        let mut s = String::with_capacity(tagged.word.len() + 1);
-                        s.push_str(&tagged.word);
-                        s.push_str(&tagged.word.whitespace);
-                        s
-                    };
+                for tagged in &parts {
+                    let will_carriage_return = line_width + tagged.width() as u16 > width;
+                    let mut part_content = String::with_capacity(tagged.word.len() + 1);
+                    part_content.push_str(tagged.word.word);
+                    part_content.push_str(tagged.word.whitespace);
 
-                    if carriage_return {
-                        lines.push(std::mem::take(&mut line));
+                    if will_carriage_return {
+                        lines.push(carriage_return(&mut line));
                         line_width = 0;
                     }
                     let mut extra = span.modifiers;
@@ -325,6 +267,16 @@ pub(crate) fn wrap_md_spans_lines(width: u16, spans: Vec<Span>) -> Vec<Vec<Span>
     }
 
     lines
+}
+
+fn carriage_return(line: &mut Vec<Span>) -> Vec<Span> {
+    let mut line = std::mem::take(line);
+    if let Some(last) = line.last_mut()
+        && last.content.ends_with(' ')
+    {
+        last.content.truncate(last.content.trim_end().len());
+    }
+    line
 }
 
 #[cfg(test)]
