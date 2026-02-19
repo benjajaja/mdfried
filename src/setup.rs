@@ -69,10 +69,9 @@ pub fn setup_graphics(
         Picker::halfblocks()
     } else {
         print!("Detecting supported graphics protocols...");
-        let picker = Picker::from_query_stdio_with_options(QueryStdioOptions {
-            text_sizing_protocol: true,
-            ..Default::default()
-        })?;
+        let mut options = QueryStdioOptions::default();
+        options.text_sizing_protocol = true;
+        let picker = Picker::from_query_stdio_with_options(options)?;
         println!(" {:?}.", picker.protocol_type());
         picker
     };

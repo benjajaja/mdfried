@@ -4,6 +4,9 @@
 
 ## [0.18.2] - 2026-01-24
 
+### Fixed
+- Updating to ratatui-image 10.0.6 should fix konsole displaying bad kitty graphics, instead displaying Halfblocks.
+
 ## [0.18.1] - 2026-01-24
 
 ### Added
