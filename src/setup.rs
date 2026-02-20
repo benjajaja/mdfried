@@ -56,6 +56,7 @@ impl FontRenderer {
 pub enum SetupResult {
     Aborted,
     TextSizing(Picker, Option<BgColor>),
+    AsciiArt(Picker, Option<BgColor>),
     Complete(Picker, Option<BgColor>, Box<FontRenderer>),
 }
 
@@ -88,6 +89,10 @@ pub fn setup_graphics(
         .contains(&Capability::TextSizingProtocol);
     if has_text_size_protocol {
         return Ok(SetupResult::TextSizing(picker, bg));
+    }
+
+    if picker.protocol_type() == ProtocolType::Halfblocks {
+        return Ok(SetupResult::AsciiArt(picker, bg));
     }
 
     let mut font_system = FontSystem::new();

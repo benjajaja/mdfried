@@ -85,7 +85,7 @@ pub fn worker_thread(
                     Cmd::Header(document_id, section_id, width, tier, text) => {
                         debug_assert!(
                             thread_renderer.is_some(),
-                            "should not have sent ImgCmd::Header without renderer"
+                            "should not have sent Cmd::Header without renderer"
                         );
                         if let Some(thread_renderer) = &thread_renderer {
                             let task_tx = event_tx.clone();

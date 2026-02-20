@@ -38,6 +38,7 @@ pub struct Model {
     config: Config,
     cmd_tx: Sender<Cmd>,
     event_rx: Receiver<Event>,
+    can_render_headers: bool,
     #[cfg(test)]
     pub pending_image_count: usize,
 }
@@ -86,6 +87,7 @@ impl Model {
         event_rx: Receiver<Event>,
         screen_size: Size,
         config: Config,
+        can_render_headers: bool,
     ) -> Model {
         Model {
             original_file_path,
@@ -98,6 +100,7 @@ impl Model {
             document: Document::default(),
             cmd_tx,
             event_rx,
+            can_render_headers,
             log_snapshot: None,
             document_id: DocumentId::default(),
             #[cfg(test)]
@@ -306,8 +309,10 @@ impl Model {
                         log::debug!("ParseHeader");
                         self.pending_image_count += 1;
                     }
-                    self.cmd_tx
-                        .send(Cmd::Header(document_id, id, inner_width, tier, text))?;
+                    if self.can_render_headers {
+                        self.cmd_tx
+                            .send(Cmd::Header(document_id, id, inner_width, tier, text))?;
+                    }
                 }
                 Event::FileChanged => {
                     log::info!("reload: FileChanged");

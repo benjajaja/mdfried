@@ -203,6 +203,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             Ok(result) => match result {
                 SetupResult::Aborted => return Err(Error::UserAbort("cancelled setup")),
                 SetupResult::TextSizing(picker, bg) => (picker, bg, None, true),
+                SetupResult::AsciiArt(picker, bg) => (picker, bg, None, false),
                 SetupResult::Complete(picker, bg, renderer) => (picker, bg, Some(renderer), false),
             },
             Err(err) => return Err(err),
@@ -222,6 +223,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let watch_event_tx = event_tx.clone();
 
     let config_max_image_height = config.max_image_height;
+    let can_render_headers = renderer.is_some();
     let cmd_thread = worker_thread(
         basepath,
         picker,
@@ -253,6 +255,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         event_rx,
         terminal.size()?,
         config,
+        can_render_headers,
     );
     model.open(terminal_size, text)?;
 
@@ -638,7 +641,7 @@ mod tests {
 
         let screen_size = (80, 20).into();
 
-        let model = Model::new(None, None, cmd_tx, event_rx, screen_size, config);
+        let model = Model::new(None, None, cmd_tx, event_rx, screen_size, config, false);
         (model, worker, screen_size)
     }
 
