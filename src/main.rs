@@ -31,7 +31,7 @@ use ratatui::{
     },
     layout::Rect,
     prelude::CrosstermBackend,
-    style::{Color, Style, Stylize as _},
+    style::{Color, Stylize as _},
     text::{Line, Span, Text},
     widgets::{Block, Paragraph, Widget},
 };
@@ -192,7 +192,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             _ => ProtocolType::Halfblocks,
         }));
 
-    let (picker, bg, renderer, has_text_size_protocol) = {
+    let (picker, renderer, has_text_size_protocol) = {
         let setup_result = setup_graphics(
             &mut user_config,
             force_setup,
@@ -202,9 +202,9 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         match setup_result {
             Ok(result) => match result {
                 SetupResult::Aborted => return Err(Error::UserAbort("cancelled setup")),
-                SetupResult::TextSizing(picker, bg) => (picker, bg, None, true),
-                SetupResult::AsciiArt(picker, bg) => (picker, bg, None, false),
-                SetupResult::Complete(picker, bg, renderer) => (picker, bg, Some(renderer), false),
+                SetupResult::TextSizing(picker) => (picker, None, true),
+                SetupResult::AsciiArt(picker) => (picker, None, false),
+                SetupResult::Complete(picker, renderer) => (picker, Some(renderer), false),
             },
             Err(err) => return Err(err),
         }
@@ -229,7 +229,6 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         picker,
         renderer,
         config.theme.clone(),
-        bg,
         has_text_size_protocol,
         deep_fry,
         cmd_rx,
@@ -249,7 +248,6 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     let terminal_size = terminal.size()?;
     let model = Model::new(
-        bg,
         path.cloned(),
         cmd_tx,
         event_rx,
@@ -417,10 +415,6 @@ fn view(model: &Model, frame: &mut Frame) {
     let mut block = Block::new();
     let padding = model.block_padding(frame_area);
     block = block.padding(padding);
-
-    if let Some(bg) = model.bg {
-        block = block.style(Style::default().bg(bg.into()));
-    }
 
     let inner_area = if let Some(snapshot) = &model.log_snapshot {
         let area = debug::render_snapshot(snapshot, frame);
@@ -631,7 +625,6 @@ mod tests {
             picker,
             None,
             config.theme.clone(),
-            None,
             true,
             false,
             cmd_rx,
@@ -641,7 +634,7 @@ mod tests {
 
         let screen_size = (80, 20).into();
 
-        let model = Model::new(None, None, cmd_tx, event_rx, screen_size, config, false);
+        let model = Model::new(None, cmd_tx, event_rx, screen_size, config, false);
         (model, worker, screen_size)
     }
 

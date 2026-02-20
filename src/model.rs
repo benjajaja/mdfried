@@ -23,10 +23,9 @@ use crate::{
     document::{Document, FindMode, FindTarget, LineExtra, Section, SectionContent},
     error::Error,
 };
-use crate::{Event, MarkdownImage, setup::BgColor};
+use crate::{Event, MarkdownImage};
 
 pub struct Model {
-    pub bg: Option<BgColor>,
     pub scroll: u16,
     pub cursor: Cursor,
     pub input_queue: InputQueue,
@@ -81,7 +80,6 @@ impl InputQueue {
 
 impl Model {
     pub fn new(
-        bg: Option<BgColor>,
         original_file_path: Option<PathBuf>,
         cmd_tx: Sender<Cmd>,
         event_rx: Receiver<Event>,
@@ -91,7 +89,6 @@ impl Model {
     ) -> Model {
         Model {
             original_file_path,
-            bg,
             screen_size,
             config,
             scroll: 0,
@@ -577,7 +574,6 @@ mod tests {
         let (_, event_rx) = mpsc::channel::<Event>();
         Model {
             original_file_path: None,
-            bg: None,
             screen_size: (80, 20).into(),
             config: UserConfig::default().into(),
             scroll: 0,
@@ -589,6 +585,7 @@ mod tests {
             log_snapshot: None,
             document_id: DocumentId::default(),
             pending_image_count: 0,
+            can_render_headers: true,
         }
     }
 

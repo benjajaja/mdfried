@@ -28,7 +28,7 @@ use crate::{
     config::Theme,
     document::{Section, header_images, header_sections, image_section},
     error::Error,
-    setup::{BgColor, FontRenderer},
+    setup::FontRenderer,
 };
 
 use markdown::parse_to_events;
@@ -39,7 +39,6 @@ pub fn worker_thread(
     picker: Picker,
     renderer: Option<Box<FontRenderer>>,
     theme: Theme,
-    bg: Option<BgColor>,
     has_text_size_protocol: bool,
     deep_fry: bool,
     cmd_rx: Receiver<Cmd>,
@@ -95,7 +94,7 @@ pub fn worker_thread(
                                 tokio::spawn(async move {
                                     let images = tokio::task::spawn_blocking(move || {
                                         let mut r = renderer.lock()?;
-                                        header_images(bg, &mut r, width, text, tier, deep_fry)
+                                        header_images(&mut r, width, text, tier, deep_fry)
                                     })
                                     .await??;
 

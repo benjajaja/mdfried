@@ -10,10 +10,7 @@ use std::{
 use itertools::Either;
 
 use cosmic_text::{Attrs, Buffer, Color, Family, Metrics, Shaping};
-use image::{
-    DynamicImage, GenericImage as _, ImageFormat, ImageReader, Pixel as _, Rgba, RgbaImage,
-    imageops,
-};
+use image::{DynamicImage, GenericImage as _, ImageFormat, ImageReader, Rgba, RgbaImage, imageops};
 use mdfrier::SourceContent;
 use ratatui::{layout::Rect, text::Line};
 
@@ -26,11 +23,7 @@ use reqwest::{
 use tokio::sync::RwLock;
 use unicode_width::UnicodeWidthStr as _;
 
-use crate::{
-    Error,
-    cursor::CursorPointer,
-    setup::{BgColor, FontRenderer},
-};
+use crate::{Error, cursor::CursorPointer, setup::FontRenderer};
 
 #[derive(Default)]
 pub struct Document {
@@ -456,15 +449,12 @@ pub enum LineExtra {
 
 /// Layout/shape and render `text` into a list of [`DynamicImage`] with a given terminal width.
 pub fn header_images(
-    bg: Option<BgColor>,
     font_renderer: &mut FontRenderer,
     width: u16,
     text: String,
     tier: u8,
     deep_fry_meme: bool,
 ) -> Result<Vec<(String, DynamicImage)>, Error> {
-    let bg = bg.unwrap_or_default(); // Default is transparent (black, but that's irrelevant).
-
     const HEADER_ROW_COUNT: u16 = 2;
     let (font_width, font_height) = font_renderer.font_size;
 
@@ -503,7 +493,9 @@ pub fn header_images(
     let img_height = u32::from(font_height * 2);
     let img_width = u32::from(width * font_width);
     for layout_run in buffer.layout_runs() {
-        let img: RgbaImage = RgbaImage::from_pixel(img_width, img_height, bg.into());
+        const RGBA_BG: [u8; 4] = [0, 0, 0, 0];
+        let img: RgbaImage =
+            RgbaImage::from_pixel(img_width, img_height, Rgba::<u8>::from(RGBA_BG));
         let dyn_img = DynamicImage::ImageRgba8(img);
         dyn_imgs.push((layout_run.text.into(), dyn_img));
     }
@@ -536,15 +528,11 @@ pub fn header_images(
                 return;
             }
 
-            // Blend pixel with background (likely transparent).
-            let mut pixel: Rgba<u8> = bg.into();
-            pixel.blend(&Rgba(color.as_rgba()));
-
             let dyn_img = &mut dyn_imgs[index].1;
 
             // Adjust picked image's Y coord offset.
             let y_offset: u32 = index as u32 * img_height;
-            dyn_img.put_pixel(x as u32, y as u32 - y_offset, pixel);
+            dyn_img.put_pixel(x as u32, y as u32 - y_offset, color.as_rgba().into());
         },
     );
 

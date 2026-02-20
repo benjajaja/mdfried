@@ -3,7 +3,6 @@ mod fontpicker;
 pub mod notification;
 
 use cosmic_text::{FontSystem, SwashCache};
-use image::Rgba;
 use ratatui_image::{
     FontSize,
     picker::{Capability, Picker, ProtocolType, cap_parser::QueryStdioOptions},
@@ -14,21 +13,6 @@ use crate::{
     error::Error,
 };
 use fontpicker::interactive_font_picker;
-
-#[derive(Default, Clone, Copy)]
-pub struct BgColor([u8; 4]);
-
-impl From<BgColor> for Rgba<u8> {
-    fn from(value: BgColor) -> Self {
-        Rgba(value.0)
-    }
-}
-
-impl From<BgColor> for ratatui::style::Color {
-    fn from(value: BgColor) -> Self {
-        ratatui::style::Color::Rgb(value.0[0], value.0[1], value.0[2])
-    }
-}
 
 pub struct FontRenderer {
     pub font_size: FontSize, // Terminal font-size, not rendered font-size.
@@ -55,9 +39,9 @@ impl FontRenderer {
 
 pub enum SetupResult {
     Aborted,
-    TextSizing(Picker, Option<BgColor>),
-    AsciiArt(Picker, Option<BgColor>),
-    Complete(Picker, Option<BgColor>, Box<FontRenderer>),
+    TextSizing(Picker),
+    AsciiArt(Picker),
+    Complete(Picker, Box<FontRenderer>),
 }
 
 pub fn setup_graphics(
@@ -77,22 +61,15 @@ pub fn setup_graphics(
         picker
     };
 
-    let bg = if picker.protocol_type() == ProtocolType::Sixel {
-        Some(BgColor([20, 0, 40, 255]))
-    } else {
-        picker.set_background_color([0, 0, 0, 0]);
-        None
-    };
-
     let has_text_size_protocol = picker
         .capabilities()
         .contains(&Capability::TextSizingProtocol);
     if has_text_size_protocol {
-        return Ok(SetupResult::TextSizing(picker, bg));
+        return Ok(SetupResult::TextSizing(picker));
     }
 
     if picker.protocol_type() == ProtocolType::Halfblocks {
-        return Ok(SetupResult::AsciiArt(picker, bg));
+        return Ok(SetupResult::AsciiArt(picker));
     }
 
     let mut font_system = FontSystem::new();
@@ -120,7 +97,7 @@ pub fn setup_graphics(
 
     let font_name = match config_font_family {
         Some(font_family) => font_family.clone(),
-        None => match interactive_font_picker(&mut picker, bg) {
+        None => match interactive_font_picker(&mut picker) {
             Ok(Some(setup_font_family)) => {
                 config::store_font_family(config, setup_font_family.clone())?;
                 notification::interactive_notification("Font has been written to config file.")?;
@@ -140,7 +117,6 @@ pub fn setup_graphics(
 
     Ok(SetupResult::Complete(
         picker,
-        bg,
         Box::new(FontRenderer::new(
             font_system,
             SwashCache::new(),

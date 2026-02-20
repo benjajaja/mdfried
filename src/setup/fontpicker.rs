@@ -15,14 +15,11 @@ use ratatui_image::{Image, picker::Picker, protocol::Protocol};
 use crate::{
     Error,
     document::{SectionContent, header_images, header_sections},
-    setup::{BgColor, FontRenderer},
+    setup::FontRenderer,
 };
 
 #[expect(clippy::too_many_lines)]
-pub fn interactive_font_picker(
-    picker: &mut Picker,
-    bg: Option<BgColor>,
-) -> Result<Option<String>, Error> {
+pub fn interactive_font_picker(picker: &mut Picker) -> Result<Option<String>, Error> {
     let mut input = String::new();
 
     let mut font_system = FontSystem::new();
@@ -114,7 +111,6 @@ pub fn interactive_font_picker(
                     const SAMPLE: &str = "The fox jumped over the goat or something";
                     let spans = vec![SAMPLE.into()];
                     let dyn_imgs = header_images(
-                        bg,
                         &mut renderer,
                         inner_width,
                         Line::from(spans).to_string(),
