@@ -646,10 +646,15 @@ mod tests {
 
     // Poll until parsed and no pending images.
     fn poll_parsed(model: &mut Model, screen_size: &Size) {
+        let mut fuse = 1000_000;
         loop {
             let (_, parse_done) = model.process_events(screen_size.width).unwrap();
             if parse_done {
                 break;
+            }
+            fuse -= 1;
+            if fuse == 0 {
+                panic!("fuse exhausted");
             }
         }
         log::debug!("poll_parsed completed");

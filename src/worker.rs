@@ -29,6 +29,7 @@ use crate::{
     document::{Section, header_images, header_sections, image_section},
     error::Error,
     setup::FontRenderer,
+    worker::markdown::md_line_to_events,
 };
 
 use markdown::parse_to_events;
@@ -68,18 +69,34 @@ pub fn worker_thread(
 
                         event_tx.send(Event::NewDocument(document_id))?;
 
-                        let (events, last_section_id) = parse_to_events(
-                            &mut parser,
-                            document_id,
-                            width,
-                            has_text_size_protocol,
-                            &theme,
-                            &text,
-                        )?;
-                        for event in events {
-                            event_tx.send(event)?;
+                        let mut section_id: Option<usize> = None;
+                        for section in parser.parse_sections(width, &text, &theme) {
+                            for line in section.lines {
+                                for event in md_line_to_events(
+                                    document_id,
+                                    &mut section_id,
+                                    width,
+                                    has_text_size_protocol,
+                                    &theme,
+                                    line,
+                                ) {
+                                    event_tx.send(event)?;
+                                }
+                            }
                         }
-                        event_tx.send(Event::ParseDone(document_id, last_section_id))?;
+
+                        // let (events, last_section_id) = parse_to_events(
+                        // &mut parser,
+                        // document_id,
+                        // width,
+                        // has_text_size_protocol,
+                        // &theme,
+                        // &text,
+                        // )?;
+                        // for event in events {
+                        // event_tx.send(event)?;
+                        // }
+                        event_tx.send(Event::ParseDone(document_id, section_id))?;
                     }
                     Cmd::Header(document_id, section_id, width, tier, text) => {
                         debug_assert!(
