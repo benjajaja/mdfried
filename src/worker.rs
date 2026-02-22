@@ -26,7 +26,7 @@ use tokio::{runtime::Builder, sync::RwLock};
 use crate::{
     Cmd, Event,
     config::Theme,
-    document::{Section, header_images, header_sections, image_section},
+    document::{Section, SectionContent, header_images, header_sections, image_section},
     error::Error,
     setup::FontRenderer,
     worker::markdown::md_line_to_events,

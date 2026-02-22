@@ -2,6 +2,7 @@ use textwrap::{Options, wrap};
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
+    Modifier,
     markdown::{MdContainer, MdContent, MdSection, Span, TableAlignment},
     wrap::{wrap_md_spans, wrap_md_spans_lines},
 };

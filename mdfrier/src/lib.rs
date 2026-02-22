@@ -332,13 +332,48 @@ pub fn convert_raw_to_mdline<M: Mapper>(raw: RawLine, width: u16, mapper: &M) ->
                 kind: LineKind::Header(*tier),
             }
         }
-        RawLineKind::Image { url, description } => Line {
-            spans: final_spans,
-            kind: LineKind::Image {
-                url: url.clone(),
-                description: description.clone(),
-            },
-        },
+        RawLineKind::Image { url, description } => {
+            // TODO: helper fn
+            let image_spans = vec![
+                Span {
+                    content: "![".to_string(),
+                    modifiers: Modifier::LinkDescriptionWrapper,
+                    source_content: None,
+                },
+                Span {
+                    content: "Loading...".to_owned(),
+                    modifiers: Modifier::LinkURL,
+                    source_content: None,
+                },
+                Span {
+                    content: "]".to_string(),
+                    modifiers: Modifier::LinkDescriptionWrapper,
+                    source_content: None,
+                },
+                Span {
+                    content: "(".to_string(),
+                    modifiers: Modifier::LinkURLWrapper,
+                    source_content: None,
+                },
+                Span {
+                    content: url.to_owned(),
+                    modifiers: Modifier::LinkDescription,
+                    source_content: None,
+                },
+                Span {
+                    content: ")".to_string(),
+                    modifiers: Modifier::LinkURLWrapper,
+                    source_content: None,
+                },
+            ];
+            Line {
+                spans: image_spans,
+                kind: LineKind::Image {
+                    url: url.clone(),
+                    description: description.clone(),
+                },
+            }
+        }
         RawLineKind::Blank => Line {
             spans: final_spans,
             kind: LineKind::Blank,

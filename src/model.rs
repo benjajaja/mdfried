@@ -782,7 +782,10 @@ mod tests {
             model.document.push(Section {
                 id: i,
                 height: 1,
-                content: SectionContent::Lines(vec![(Line::from(format!("line {}", i + 1)), Vec::new())]),
+                content: SectionContent::Lines(vec![(
+                    Line::from(format!("line {}", i + 1)),
+                    Vec::new(),
+                )]),
             });
         }
 
@@ -805,7 +808,10 @@ mod tests {
             model.document.push(Section {
                 id: i,
                 height: 1,
-                content: SectionContent::Lines(vec![(Line::from(format!("line {}", i + 1)), Vec::new())]),
+                content: SectionContent::Lines(vec![(
+                    Line::from(format!("line {}", i + 1)),
+                    Vec::new(),
+                )]),
             });
         }
 
@@ -822,7 +828,10 @@ mod tests {
             model.document.push(Section {
                 id: i,
                 height: 1,
-                content: SectionContent::Lines(vec![(Line::from(format!("line {}", i + 1)), Vec::new())]),
+                content: SectionContent::Lines(vec![(
+                    Line::from(format!("line {}", i + 1)),
+                    Vec::new(),
+                )]),
             });
         }
         let link = SourceContent::from("http://a.com");
