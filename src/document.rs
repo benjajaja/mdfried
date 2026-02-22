@@ -96,10 +96,10 @@ impl Document {
                     Section {
                         id: section.id,
                         height: 1,
-                        content: SectionContent::Line(
+                        content: SectionContent::Lines(vec![(
                             Line::from(format!("![Replacing...]({url})")),
                             Vec::new(),
-                        ),
+                        )]),
                     },
                 );
                 log::debug!("search & replaced #{}: {}", section.id, section.content);
@@ -158,16 +158,19 @@ impl Document {
         scroll: u16,
     ) -> Option<CursorPointer> {
         let locate = move |section: &Section| -> Option<CursorPointer> {
-            if let SectionContent::Line(_, extras) = &section.content
-                && let Some(i) = extras.iter().position(|extra| target.matches(extra))
-            {
-                Some(CursorPointer {
-                    id: section.id,
-                    index: i,
-                })
-            } else {
-                None
+            if let SectionContent::Lines(lines) = &section.content {
+                let mut flat_index = 0;
+                for (_, extras) in lines {
+                    if let Some(i) = extras.iter().position(|extra| target.matches(extra)) {
+                        return Some(CursorPointer {
+                            id: section.id,
+                            index: flat_index + i,
+                        });
+                    }
+                    flat_index += extras.len();
+                }
             }
+            None
         };
 
         let mut first = None;
@@ -247,30 +250,40 @@ impl Document {
     > {
         match mode {
             FindMode::Next => {
-                if let SectionContent::Line(_, extras) = &section.content {
+                if let SectionContent::Lines(lines) = &section.content {
                     let id = section.id;
-                    Either::Left(Either::Left(
-                        extras
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, extra)| target.matches(extra))
-                            .map(move |(index, _)| CursorPointer { id, index }),
-                    ))
+                    let mut flat_index = 0usize;
+                    let flattened: Vec<_> = lines
+                        .iter()
+                        .flat_map(|(_, extras)| {
+                            let start = flat_index;
+                            flat_index += extras.len();
+                            extras.iter().enumerate().map(move |(i, extra)| (start + i, extra))
+                        })
+                        .filter(|(_, extra)| target.matches(extra))
+                        .map(move |(index, _)| CursorPointer { id, index })
+                        .collect();
+                    Either::Left(Either::Left(flattened.into_iter()))
                 } else {
                     Either::Right(std::iter::empty())
                 }
             }
             FindMode::Prev => {
-                if let SectionContent::Line(_, extras) = &section.content {
+                if let SectionContent::Lines(lines) = &section.content {
                     let id = section.id;
-                    Either::Left(Either::Right(
-                        extras
-                            .iter()
-                            .enumerate()
-                            .rev()
-                            .filter(|(_, extra)| target.matches(extra))
-                            .map(move |(index, _)| CursorPointer { id, index }),
-                    ))
+                    let mut flat_index = 0usize;
+                    let mut flattened: Vec<_> = lines
+                        .iter()
+                        .flat_map(|(_, extras)| {
+                            let start = flat_index;
+                            flat_index += extras.len();
+                            extras.iter().enumerate().map(move |(i, extra)| (start + i, extra))
+                        })
+                        .filter(|(_, extra)| target.matches(extra))
+                        .map(move |(index, _)| CursorPointer { id, index })
+                        .collect();
+                    flattened.reverse();
+                    Either::Left(Either::Right(flattened.into_iter()))
                 } else {
                     Either::Right(std::iter::empty())
                 }
@@ -284,11 +297,15 @@ impl Document {
             if section.id != pointer.id {
                 continue;
             }
-            let SectionContent::Line(_, extras) = &section.content else {
+            let SectionContent::Lines(lines) = &section.content else {
                 continue;
             };
-            if let Some(extra) = extras.get(pointer.index) {
-                return Some(extra);
+            let mut remaining = pointer.index;
+            for (_, extras) in lines {
+                if remaining < extras.len() {
+                    return Some(&extras[remaining]);
+                }
+                remaining -= extras.len();
             }
         }
         None
@@ -341,19 +358,21 @@ pub enum SectionContent {
     Image(String, Protocol),
     BrokenImage(String, String),
     Header(String, u8),
-    Line(Line<'static>, Vec<LineExtra>),
+    Lines(Vec<(Line<'static>, Vec<LineExtra>)>),
 }
 
 impl SectionContent {
     pub fn add_search(&mut self, re: Option<&Regex>) {
-        if let SectionContent::Line(line, extras) = self {
-            let line_string = line.to_string();
-            extras.retain(|extra| !matches!(extra, LineExtra::SearchMatch(_, _, _)));
-            if let Some(re) = re {
-                extras.extend(
-                    re.find_iter(&line_string)
-                        .map(SectionContent::regex_to_searchmatch(&line_string)),
-                );
+        if let SectionContent::Lines(lines) = self {
+            for (line, extras) in lines {
+                let line_string = line.to_string();
+                extras.retain(|extra| !matches!(extra, LineExtra::SearchMatch(_, _, _)));
+                if let Some(re) = re {
+                    extras.extend(
+                        re.find_iter(&line_string)
+                            .map(SectionContent::regex_to_searchmatch(&line_string)),
+                    );
+                }
             }
         }
         // TODO: search in headers
@@ -375,7 +394,14 @@ impl PartialEq for SectionContent {
         match (self, other) {
             (Self::Image(l0, l1), Self::Image(r0, r1)) => l0 == r0 && l1.type_id() == r1.type_id(),
             (Self::BrokenImage(l0, l1), Self::BrokenImage(r0, r1)) => l0 == r0 && l1 == r1,
-            (Self::Line(l0, l1), Self::Line(r0, r1)) => l0 == r0 && l1 == r1,
+            (Self::Lines(l), Self::Lines(r)) => {
+                for ((l0, l1), (r0, r1)) in l.iter().zip(r.iter()) {
+                    if l0 != r0 || l1 != r1 {
+                        return false;
+                    }
+                }
+                true
+            }
             (Self::Header(l0, l1), Self::Header(r0, r1)) => l0 == r0 && l1 == r1,
             _ => false,
         }
@@ -389,11 +415,13 @@ impl Debug for SectionContent {
             Self::BrokenImage(url, _) => f
                 .debug_tuple(format!("BrokenImage({url})").as_str())
                 .finish(),
-            Self::Line(line, extra) => {
+            Self::Lines(lines) => {
                 let mut tuple = f.debug_tuple("Line");
-                let mut tuple = tuple.field(line);
-                if !extra.is_empty() {
-                    tuple = tuple.field(extra);
+                for (line, extra) in lines {
+                    let mut tuple = tuple.field(line);
+                    if !extra.is_empty() {
+                        tuple = tuple.field(extra);
+                    }
                 }
                 tuple.finish()
             }
@@ -407,7 +435,7 @@ impl Display for SectionContent {
         match self {
             Self::Image(url, protocol) => write!(f, "Image({url}, {:?})", protocol.type_id()),
             Self::BrokenImage(url, _) => write!(f, "BrokenImage({url})"),
-            Self::Line(line, extra) => write!(f, "Line({}, {})", line, extra.len()),
+            Self::Lines(lines) => write!(f, "Line({lines:?})"),
             Self::Header(text, tier) => write!(f, "Header({text}, {tier})"),
         }
     }
@@ -433,7 +461,15 @@ impl Display for Section {
         match &self.content {
             SectionContent::Image(_, _) => write!(f, "<image>"),
             SectionContent::BrokenImage(_, _) => write!(f, "<broken-image>"),
-            SectionContent::Line(line, _) => Display::fmt(&line, f),
+            SectionContent::Lines(lines) => {
+                for (i, (line, _)) in lines.iter().enumerate() {
+                    if i > 0 {
+                        writeln!(f)?;
+                    }
+                    write!(f, "{}", line)?;
+                }
+                Ok(())
+            }
             SectionContent::Header(text, tier) => {
                 write!(f, "{} {}", "#".repeat(*tier as usize), text)
             }
@@ -705,17 +741,17 @@ mod tests {
         ws.push(Section {
             id: 0,
             height: 2,
-            content: SectionContent::Line(Line::from("line #0"), Vec::new()),
+            content: SectionContent::Lines(vec![(Line::from("line #0"), Vec::new())]),
         });
         ws.push(Section {
             id: 1,
             height: 2,
-            content: SectionContent::Line(Line::from("headerline1 headerline2"), Vec::new()),
+            content: SectionContent::Lines(vec![(Line::from("headerline1 headerline2"), Vec::new())]),
         });
         ws.push(Section {
             id: 2,
             height: 2,
-            content: SectionContent::Line(Line::from("line #2"), Vec::new()),
+            content: SectionContent::Lines(vec![(Line::from("line #2"), Vec::new())]),
         });
 
         ws.update(vec![
@@ -782,12 +818,12 @@ mod tests {
         ws.push(Section {
             id: 2,
             height: 1,
-            content: SectionContent::Line(Line::from("line"), Vec::new()),
+            content: SectionContent::Lines(vec![(Line::from("line"), Vec::new())]),
         });
         ws.push(Section {
             id: 3,
             height: 1,
-            content: SectionContent::Line(Line::from("line"), Vec::new()),
+            content: SectionContent::Lines(vec![(Line::from("line"), Vec::new())]),
         });
         ws.push(Section {
             id: 4,
@@ -797,7 +833,7 @@ mod tests {
         ws.push(Section {
             id: 5,
             height: 1,
-            content: SectionContent::Line(Line::from("line"), Vec::new()),
+            content: SectionContent::Lines(vec![(Line::from("line"), Vec::new())]),
         });
         assert_eq!(ws.get_y(1), 0);
         assert_eq!(ws.get_y(2), 2);
@@ -809,11 +845,11 @@ mod tests {
     #[test]
     fn add_search_offset() {
         let line = Line::from(vec![Span::from("▐").magenta(), Span::from(" hi")]);
-        let mut wsd = SectionContent::Line(line, Vec::new());
+        let mut wsd = SectionContent::Lines(vec![(line, Vec::new())]);
         wsd.add_search(Regex::new("hi").ok().as_ref());
-        let SectionContent::Line(_, extra) = wsd else {
+        let SectionContent::Lines(lines) = wsd else {
             panic!("Line");
         };
-        assert_eq!(extra[0], LineExtra::SearchMatch(2, 4, String::from("hi")));
+        assert_eq!(lines[0].1[0], LineExtra::SearchMatch(2, 4, String::from("hi")));
     }
 }

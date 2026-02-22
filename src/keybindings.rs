@@ -180,14 +180,20 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
             if let Cursor::Links(CursorPointer { id, index }) = model.cursor {
                 let url = model.sections().find_map(|section| {
                     if section.id == id {
-                        let SectionContent::Line(_, extras) = &section.content else {
+                        let SectionContent::Lines(lines) = &section.content else {
                             return None;
                         };
-
-                        match extras.get(index) {
-                            Some(LineExtra::Link(url, _, _)) => Some(url.clone()),
-                            _ => None,
+                        let mut remaining = index;
+                        for (_, extras) in lines {
+                            if remaining < extras.len() {
+                                return match &extras[remaining] {
+                                    LineExtra::Link(url, _, _) => Some(url.clone()),
+                                    _ => None,
+                                };
+                            }
+                            remaining -= extras.len();
                         }
+                        None
                     } else {
                         None
                     }

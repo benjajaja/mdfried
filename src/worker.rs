@@ -32,8 +32,6 @@ use crate::{
     worker::markdown::md_line_to_events,
 };
 
-use markdown::parse_to_events;
-
 #[expect(clippy::too_many_arguments)]
 pub fn worker_thread(
     basepath: Option<PathBuf>,
@@ -71,31 +69,18 @@ pub fn worker_thread(
 
                         let mut section_id: Option<usize> = None;
                         for section in parser.parse_sections(width, &text, &theme) {
-                            for line in section.lines {
-                                for event in md_line_to_events(
-                                    document_id,
-                                    &mut section_id,
-                                    width,
-                                    has_text_size_protocol,
-                                    &theme,
-                                    line,
-                                ) {
-                                    event_tx.send(event)?;
-                                }
+                            for event in md_line_to_events(
+                                document_id,
+                                &mut section_id,
+                                width,
+                                has_text_size_protocol,
+                                &theme,
+                                section,
+                            ) {
+                                event_tx.send(event)?;
                             }
                         }
 
-                        // let (events, last_section_id) = parse_to_events(
-                        // &mut parser,
-                        // document_id,
-                        // width,
-                        // has_text_size_protocol,
-                        // &theme,
-                        // &text,
-                        // )?;
-                        // for event in events {
-                        // event_tx.send(event)?;
-                        // }
                         event_tx.send(Event::ParseDone(document_id, section_id))?;
                     }
                     Cmd::Header(document_id, section_id, width, tier, text) => {
