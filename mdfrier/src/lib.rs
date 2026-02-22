@@ -95,6 +95,7 @@
 mod lines;
 pub mod mapper;
 mod markdown;
+mod sections;
 mod wrap;
 
 #[cfg(feature = "ratatui")]
@@ -114,6 +115,8 @@ pub use markdown::{Modifier, SourceContent, Span};
 
 // Re-export for internal use by lines module
 pub(crate) use lines::MdLineContainer;
+
+use crate::sections::SectionIterator;
 
 // ============================================================================
 // Public output types
@@ -219,6 +222,19 @@ impl MdFrier {
             .into_iter()
             .map(|raw| convert_raw_to_mdline(raw, width, mapper))
             .collect()
+    }
+
+    pub fn parse_sections<M: Mapper>(&mut self, width: u16, text: &str, mapper: &M) {
+        let mut doc = match MdDocument::new(text, &mut self.parser, &mut self.inline_parser) {
+            Ok(doc) => doc,
+            Err(_) => return, // Vec::new(),
+        };
+
+        for section in doc.sections() {
+            // match section.content { }
+        }
+        // let mut section_iter = SectionIterator::new(doc, width);
+        // section_iter.collect();
     }
 }
 

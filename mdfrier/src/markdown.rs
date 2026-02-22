@@ -139,61 +139,7 @@ impl<'a> MdIterator<'a> {
     #[expect(clippy::string_slice)] // In tree-sitter we trust
     fn parse_node(&mut self, node: Node<'a>) -> Option<MdContent> {
         match node.kind() {
-            "paragraph" => {
-                let text = &self.source[node.byte_range()];
-
-                // Skip empty/whitespace-only paragraphs
-                if text.trim().is_empty() {
-                    return None;
-                }
-
-                let Some(tree) = self.inline_parser.parse(text, None) else {
-                    return Some(MdContent::Paragraph(vec![Span::new(
-                        text.to_owned(),
-                        Modifier::default(),
-                    )]));
-                };
-
-                // Count blockquote depth for stripping markers from content
-                let blockquote_depth = self
-                    .context
-                    .iter()
-                    .filter(|(_, c)| matches!(c, MdContainer::Blockquote(_)))
-                    .count();
-
-                let (mdspans, _) =
-                    inline_node_to_spans(tree.root_node(), text, Modifier::default(), 0);
-                let mdspans = split_newlines(mdspans);
-                let mdspans = detect_bare_urls(mdspans);
-                // Strip blockquote markers from line-start spans and filter empty/marker-only spans
-                let mdspans: Vec<Span> = mdspans
-                    .into_iter()
-                    .map(|mut s| {
-                        if s.modifiers.contains(Modifier::NewLine) {
-                            s.content =
-                                strip_blockquote_prefix(&s.content, blockquote_depth).into_owned();
-                        }
-                        s
-                    })
-                    .filter(|s| {
-                        // Empty spans: only keep if they represent hard line breaks (NewLine)
-                        if s.content.is_empty() {
-                            return s.modifiers.contains(Modifier::NewLine);
-                        }
-                        // For line-start spans (NewLine), filter out blockquote-marker-only content
-                        // that remains after stripping (e.g., a line that was just "> > ")
-                        if s.modifiers.contains(Modifier::NewLine) {
-                            return !is_blockquote_marker_only(s.content.trim());
-                        }
-                        // Mid-line spans are always kept (e.g., ">" from angle bracket URLs)
-                        true
-                    })
-                    .collect();
-                if mdspans.is_empty() {
-                    return None;
-                }
-                Some(MdContent::Paragraph(mdspans))
-            }
+            "paragraph" => self.parse_paragraph(&node),
             "atx_heading" => {
                 let mut tier = 0;
                 let mut text = "";
@@ -220,7 +166,7 @@ impl<'a> MdIterator<'a> {
                 // Blank line inside blockquote
                 if let Some(parent) = node.parent() {
                     if parent.kind() == "block_quote" {
-                        return Some(MdContent::Paragraph(Vec::new()));
+                        return Some(MdContent::Paragraph(MdParagraph::empty()));
                     }
                 }
                 None
@@ -384,6 +330,28 @@ impl<'a> MdIterator<'a> {
             }
         }
         ListMarker::with_task(marker_text.into_owned(), indent, task)
+    }
+
+    fn parse_paragraph(&mut self, node: &Node<'_>) -> Option<MdContent> {
+        let text = &self.source[node.byte_range()];
+
+        // Skip empty/whitespace-only paragraphs
+        if text.trim().is_empty() {
+            return None;
+        }
+
+        let Some(tree) = self.inline_parser.parse(text, None) else {
+            return Some(MdContent::Paragraph(MdParagraph::from(text)));
+        };
+
+        // Count blockquote depth for stripping markers from content
+        // TODO: why do we need special treatment for blockquote but not list or others?
+        let blockquote_depth = self
+            .context
+            .iter()
+            .filter(|(_, c)| matches!(c, MdContainer::Blockquote(_)))
+            .count();
+        MdParagraph::from_inline(tree.root_node(), text, blockquote_depth)
     }
 }
 
@@ -568,7 +536,7 @@ pub(crate) enum TableAlignment {
 /// Content of a markdown section.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum MdContent {
-    Paragraph(Vec<Span>),
+    Paragraph(MdParagraph),
     Header {
         tier: u8,
         text: String,
@@ -587,7 +555,193 @@ pub(crate) enum MdContent {
 
 impl MdContent {
     pub fn is_blank(&self) -> bool {
-        matches!(self, MdContent::Paragraph(nodes) if nodes.is_empty())
+        matches!(self, MdContent::Paragraph(p) if p.is_empty())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MdParagraph {
+    backing: String,
+    pub spans: Vec<Span>,
+}
+
+impl MdParagraph {
+    pub fn is_empty(&self) -> bool {
+        self.spans.is_empty()
+    }
+
+    fn from_inline(node: Node<'_>, text: &str, blockquote_depth: usize) -> Option<MdContent> {
+        let mut p = MdParagraph {
+            backing: String::new(),
+            spans: Vec::new(),
+        };
+        p.recurse(node, text, Modifier::default(), 0);
+        p.spans = split_newlines(p.spans);
+        p.spans = detect_bare_urls(p.spans);
+
+        // Strip blockquote markers from line-start spans and filter empty/marker-only spans
+        p.spans = p
+            .spans
+            .into_iter()
+            .map(|mut s| {
+                if s.modifiers.contains(Modifier::NewLine) {
+                    s.content = strip_blockquote_prefix(&s.content, blockquote_depth).into_owned();
+                }
+                s
+            })
+            .filter(|s| {
+                // Empty spans: only keep if they represent hard line breaks (NewLine)
+                if s.content.is_empty() {
+                    return s.modifiers.contains(Modifier::NewLine);
+                }
+                // For line-start spans (NewLine), filter out blockquote-marker-only content
+                // that remains after stripping (e.g., a line that was just "> > ")
+                if s.modifiers.contains(Modifier::NewLine) {
+                    return !is_blockquote_marker_only(s.content.trim());
+                }
+                // Mid-line spans are always kept (e.g., ">" from angle bracket URLs)
+                true
+            })
+            .collect();
+        if p.spans.is_empty() {
+            return None;
+        }
+        return Some(MdContent::Paragraph(p));
+    }
+
+    fn recurse(
+        &mut self,
+        node: Node<'_>,
+        source: &str,
+        extra: Modifier,
+        _depth: i32,
+    ) -> Option<SourceContent> {
+        let kind = node.kind();
+
+        if kind.contains("delimiter") {
+            return None;
+        }
+
+        let current_extra = match kind {
+            "emphasis" => Modifier::Emphasis,
+            "strong_emphasis" => Modifier::StrongEmphasis,
+            "strikethrough" => Modifier::Strikethrough,
+            "code_span" => {
+                // Strip the backtick delimiters from code span content
+                let content = &source[node.byte_range()];
+                let stripped = content.trim_start_matches('`').trim_end_matches('`').trim(); // Also trim inner whitespace that some code spans have
+                self.backing.push_str(stripped);
+                self.spans
+                    .push(Span::new(stripped.to_owned(), extra.union(Modifier::Code)));
+                return None;
+            }
+            "hard_line_break" | "soft_break" => {
+                // GFM hard line break (two trailing spaces + newline) or soft break
+                self.spans
+                    .push(Span::new(String::new(), extra.union(Modifier::Code)));
+                return None;
+            }
+            "[" | "]" => Modifier::LinkDescriptionWrapper,
+            "(" | ")" => Modifier::LinkURLWrapper,
+            "link_text" => Modifier::LinkDescription,
+            "inline_link" => Modifier::Link,
+            "image" => Modifier::Image,
+            "link_destination" => {
+                let url = source[node.byte_range()].to_owned();
+                let source_content = SourceContent::from(url.as_ref());
+                self.backing.push_str(&url);
+                self.spans.push(Span::link(
+                    url,
+                    extra.union(Modifier::LinkURL),
+                    Some(source_content.clone()),
+                ));
+                // TODO: what do we do with source_content here? Must be a reason.
+                return None;
+            }
+            _ => Modifier::default(),
+        };
+        let extra = extra.union(current_extra);
+
+        let (extra, newline_offset) = if source.as_bytes()[node.start_byte()] == b'\n' {
+            (extra.union(Modifier::NewLine), 1)
+        } else {
+            (extra, 0)
+        };
+
+        if node.child_count() == 0 {
+            self.backing
+                .push_str(&source[newline_offset + node.start_byte()..node.end_byte()]);
+            self.spans.push(Span::new(
+                source[newline_offset + node.start_byte()..node.end_byte()].to_owned(),
+                extra,
+            ));
+            return None;
+        }
+
+        // let mut spans = Vec::new();
+        let mut pos = node.start_byte() + newline_offset;
+
+        for child in node.children(&mut node.walk()) {
+            if is_punctuation(child.kind(), current_extra) {
+                continue;
+            }
+            let mut ended_with_newline = false;
+            if child.start_byte() > pos {
+                // TODO: is this right?
+                self.spans
+                    .push(Span::new(source[pos..child.start_byte()].to_owned(), extra));
+                if source.as_bytes()[child.start_byte() - 1] == b'\n' {
+                    ended_with_newline = true;
+                }
+            }
+            let extra = if ended_with_newline {
+                extra.union(Modifier::NewLine)
+            } else {
+                extra
+            };
+
+            let source_content = self.recurse(child, source, extra, _depth + 1);
+            if let Some(source_content) = source_content {
+                // This is why we return Option<SourceContent>, *only* LinkURL spans return
+                // Some(SourceContent). That is, if there was some other SourceContent on some spans,
+                // it should NOT be returned (without changing this block).
+                if let Some(desc) = self
+                    .spans
+                    .iter_mut()
+                    .rev()
+                    .find(|span| span.modifiers.contains(Modifier::LinkDescription))
+                {
+                    desc.source_content = Some(source_content);
+                }
+            }
+            // spans.extend(child_spans);
+            pos = child.end_byte();
+        }
+
+        if pos < node.end_byte() {
+            self.backing.push_str(&source[pos..node.end_byte()]);
+            self.spans
+                .push(Span::new(source[pos..node.end_byte()].to_owned(), extra));
+        }
+
+        None
+    }
+
+    fn empty() -> MdParagraph {
+        Self {
+            backing: String::new(),
+            spans: Vec::new(),
+        }
+    }
+}
+
+impl From<&str> for MdParagraph {
+    fn from(value: &str) -> Self {
+        let owned = value.to_owned();
+        Self {
+            backing: owned.clone(),
+            spans: vec![Span::new(owned, Modifier::default())],
+        }
     }
 }
 
