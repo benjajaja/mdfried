@@ -441,55 +441,59 @@ fn view(model: &Model, frame: &mut Frame) {
         if y >= 0 {
             let y: u16 = y as u16;
             match &section.content {
-                SectionContent::Line(line, extras) => {
-                    let p = Paragraph::new(line.clone());
+                SectionContent::Lines(lines) => {
+                    let mut flat_index = 0usize;
+                    for (line_offset, (line, extras)) in lines.iter().enumerate() {
+                        let line_y = y + line_offset as u16;
+                        let p = Paragraph::new(line.clone());
+                        render_widget(p, 1, line_y, inner_area, frame);
 
-                    render_widget(p, section.height, y, inner_area, frame);
+                        // Highlight all links that share the same URL as the selected link
+                        if let Cursor::Links(CursorPointer { id, index }) = &model.cursor {
+                            if let Some(selected) = &selected_url {
+                                for (i, extra) in extras.iter().enumerate() {
+                                    if let LineExtra::Link(url, start, end) = extra {
+                                        if url.as_ptr() == selected.as_ptr() {
+                                            let x = frame_area.x + padding.left + *start;
+                                            let width = end - start;
+                                            let area = Rect::new(x, line_y, width, 1);
+                                            // Highlight with original content - source_content is only for grouping/opening
+                                            let display_text = extract_line_content(line, *start);
+                                            let link_overlay_widget = Paragraph::new(display_text)
+                                                .fg(Color::Indexed(15))
+                                                .bg(Color::Indexed(32));
+                                            frame.render_widget(link_overlay_widget, area);
 
-                    // Highlight all links that share the same URL as the selected link
-                    if let Cursor::Links(CursorPointer { id, index }) = &model.cursor {
-                        if let Some(selected) = &selected_url {
-                            for (i, extra) in extras.iter().enumerate() {
-                                if let LineExtra::Link(url, start, end) = extra {
-                                    if url.as_ptr() == selected.as_ptr() {
-                                        let x = frame_area.x + padding.left + *start;
-                                        let width = end - start;
-                                        let area = Rect::new(x, y, width, 1);
-                                        // Highlight with original content - source_content is only for grouping/opening
-                                        let display_text = extract_line_content(line, *start);
-                                        let link_overlay_widget = Paragraph::new(display_text)
-                                            .fg(Color::Indexed(15))
-                                            .bg(Color::Indexed(32));
-                                        frame.render_widget(link_overlay_widget, area);
-
-                                        // Position cursor on the actual selected link
-                                        if *id == section.id && *index == i {
-                                            cursor_positioned = Some((x, y));
+                                            // Position cursor on the actual selected link
+                                            if *id == section.id && *index == flat_index + i {
+                                                cursor_positioned = Some((x, line_y));
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                    } else if let Cursor::Search(_, pointer) = &model.cursor {
-                        for (i, extra) in extras.iter().enumerate() {
-                            if let LineExtra::SearchMatch(start, end, text) = extra {
-                                let x = frame_area.x + padding.left + (*start as u16);
-                                let width = *end as u16 - *start as u16;
-                                let area = Rect::new(x, y, width, 1);
-                                let mut link_overlay_widget = Paragraph::new(text.clone());
-                                link_overlay_widget = if let Some(CursorPointer { id, index }) =
-                                    pointer
-                                    && section.id == *id
-                                    && i == *index
-                                {
-                                    link_overlay_widget.fg(Color::Black).bg(Color::Indexed(197))
-                                } else {
-                                    link_overlay_widget.fg(Color::Black).bg(Color::Indexed(148))
-                                };
-                                frame.render_widget(link_overlay_widget, area);
-                                cursor_positioned = Some((x, y));
+                        } else if let Cursor::Search(_, pointer) = &model.cursor {
+                            for (i, extra) in extras.iter().enumerate() {
+                                if let LineExtra::SearchMatch(start, end, text) = extra {
+                                    let x = frame_area.x + padding.left + (*start as u16);
+                                    let width = *end as u16 - *start as u16;
+                                    let area = Rect::new(x, line_y, width, 1);
+                                    let mut link_overlay_widget = Paragraph::new(text.clone());
+                                    link_overlay_widget = if let Some(CursorPointer { id, index }) =
+                                        pointer
+                                        && section.id == *id
+                                        && flat_index + i == *index
+                                    {
+                                        link_overlay_widget.fg(Color::Black).bg(Color::Indexed(197))
+                                    } else {
+                                        link_overlay_widget.fg(Color::Black).bg(Color::Indexed(148))
+                                    };
+                                    frame.render_widget(link_overlay_widget, area);
+                                    cursor_positioned = Some((x, line_y));
+                                }
                             }
                         }
+                        flat_index += extras.len();
                     }
                 }
                 SectionContent::Image(_, proto) => {

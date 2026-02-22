@@ -246,10 +246,10 @@ impl Model {
                             self.document.push(Section {
                                 id,
                                 height: 1,
-                                content: SectionContent::Line(
+                                content: SectionContent::Lines(vec![(
                                     Line::from(format!("![Loading...]({link_destination})")),
                                     Vec::new(),
-                                ),
+                                )]),
                             });
                         } else {
                             log::debug!(
@@ -258,10 +258,10 @@ impl Model {
                             self.document.update(vec![Section {
                                 id,
                                 height: 1,
-                                content: SectionContent::Line(
+                                content: SectionContent::Lines(vec![(
                                     Line::from(format!("![Loading...]({link_destination})")),
                                     Vec::new(),
-                                ),
+                                )]),
                             }]);
                         }
                         #[cfg(test)]
@@ -292,13 +292,13 @@ impl Model {
                         self.document.push(Section {
                             id,
                             height: 2,
-                            content: SectionContent::Line(line, Vec::new()),
+                            content: SectionContent::Lines(vec![(line, Vec::new())]),
                         });
                     } else {
                         self.document.update(vec![Section {
                             id,
                             height: 2,
-                            content: SectionContent::Line(line, Vec::new()),
+                            content: SectionContent::Lines(vec![(line, Vec::new())]),
                         }]);
                     }
                     #[cfg(test)]
@@ -372,13 +372,20 @@ impl Model {
     fn url_at_pointer(&self, pointer: &CursorPointer) -> Option<SourceContent> {
         self.document.iter().find_map(|section| {
             if section.id == pointer.id {
-                let SectionContent::Line(_, extras) = &section.content else {
+                let SectionContent::Lines(lines) = &section.content else {
                     return None;
                 };
-                let LineExtra::Link(url, _, _) = extras.get(pointer.index)? else {
-                    return None;
-                };
-                Some(url.clone())
+                let mut remaining = pointer.index;
+                for (_, extras) in lines {
+                    if remaining < extras.len() {
+                        let LineExtra::Link(url, _, _) = &extras[remaining] else {
+                            return None;
+                        };
+                        return Some(url.clone());
+                    }
+                    remaining -= extras.len();
+                }
+                None
             } else {
                 None
             }
@@ -621,21 +628,21 @@ mod tests {
         model.document.push(Section {
             id: 1,
             height: 1,
-            content: SectionContent::Line(
+            content: SectionContent::Lines(vec![(
                 Line::from("http://a.com http://b.com"),
                 vec![
                     LineExtra::Link(link_a.clone(), 0, 11),
                     LineExtra::Link(link_b.clone(), 12, 21),
                 ],
-            ),
+            )]),
         });
         model.document.push(Section {
             id: 2,
             height: 1,
-            content: SectionContent::Line(
+            content: SectionContent::Lines(vec![(
                 Line::from("http://c.com"),
                 vec![LineExtra::Link(link_c.clone(), 0, 11)],
-            ),
+            )]),
         });
 
         model.cursor_next(1);
@@ -659,10 +666,10 @@ mod tests {
             model.document.push(Section {
                 id: i,
                 height: 1,
-                content: SectionContent::Line(
+                content: SectionContent::Lines(vec![(
                     Line::from(url.clone()),
                     vec![LineExtra::Link(link, 0, 11)],
-                ),
+                )]),
             });
         }
 
@@ -678,16 +685,16 @@ mod tests {
         model.document.push(Section {
             id: 1,
             height: 1,
-            content: SectionContent::Line(
+            content: SectionContent::Lines(vec![(
                 Line::from("http://a.com"),
                 vec![LineExtra::Link(link.clone(), 0, 11)],
-            ),
+            )]),
         });
         for i in 2..5 {
             model.document.push(Section {
                 id: i,
                 height: 1,
-                content: SectionContent::Line(Line::from("text"), vec![]),
+                content: SectionContent::Lines(vec![(Line::from("text"), vec![])]),
             });
         }
 
@@ -705,21 +712,21 @@ mod tests {
         model.document.push(Section {
             id: 1,
             height: 1,
-            content: SectionContent::Line(
+            content: SectionContent::Lines(vec![(
                 Line::from("http://a.com http://b.com"),
                 vec![
                     LineExtra::Link(link_a.clone(), 0, 11),
                     LineExtra::Link(link_b.clone(), 12, 21),
                 ],
-            ),
+            )]),
         });
         model.document.push(Section {
             id: 2,
             height: 1,
-            content: SectionContent::Line(
+            content: SectionContent::Lines(vec![(
                 Line::from("http://c.com"),
                 vec![LineExtra::Link(link_c.clone(), 0, 11)],
-            ),
+            )]),
         });
 
         model.cursor_next(1);
@@ -741,21 +748,21 @@ mod tests {
         model.document.push(Section {
             id: 1,
             height: 1,
-            content: SectionContent::Line(
+            content: SectionContent::Lines(vec![(
                 Line::from("http://a.com http://b.com"),
                 vec![
                     LineExtra::Link(link_a.clone(), 0, 11),
                     LineExtra::Link(link_b.clone(), 12, 21),
                 ],
-            ),
+            )]),
         });
         model.document.push(Section {
             id: 2,
             height: 1,
-            content: SectionContent::Line(
+            content: SectionContent::Lines(vec![(
                 Line::from("http://c.com"),
                 vec![LineExtra::Link(link_c.clone(), 0, 11)],
-            ),
+            )]),
         });
 
         model.cursor_prev(1);
@@ -775,7 +782,7 @@ mod tests {
             model.document.push(Section {
                 id: i,
                 height: 1,
-                content: SectionContent::Line(Line::from(format!("line {}", i + 1)), Vec::new()),
+                content: SectionContent::Lines(vec![(Line::from(format!("line {}", i + 1)), Vec::new())]),
             });
         }
 
@@ -798,7 +805,7 @@ mod tests {
             model.document.push(Section {
                 id: i,
                 height: 1,
-                content: SectionContent::Line(Line::from(format!("line {}", i + 1)), Vec::new()),
+                content: SectionContent::Lines(vec![(Line::from(format!("line {}", i + 1)), Vec::new())]),
             });
         }
 
@@ -815,17 +822,17 @@ mod tests {
             model.document.push(Section {
                 id: i,
                 height: 1,
-                content: SectionContent::Line(Line::from(format!("line {}", i + 1)), Vec::new()),
+                content: SectionContent::Lines(vec![(Line::from(format!("line {}", i + 1)), Vec::new())]),
             });
         }
         let link = SourceContent::from("http://a.com");
         model.document.push(Section {
             id: 30,
             height: 1,
-            content: SectionContent::Line(
+            content: SectionContent::Lines(vec![(
                 Line::from("http://a.com"),
                 vec![LineExtra::Link(link.clone(), 0, 11)],
-            ),
+            )]),
         });
 
         model.cursor_next(1);
@@ -844,10 +851,10 @@ mod tests {
             }
         }
         let last_rendered = last_rendered.unwrap();
-        let SectionContent::Line(_, extra) = &last_rendered.content else {
+        let SectionContent::Lines(lines) = &last_rendered.content else {
             panic!("expected Line");
         };
-        let LineExtra::Link(url, _, _) = &extra[0] else {
+        let LineExtra::Link(url, _, _) = &lines[0].1[0] else {
             panic!("expected Link");
         };
         assert_eq!("http://a.com", url.as_ref());
@@ -863,10 +870,10 @@ mod tests {
             model.document.push(Section {
                 id: i,
                 height: 1,
-                content: SectionContent::Line(
+                content: SectionContent::Lines(vec![(
                     Line::from(url),
                     vec![LineExtra::Link(link.clone(), 0, 11)],
-                ),
+                )]),
             });
             links.push(link);
         }

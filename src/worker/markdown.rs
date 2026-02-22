@@ -51,7 +51,7 @@ pub fn md_line_to_events(
     width: u16,
     has_text_size_protocol: bool,
     theme: &Theme,
-    md_line: MdLine,
+    section: mdfrier::sections::Section,
 ) -> Vec<Event> {
     // Handle special cases that need application-specific treatment
     match &md_line.kind {
@@ -129,7 +129,7 @@ pub fn md_line_to_events(
                 Section {
                     id: post_incr_section_id(section_id),
                     height: 1,
-                    content: SectionContent::Line(line, links),
+                    content: SectionContent::Lines(vec![(line, links)]),
                 },
             )]
         }

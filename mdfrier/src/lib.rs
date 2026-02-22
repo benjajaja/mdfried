@@ -95,7 +95,7 @@
 mod lines;
 pub mod mapper;
 mod markdown;
-mod sections;
+pub mod sections;
 mod wrap;
 
 #[cfg(feature = "ratatui")]
