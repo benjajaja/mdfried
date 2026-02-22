@@ -3,7 +3,7 @@
 //! Uses the mdfrier crate for parsing and styling, then converts to application Events.
 
 use mdfrier::{
-    Line as MdLine, LineKind, MdFrier,
+    LineKind, MdFrier,
     ratatui::{Tag, render_line},
 };
 use textwrap::{Options, wrap};
@@ -13,36 +13,8 @@ use crate::{
     big_text::BigText,
     config::Theme,
     document::{LineExtra, Section, SectionContent},
-    error::Error,
     model::DocumentId,
 };
-
-/// Main pipeline function that parses markdown text into Events.
-pub fn parse_to_events(
-    parser: &mut MdFrier,
-    document_id: DocumentId,
-    width: u16,
-    has_text_size_protocol: bool,
-    theme: &Theme,
-    text: &str,
-) -> Result<(Vec<Event>, Option<usize>), Error> {
-    let mut section_id: Option<usize> = None;
-    let mut events = Vec::new();
-
-    for md_line in parser.parse(width, text, theme) {
-        let line_events = md_line_to_events(
-            document_id,
-            &mut section_id,
-            width,
-            has_text_size_protocol,
-            theme,
-            md_line,
-        );
-        events.extend(line_events);
-    }
-
-    Ok((events, section_id))
-}
 
 /// Convert an MdLine to application Events.
 pub fn md_line_to_events(
@@ -53,11 +25,15 @@ pub fn md_line_to_events(
     theme: &Theme,
     section: mdfrier::sections::Section,
 ) -> Vec<Event> {
-    // Handle special cases that need application-specific treatment
-    match &md_line.kind {
-        LineKind::Header(tier) => {
-            let tier = *tier;
-            let text: String = md_line.spans.iter().map(|s| s.content.as_str()).collect();
+    match section.kind {
+        mdfrier::sections::SectionKind::Header => {
+            let Some(line) = section.lines.first() else {
+                panic!("Header section must have one line: {:?}", section.lines);
+            };
+            let LineKind::Header(tier) = line.kind else {
+                panic!("SectionKind::Header first line not Header kind");
+            };
+            let text: String = line.spans.iter().map(|s| s.content.as_str()).collect();
 
             if has_text_size_protocol {
                 // Wrap header text for big text rendering
@@ -88,39 +64,54 @@ pub fn md_line_to_events(
                 )]
             }
         }
-        LineKind::Image { url, description } => {
-            vec![Event::ParsedImage(
-                document_id,
-                post_incr_section_id(section_id),
-                MarkdownImage {
-                    destination: url.clone(),
-                    description: description.clone(),
-                },
-            )]
-        }
+        // mdfrier::sections::SectionKind::Image => {
+        // eprintln!("Image section");
+        // let Some(line) = section.lines.first() else {
+        // panic!("Image section must have one line");
+        // };
+        // let LineKind::Image { url, description } = &line.kind else {
+        // panic!("Header section must have one header line");
+        // };
+        // vec![Event::ParsedImage(
+        // document_id,
+        // post_incr_section_id(section_id),
+        // MarkdownImage {
+        // destination: url.clone(),
+        // description: description.clone(),
+        // },
+        // )]
+        // }
         // All other lines: render via mdfrier and convert to Event
         _ => {
-            let (line, tags) = render_line(md_line, theme);
-
-            // Extract link info from tags, using span index to calculate character offsets
-            let links: Vec<LineExtra> = tags
+            let lines: Vec<_> = section
+                .lines
                 .into_iter()
-                .filter_map(|tag| {
-                    if let Tag::Link(span_idx, url) = tag {
-                        // Sum widths of spans before this one to get character offset
-                        let offset: u16 = line.spans[..span_idx]
-                            .iter()
-                            .map(|s| {
-                                unicode_width::UnicodeWidthStr::width(s.content.as_ref()) as u16
-                            })
-                            .sum();
-                        let span_width = unicode_width::UnicodeWidthStr::width(
-                            line.spans[span_idx].content.as_ref(),
-                        ) as u16;
-                        Some(LineExtra::Link(url, offset, offset + span_width))
-                    } else {
-                        None
-                    }
+                .map(|line| {
+                    let (line, tags) = render_line(line, theme);
+
+                    // Extract link info from tags, using span index to calculate character offsets
+                    let links: Vec<LineExtra> = tags
+                        .into_iter()
+                        .filter_map(|tag| {
+                            if let Tag::Link(span_idx, url) = tag {
+                                // Sum widths of spans before this one to get character offset
+                                let offset: u16 = line.spans[..span_idx]
+                                    .iter()
+                                    .map(|s| {
+                                        unicode_width::UnicodeWidthStr::width(s.content.as_ref())
+                                            as u16
+                                    })
+                                    .sum();
+                                let span_width = unicode_width::UnicodeWidthStr::width(
+                                    line.spans[span_idx].content.as_ref(),
+                                ) as u16;
+                                Some(LineExtra::Link(url, offset, offset + span_width))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    (line, links)
                 })
                 .collect();
 
@@ -128,8 +119,8 @@ pub fn md_line_to_events(
                 document_id,
                 Section {
                     id: post_incr_section_id(section_id),
-                    height: 1,
-                    content: SectionContent::Lines(vec![(line, links)]),
+                    height: lines.len() as u16,
+                    content: SectionContent::Lines(lines),
                 },
             )]
         }
@@ -153,9 +144,36 @@ mod tests {
         DocumentId, Event,
         config::Theme,
         document::{Section, SectionContent},
-        worker::markdown::parse_to_events,
+        worker::markdown::md_line_to_events,
     };
     use mdfrier::MdFrier;
+
+    /// Main pipeline function that parses markdown text into Events.
+    fn parse_to_events(
+        parser: &mut MdFrier,
+        document_id: DocumentId,
+        width: u16,
+        has_text_size_protocol: bool,
+        theme: &Theme,
+        text: &str,
+    ) -> (Vec<Event>, Option<usize>) {
+        let mut events = Vec::new();
+        let mut section_id: Option<usize> = None;
+        for section in parser.parse_sections(width, &text, theme) {
+            for event in md_line_to_events(
+                document_id,
+                &mut section_id,
+                width,
+                has_text_size_protocol,
+                &theme,
+                section,
+            ) {
+                events.push(event);
+            }
+        }
+
+        (events, section_id)
+    }
 
     #[expect(clippy::unwrap_used)]
     fn parse(text: String, width: u16, has_text_size_protocol: bool) -> Vec<Event> {
@@ -167,8 +185,7 @@ mod tests {
             has_text_size_protocol,
             &Theme::default(),
             &text,
-        )
-        .unwrap();
+        );
         events
     }
 

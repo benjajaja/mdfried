@@ -1,3 +1,5 @@
+use std::iter::Peekable;
+
 use textwrap::{Options, wrap};
 use unicode_width::UnicodeWidthStr as _;
 
@@ -12,23 +14,31 @@ use crate::{
 pub struct Section {
     pub backend: String,
     pub lines: Vec<Line>,
+    pub kind: SectionKind,
+}
+
+#[derive(Default)]
+pub enum SectionKind {
+    #[default]
+    Paragraph,
+    Header,
+    CodeBlock,
+    HorizontalRule,
+    Table,
 }
 
 pub struct SectionIterator<'a, M: Mapper> {
-    inner: MdIterator<'a>,
+    inner: Peekable<MdIterator<'a>>,
     width: u16,
     mapper: &'a M,
-    /// Whether the previous section needs a blank line after it.
-    needs_blank: bool,
 }
 
 impl<'a, M: Mapper> SectionIterator<'a, M> {
     pub fn new(inner: MdIterator<'a>, width: u16, mapper: &'a M) -> Self {
         SectionIterator {
-            inner,
+            inner: inner.peekable(),
             width,
             mapper,
-            needs_blank: false,
         }
     }
 
@@ -50,6 +60,7 @@ impl<'a, M: Mapper> SectionIterator<'a, M> {
                     .map(|raw| convert_raw_to_mdline(raw, self.width, self.mapper))
                     .collect();
                 Section {
+                    kind: SectionKind::Paragraph,
                     backend: String::new(),
                     lines,
                 }
@@ -60,6 +71,7 @@ impl<'a, M: Mapper> SectionIterator<'a, M> {
                     kind: LineKind::Header(tier),
                 };
                 Section {
+                    kind: SectionKind::Header,
                     backend: text.clone(),
                     lines: vec![line],
                 }
@@ -119,6 +131,7 @@ impl<'a, M: Mapper> SectionIterator<'a, M> {
                     }
                 }
                 Section {
+                    kind: SectionKind::CodeBlock,
                     backend: code,
                     lines,
                 }
@@ -129,6 +142,7 @@ impl<'a, M: Mapper> SectionIterator<'a, M> {
                     kind: LineKind::HorizontalRule,
                 };
                 Section {
+                    kind: SectionKind::HorizontalRule,
                     backend: String::new(),
                     lines: vec![line],
                 }
@@ -144,6 +158,7 @@ impl<'a, M: Mapper> SectionIterator<'a, M> {
                     .map(|raw| convert_raw_to_mdline(raw, self.width, self.mapper))
                     .collect();
                 Section {
+                    kind: SectionKind::Table,
                     backend: String::new(),
                     lines,
                 }
@@ -160,23 +175,17 @@ impl<M: Mapper> Iterator for SectionIterator<'_, M> {
             return None;
         };
 
-        let is_header = matches!(md_section.content, MdContent::Header { .. });
         let is_blank = md_section.content.is_blank();
 
         let nesting = convert_nesting(&md_section.nesting, md_section.is_list_continuation);
         let mut section: Section = self.from_content(nesting, md_section.content);
 
-        if self.needs_blank && !is_blank {
-            section.lines.insert(
-                0,
-                Line {
-                    spans: Vec::new(),
-                    kind: LineKind::Blank,
-                },
-            );
+        if self.inner.peek().is_some() && !is_blank {
+            section.lines.push(Line {
+                spans: Vec::new(),
+                kind: LineKind::Blank,
+            });
         }
-
-        self.needs_blank = !is_header && !is_blank;
 
         Some(section)
     }
