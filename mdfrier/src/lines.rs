@@ -173,7 +173,7 @@ pub(crate) fn section_to_raw_lines(width: u16, section: &MdSection) -> Vec<RawLi
     let nesting = convert_nesting(&section.nesting, section.is_list_continuation);
 
     match &section.content {
-        MdContent::Paragraph(mdspans) if mdspans.is_empty() => {
+        MdContent::Paragraph(p) if p.is_empty() => {
             vec![RawLine {
                 spans: Vec::new(),
                 meta: LineMeta {
@@ -182,7 +182,7 @@ pub(crate) fn section_to_raw_lines(width: u16, section: &MdSection) -> Vec<RawLi
                 },
             }]
         }
-        MdContent::Paragraph(mdspans) => {
+        MdContent::Paragraph(p) => {
             let prefix_width = nesting
                 .iter()
                 .map(|c| match c {
@@ -190,7 +190,7 @@ pub(crate) fn section_to_raw_lines(width: u16, section: &MdSection) -> Vec<RawLi
                     MdLineContainer::ListItem { marker, .. } => marker.width(),
                 })
                 .sum();
-            let wrapped_lines = wrap_md_spans(width, mdspans.clone(), prefix_width);
+            let wrapped_lines = wrap_md_spans(width, p.spans.clone(), prefix_width);
             wrapped_lines_to_raw_lines(wrapped_lines, nesting)
         }
         MdContent::Header { tier, text } => {
