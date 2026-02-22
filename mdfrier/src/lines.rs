@@ -344,7 +344,7 @@ fn convert_nesting(md_nesting: &[MdContainer], is_list_continuation: bool) -> Ve
     nesting
 }
 
-fn wrapped_lines_to_raw_lines(
+pub fn wrapped_lines_to_raw_lines(
     wrapped_lines: Vec<crate::wrap::WrappedLine>,
     nesting: Vec<MdLineContainer>,
 ) -> Vec<RawLine> {
@@ -405,7 +405,7 @@ fn wrapped_lines_to_raw_lines(
     lines
 }
 
-fn table_to_raw_lines(
+pub fn table_to_raw_lines(
     width: u16,
     header: &[Vec<Span>],
     rows: &[Vec<Vec<Span>>],

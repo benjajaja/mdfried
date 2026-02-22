@@ -116,7 +116,10 @@ pub use markdown::{Modifier, SourceContent, Span};
 // Re-export for internal use by lines module
 pub(crate) use lines::MdLineContainer;
 
-use crate::sections::SectionIterator;
+use crate::{
+    markdown::MdIterator,
+    sections::{Section, SectionIterator},
+};
 
 // ============================================================================
 // Public output types
@@ -224,17 +227,19 @@ impl MdFrier {
             .collect()
     }
 
-    pub fn parse_sections<M: Mapper>(&mut self, width: u16, text: &str, mapper: &M) {
-        let mut doc = match MdDocument::new(text, &mut self.parser, &mut self.inline_parser) {
-            Ok(doc) => doc,
-            Err(_) => return, // Vec::new(),
-        };
-
-        for section in doc.sections() {
-            // match section.content { }
-        }
-        // let mut section_iter = SectionIterator::new(doc, width);
-        // section_iter.collect();
+    pub fn parse_sections<'a, M: Mapper>(
+        &'a mut self,
+        width: u16,
+        text: &'a str,
+        mapper: &'a M,
+    ) -> SectionIterator<'a, M> {
+        let tree = self
+            .parser
+            .parse(text, None)
+            .ok_or(MarkdownParseError)
+            .unwrap();
+        let iter = MdIterator::new(tree, &mut self.inline_parser, text);
+        SectionIterator::new(iter, width, mapper)
     }
 }
 
@@ -243,7 +248,7 @@ impl MdFrier {
 // ============================================================================
 
 /// Convert a RawLine to MdLine by applying the mapper and flattening nesting.
-fn convert_raw_to_mdline<M: Mapper>(raw: RawLine, width: u16, mapper: &M) -> Line {
+pub fn convert_raw_to_mdline<M: Mapper>(raw: RawLine, width: u16, mapper: &M) -> Line {
     let RawLine { spans, meta } = raw;
 
     // Build prefix spans from nesting
@@ -666,7 +671,7 @@ struct RawLineProcessor {
 
 impl RawLineProcessor {
     fn new(mut doc: MdDocument, width: u16) -> Self {
-        let sections: Vec<_> = doc.sections().collect();
+        let sections: Vec<_> = doc.into_sections().collect();
         Self {
             sections,
             section_idx: 0,

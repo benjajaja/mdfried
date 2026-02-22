@@ -45,7 +45,7 @@ pub fn parse_to_events(
 }
 
 /// Convert an MdLine to application Events.
-fn md_line_to_events(
+pub fn md_line_to_events(
     document_id: DocumentId,
     section_id: &mut Option<usize>,
     width: u16,

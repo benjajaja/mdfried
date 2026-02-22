@@ -21,9 +21,9 @@ pub(crate) struct MdDocument<'a> {
 impl<'a> MdDocument<'a> {
     pub fn new(
         source: &'a str,
-        parser: &mut Parser,
+        parser: &'a mut Parser,
         inline_parser: &'a mut Parser,
-    ) -> Result<Self, MarkdownParseError> {
+    ) -> Result<MdDocument<'a>, MarkdownParseError> {
         let tree = parser.parse(source, None).ok_or(MarkdownParseError)?;
         Ok(Self {
             source,
@@ -32,22 +32,17 @@ impl<'a> MdDocument<'a> {
         })
     }
 
-    pub fn sections(&mut self) -> MdIterator<'_> {
-        MdIterator {
-            source: self.source,
-            cursor: self.tree.walk(),
-            done: false,
-            inline_parser: self.inline_parser,
-            context: Vec::new(),
-            depth: 0,
-            list_item_content_depth: None,
-        }
+    pub fn into_sections(self) -> MdIterator<'a> {
+        MdIterator::new(self.tree, self.inline_parser, self.source)
     }
 }
 
 pub(crate) struct MdIterator<'a> {
     source: &'a str,
+    // Invariant: cursor is dropped before tree
     cursor: TreeCursor<'a>,
+    #[expect(dead_code)]
+    tree: Box<Tree>,
     done: bool,
     inline_parser: &'a mut Parser,
     /// Current container ancestry with depth for tracking when to pop.
@@ -56,6 +51,25 @@ pub(crate) struct MdIterator<'a> {
     depth: usize,
     /// Depth of the last ListItem that has emitted content (for continuation detection).
     list_item_content_depth: Option<usize>,
+}
+
+impl<'a> MdIterator<'a> {
+    pub fn new(tree: Tree, inline_parser: &'a mut Parser, source: &'a str) -> Self {
+        let tree = Box::new(tree);
+        let cursor =
+            unsafe { std::mem::transmute::<TreeCursor<'_>, TreeCursor<'static>>(tree.walk()) };
+
+        MdIterator {
+            source,
+            cursor,
+            tree,
+            done: false,
+            inline_parser: inline_parser,
+            context: Vec::new(),
+            depth: 0,
+            list_item_content_depth: None,
+        }
+    }
 }
 
 impl Iterator for MdIterator<'_> {
@@ -561,7 +575,7 @@ impl MdContent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MdParagraph {
-    backing: String,
+    pub backing: String,
     pub spans: Vec<Span>,
 }
 
@@ -1127,7 +1141,7 @@ mod tests {
 > Second paragraph"#;
         let mut doc = MdDocument::new(source, &mut parser, &mut inline_parser).unwrap();
 
-        let sections: Vec<_> = doc.sections().collect();
+        let sections: Vec<_> = doc.into_sections().collect();
         assert_eq!(sections.len(), 3);
         assert!(!sections[0].content.is_blank());
         assert!(sections[1].content.is_blank());
@@ -1139,7 +1153,7 @@ mod tests {
         let mut parser = make_parser();
         let mut inline_parser = make_inline_parser();
         let mut doc = MdDocument::new("# Hello\n", &mut parser, &mut inline_parser).unwrap();
-        let sections: Vec<_> = doc.sections().collect();
+        let sections: Vec<_> = doc.into_sections().collect();
         assert_eq!(sections.len(), 1);
         assert!(matches!(
             sections[0].content,
