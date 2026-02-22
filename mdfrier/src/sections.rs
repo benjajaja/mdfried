@@ -18,6 +18,8 @@ pub struct SectionIterator<'a, M: Mapper> {
     inner: MdIterator<'a>,
     width: u16,
     mapper: &'a M,
+    /// Whether the previous section needs a blank line after it.
+    needs_blank: bool,
 }
 
 impl<'a, M: Mapper> SectionIterator<'a, M> {
@@ -26,6 +28,7 @@ impl<'a, M: Mapper> SectionIterator<'a, M> {
             inner,
             width,
             mapper,
+            needs_blank: false,
         }
     }
 
@@ -157,9 +160,24 @@ impl<M: Mapper> Iterator for SectionIterator<'_, M> {
             return None;
         };
 
-        let nesting = convert_nesting(&md_section.nesting, md_section.is_list_continuation);
+        let is_header = matches!(md_section.content, MdContent::Header { .. });
+        let is_blank = md_section.content.is_blank();
 
-        let section: Section = self.from_content(nesting, md_section.content);
+        let nesting = convert_nesting(&md_section.nesting, md_section.is_list_continuation);
+        let mut section: Section = self.from_content(nesting, md_section.content);
+
+        if self.needs_blank && !is_blank {
+            section.lines.insert(
+                0,
+                Line {
+                    spans: Vec::new(),
+                    kind: LineKind::Blank,
+                },
+            );
+        }
+
+        self.needs_blank = !is_header && !is_blank;
+
         Some(section)
     }
 }
