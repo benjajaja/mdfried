@@ -307,7 +307,7 @@ impl Display for Cmd {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum Event {
     NewDocument(DocumentId),
     ParseDone(DocumentId, Option<SectionID>), // Only signals "parsing done", not "images ready"!

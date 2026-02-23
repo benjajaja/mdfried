@@ -258,7 +258,10 @@ impl Document {
                         .flat_map(|(_, extras)| {
                             let start = flat_index;
                             flat_index += extras.len();
-                            extras.iter().enumerate().map(move |(i, extra)| (start + i, extra))
+                            extras
+                                .iter()
+                                .enumerate()
+                                .map(move |(i, extra)| (start + i, extra))
                         })
                         .filter(|(_, extra)| target.matches(extra))
                         .map(move |(index, _)| CursorPointer { id, index })
@@ -277,7 +280,10 @@ impl Document {
                         .flat_map(|(_, extras)| {
                             let start = flat_index;
                             flat_index += extras.len();
-                            extras.iter().enumerate().map(move |(i, extra)| (start + i, extra))
+                            extras
+                                .iter()
+                                .enumerate()
+                                .map(move |(i, extra)| (start + i, extra))
                         })
                         .filter(|(_, extra)| target.matches(extra))
                         .map(move |(index, _)| CursorPointer { id, index })
@@ -360,7 +366,7 @@ impl FindTarget {
 
 pub type SectionID = usize;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Section {
     pub id: SectionID,
     pub height: u16,
@@ -402,19 +408,15 @@ impl SectionContent {
     }
 }
 
+#[cfg(test)]
 impl PartialEq for SectionContent {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Image(l0, l1), Self::Image(r0, r1)) => l0 == r0 && l1.type_id() == r1.type_id(),
-            (Self::BrokenImage(l0, l1), Self::BrokenImage(r0, r1)) => l0 == r0 && l1 == r1,
-            (Self::Lines(l), Self::Lines(r)) => {
-                for ((l0, l1), (r0, r1)) in l.iter().zip(r.iter()) {
-                    if l0 != r0 || l1 != r1 {
-                        return false;
-                    }
-                }
-                true
+            (Self::Image(..), _) | (_, Self::Image(..)) => {
+                panic!("PartialEq not supported for SectionContent::Image")
             }
+            (Self::BrokenImage(l0, l1), Self::BrokenImage(r0, r1)) => l0 == r0 && l1 == r1,
+            (Self::Lines(l), Self::Lines(r)) => l == r,
             (Self::Header(l0, l1), Self::Header(r0, r1)) => l0 == r0 && l1 == r1,
             _ => false,
         }
@@ -490,10 +492,42 @@ impl Display for Section {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
 pub enum LineExtra {
+    Image(Protocol),
     Link(SourceContent, u16, u16),
     SearchMatch(usize, usize, String),
+}
+
+impl Debug for LineExtra {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LineExtra::Image(protocol) => write!(f, "Image({:?})", protocol.type_id()),
+            LineExtra::Link(url, start, end) => {
+                write!(f, "Link({:?}, {}, {})", url, start, end)
+            }
+            LineExtra::SearchMatch(start, end, text) => {
+                write!(f, "SearchMatch({}, {}, {:?})", start, end, text)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+impl PartialEq for LineExtra {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (LineExtra::Image(..), _) | (_, LineExtra::Image(..)) => {
+                panic!("PartialEq not supported for LineExtra::Image")
+            }
+            (LineExtra::Link(l0, l1, l2), LineExtra::Link(r0, r1, r2)) => {
+                l0 == r0 && l1 == r1 && l2 == r2
+            }
+            (LineExtra::SearchMatch(l0, l1, l2), LineExtra::SearchMatch(r0, r1, r2)) => {
+                l0 == r0 && l1 == r1 && l2 == r2
+            }
+            _ => false,
+        }
+    }
 }
 
 /// Layout/shape and render `text` into a list of [`DynamicImage`] with a given terminal width.
@@ -759,7 +793,10 @@ mod tests {
         ws.push(Section {
             id: 1,
             height: 2,
-            content: SectionContent::Lines(vec![(Line::from("headerline1 headerline2"), Vec::new())]),
+            content: SectionContent::Lines(vec![(
+                Line::from("headerline1 headerline2"),
+                Vec::new(),
+            )]),
         });
         ws.push(Section {
             id: 2,
@@ -863,6 +900,9 @@ mod tests {
         let SectionContent::Lines(lines) = wsd else {
             panic!("Line");
         };
-        assert_eq!(lines[0].1[0], LineExtra::SearchMatch(2, 4, String::from("hi")));
+        assert_eq!(
+            lines[0].1[0],
+            LineExtra::SearchMatch(2, 4, String::from("hi"))
+        );
     }
 }
