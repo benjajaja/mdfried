@@ -295,6 +295,13 @@ impl Model {
                             .send(Cmd::Header(document_id, id, inner_width, tier, text))?;
                     }
                 }
+                Event::ImageLoaded(document_id, section_id, url, proto) => {
+                    if !self.document_id.is_same_document(&document_id) {
+                        log::debug!("stale event, ignoring");
+                        continue;
+                    }
+                    todo!("Event::ImageLoaded: call document.update_image()");
+                }
                 Event::FileChanged => {
                     log::info!("reload: FileChanged");
                     self.reload(self.screen_size)?;

@@ -37,7 +37,7 @@ use ratatui::{
 };
 
 use mdfrier::Mapper as _;
-use ratatui_image::{Image, picker::ProtocolType};
+use ratatui_image::{Image, picker::ProtocolType, protocol::Protocol};
 use setup::{SetupResult, setup_graphics};
 
 use crate::{
@@ -307,7 +307,6 @@ impl Display for Cmd {
     }
 }
 
-#[derive(Debug)]
 pub enum Event {
     NewDocument(DocumentId),
     ParseDone(DocumentId, Option<SectionID>), // Only signals "parsing done", not "images ready"!
@@ -315,6 +314,8 @@ pub enum Event {
     ParsedImage(DocumentId, SectionID, MarkdownImage),
     ParseHeader(DocumentId, SectionID, u8, String),
     Update(DocumentId, Vec<Section>),
+    /// Image loaded: section_id, url, protocol
+    ImageLoaded(DocumentId, SectionID, String, Protocol),
     FileChanged,
 }
 
@@ -346,8 +347,19 @@ impl Display for Event {
                 write!(f, "Event::ParseHeader({document_id}, {id}, {tier}, {text})")
             }
 
+            Event::ImageLoaded(document_id, section_id, url, _) => {
+                write!(f, "Event::ImageLoaded({document_id}, {section_id}, {url})")
+            }
+
             Event::FileChanged => write!(f, "Event::FileChanged"),
         }
+    }
+}
+
+impl std::fmt::Debug for Event {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Reuse Display impl
+        Display::fmt(self, f)
     }
 }
 

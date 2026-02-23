@@ -83,6 +83,49 @@ impl Document {
         }
     }
 
+    /// Update a specific image line within a section with loaded image data.
+    pub fn update_image(&mut self, section_id: SectionID, url: &str, proto: Protocol) {
+        let Some(section) = self.sections.iter_mut().find(|s| s.id == section_id) else {
+            log::error!("update_image: section #{section_id} not found");
+            return;
+        };
+
+        let SectionContent::Lines(lines) = &mut section.content else {
+            log::error!("update_image: section #{section_id} is not Lines");
+            return;
+        };
+
+        // Find the line containing this image URL
+        let Some((line, extras)) = lines.iter_mut().find(|(line, _)| {
+            let text = line.to_string();
+            text.starts_with("![") && text.contains(url)
+        }) else {
+            log::error!("update_image: no line with url {url} in section #{section_id}");
+            return;
+        };
+
+        // Add the image protocol to extras
+        extras.push(LineExtra::Image(proto));
+
+        // Recalculate section height
+        let height: u16 = lines
+            .iter()
+            .map(|(_, extras)| {
+                extras
+                    .iter()
+                    .find_map(|e| {
+                        if let LineExtra::Image(proto) = e {
+                            Some(proto.area().height)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(1)
+            })
+            .sum();
+        section.height = height;
+    }
+
     pub fn replace(&mut self, id: SectionID, url: &str) -> Option<Section> {
         for section in &mut self.sections {
             if section.id < id {
