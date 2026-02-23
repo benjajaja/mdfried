@@ -310,6 +310,19 @@ impl Document {
         }
         None
     }
+
+    #[cfg(test)]
+    pub fn has_pending_images(&self) -> bool {
+        self.sections.iter().any(|section| {
+            if let SectionContent::Lines(lines) = &section.content {
+                lines
+                    .iter()
+                    .any(|(line, _)| line.to_string().starts_with("![Loading..."))
+            } else {
+                false
+            }
+        })
+    }
 }
 
 impl Deref for Document {
