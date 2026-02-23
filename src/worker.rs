@@ -221,19 +221,13 @@ fn process_post_parse_events(
                                 proto,
                             ))?
                         }
-                        Err(Error::UnknownImage(id, link)) => {
-                            log::error!("image_section UnknownImage");
-                            task_tx.send(Event::Update(
-                                document_id,
-                                vec![Section::image_unknown(id, link, description)],
-                            ))?
+                        Err(Error::UnknownImage(_id, link)) => {
+                            log::error!("image_section UnknownImage: {link}");
+                            // Leave the image line as-is (shows ![alt](url))
                         }
                         Err(err) => {
                             log::error!("image_section error: {err}");
-                            task_tx.send(Event::Update(
-                                document_id,
-                                vec![Section::image_unknown(section_id, destination, description)],
-                            ))?
+                            // Leave the image line as-is (shows ![alt](url))
                         }
                     }
                 }

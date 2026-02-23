@@ -455,13 +455,31 @@ fn view(model: &Model, frame: &mut Frame) {
             match &section.content {
                 SectionContent::Lines(lines) => {
                     let mut flat_index = 0usize;
-                    for (line_offset, (line, extras)) in lines.iter().enumerate() {
-                        let line_y = y + line_offset as u16;
+                    let mut line_y = y;
+                    for (line, extras) in lines.iter() {
                         if line_y >= inner_area.height {
                             break;
                         }
-                        let p = Paragraph::new(line.clone());
-                        render_widget(p, 1, line_y, inner_area, frame);
+
+                        // Check if this line has a loaded image
+                        let image_extra = extras.iter().find_map(|e| {
+                            if let LineExtra::Image(proto) = e {
+                                Some(proto)
+                            } else {
+                                None
+                            }
+                        });
+
+                        let line_height = if let Some(proto) = image_extra {
+                            let img = Image::new(proto);
+                            let h = proto.area().height;
+                            render_widget(img, h, line_y, inner_area, frame);
+                            h
+                        } else {
+                            let p = Paragraph::new(line.clone());
+                            render_widget(p, 1, line_y, inner_area, frame);
+                            1
+                        };
 
                         // Highlight all links that share the same URL as the selected link
                         if let Cursor::Links(CursorPointer { id, index }) = &model.cursor {
@@ -509,6 +527,7 @@ fn view(model: &Model, frame: &mut Frame) {
                             }
                         }
                         flat_index += extras.len();
+                        line_y += line_height;
                     }
                 }
                 SectionContent::Image(_, proto) => {
