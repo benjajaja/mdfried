@@ -24,12 +24,12 @@ use reqwest::Client;
 use tokio::{runtime::Builder, sync::RwLock};
 
 use crate::{
-    Cmd, Event,
+    Cmd, Event, MarkdownImage,
     config::Theme,
-    document::{Section, SectionContent, header_images, header_sections, image_section},
+    document::{Section, header_images, header_sections, image_section},
     error::Error,
     setup::FontRenderer,
-    worker::markdown::md_line_to_events,
+    worker::markdown::section_to_events,
 };
 
 #[expect(clippy::too_many_arguments)]
@@ -65,23 +65,85 @@ pub fn worker_thread(
                     Cmd::Parse(document_id, width, text) => {
                         log::info!("Parse {document_id}");
 
+                        let mut post_parse_events = Vec::new();
+
                         event_tx.send(Event::NewDocument(document_id))?;
 
                         let mut section_id: Option<usize> = None;
                         for section in parser.parse_sections(width, &text, &theme) {
-                            for event in md_line_to_events(
-                                document_id,
+                            let (sections, section_events) = section_to_events(
                                 &mut section_id,
                                 width,
                                 has_text_size_protocol,
                                 &theme,
                                 section,
-                            ) {
-                                event_tx.send(event)?;
+                            );
+                            for section in sections {
+                                event_tx.send(Event::Parsed(document_id, section))?;
                             }
+                            post_parse_events.extend(section_events);
                         }
 
                         event_tx.send(Event::ParseDone(document_id, section_id))?;
+
+                        for event in post_parse_events {
+                            match event {
+                                markdown::SectionEvent::Image(
+                                    section_id,
+                                    MarkdownImage {
+                                        destination,
+                                        description,
+                                    },
+                                ) => {
+                                    let task_tx = event_tx.clone();
+                                    let basepath = basepath.clone();
+                                    let client = client.clone();
+                                    let picker = thread_picker.clone();
+                                    // TODO: handle spawned task result errors, right now it's just discarded.
+                                    tokio::spawn(async move {
+                                        match image_section(
+                                            &picker,
+                                            config_max_image_height,
+                                            width,
+                                            &basepath,
+                                            client,
+                                            section_id,
+                                            &destination,
+                                            deep_fry,
+                                        )
+                                        .await
+                                        {
+                                            Ok(section) => task_tx
+                                                .send(Event::Update(document_id, vec![section]))?,
+                                            Err(Error::UnknownImage(id, link)) => {
+                                                log::error!("image_section UnknownImage");
+                                                task_tx.send(Event::Update(
+                                                    document_id,
+                                                    vec![Section::image_unknown(
+                                                        id,
+                                                        link,
+                                                        description,
+                                                    )],
+                                                ))?
+                                            }
+                                            Err(err) => {
+                                                log::error!("image_section error: {err}");
+                                                task_tx.send(Event::Update(
+                                                    document_id,
+                                                    vec![Section::image_unknown(
+                                                        section_id,
+                                                        destination,
+                                                        description,
+                                                    )],
+                                                ))?
+                                            }
+                                        }
+                                        Ok::<(), Error>(())
+                                    });
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                     Cmd::Header(document_id, section_id, width, tier, text) => {
                         debug_assert!(
