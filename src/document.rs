@@ -364,9 +364,11 @@ impl Document {
     pub fn has_pending_images(&self) -> bool {
         self.sections.iter().any(|section| {
             if let SectionContent::Lines(lines) = &section.content {
-                lines
-                    .iter()
-                    .any(|(line, _)| line.to_string().starts_with("![Loading..."))
+                lines.iter().any(|(line, extras)| {
+                    // Line is a pending image if it starts with "![" and has no LineExtra::Image
+                    line.to_string().starts_with("![")
+                        && !extras.iter().any(|e| matches!(e, LineExtra::Image(_)))
+                })
             } else {
                 false
             }

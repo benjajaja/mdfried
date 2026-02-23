@@ -300,7 +300,7 @@ impl Model {
                         log::debug!("stale event, ignoring");
                         continue;
                     }
-                    todo!("Event::ImageLoaded: call document.update_image()");
+                    self.document.update_image(section_id, &url, proto);
                 }
                 Event::FileChanged => {
                     log::info!("reload: FileChanged");
