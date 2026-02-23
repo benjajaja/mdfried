@@ -3,28 +3,31 @@
 //! Uses the mdfrier crate for parsing and styling, then converts to application Events.
 
 use mdfrier::{
-    LineKind, MdFrier,
+    LineKind,
     ratatui::{Tag, render_line},
 };
 use textwrap::{Options, wrap};
 
 use crate::{
-    Event, MarkdownImage,
+    MarkdownImage,
     big_text::BigText,
     config::Theme,
     document::{LineExtra, Section, SectionContent},
-    model::DocumentId,
 };
 
+pub enum SectionEvent {
+    Header(usize, u8, String),
+    Image(usize, MarkdownImage),
+}
+
 /// Convert an MdLine to application Events.
-pub fn md_line_to_events(
-    document_id: DocumentId,
+pub fn section_to_events(
     section_id: &mut Option<usize>,
     width: u16,
     has_text_size_protocol: bool,
     theme: &Theme,
     section: mdfrier::sections::Section,
-) -> Vec<Event> {
+) -> (Vec<Section>, Vec<SectionEvent>) {
     match section.kind {
         mdfrier::sections::SectionKind::Header => {
             let Some(line) = section.lines.first() else {
@@ -42,26 +45,25 @@ pub fn md_line_to_events(
                 let options = Options::new(scaled_width)
                     .break_words(true)
                     .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation);
-                wrap(&text, options)
+                let sections = wrap(&text, options)
                     .iter()
-                    .map(|part| {
-                        Event::Parsed(
-                            document_id,
-                            Section {
-                                id: post_incr_section_id(section_id),
-                                height: 2,
-                                content: SectionContent::Header(part.to_string(), tier),
-                            },
-                        )
+                    .map(|part| Section {
+                        id: post_incr_section_id(section_id),
+                        height: 2,
+                        content: SectionContent::Header(part.to_string(), tier),
                     })
-                    .collect()
+                    .collect();
+                (sections, Vec::new())
             } else {
-                vec![Event::ParseHeader(
-                    document_id,
-                    post_incr_section_id(section_id),
-                    tier,
-                    text,
-                )]
+                let id = post_incr_section_id(section_id);
+                (
+                    vec![Section {
+                        id,
+                        height: 2,
+                        content: SectionContent::Header(text.clone(), tier),
+                    }],
+                    vec![SectionEvent::Header(id, tier, text)],
+                )
             }
         }
         // mdfrier::sections::SectionKind::Image => {
@@ -83,10 +85,17 @@ pub fn md_line_to_events(
         // }
         // All other lines: render via mdfrier and convert to Event
         _ => {
+            let mut images = Vec::new();
             let lines: Vec<_> = section
                 .lines
                 .into_iter()
                 .map(|line| {
+                    if let LineKind::Image { url, description } = &line.kind {
+                        images.push(MarkdownImage {
+                            destination: url.clone(),
+                            description: description.clone(),
+                        });
+                    }
                     let (line, tags) = render_line(line, theme);
 
                     // Extract link info from tags, using span index to calculate character offsets
@@ -115,14 +124,18 @@ pub fn md_line_to_events(
                 })
                 .collect();
 
-            vec![Event::Parsed(
-                document_id,
-                Section {
-                    id: post_incr_section_id(section_id),
+            let id = post_incr_section_id(section_id);
+            (
+                vec![Section {
+                    id,
                     height: lines.len() as u16,
                     content: SectionContent::Lines(lines),
-                },
-            )]
+                }],
+                images
+                    .into_iter()
+                    .map(|img| SectionEvent::Image(id, img))
+                    .collect(),
+            )
         }
     }
 }
@@ -144,7 +157,7 @@ mod tests {
         DocumentId, Event,
         config::Theme,
         document::{Section, SectionContent},
-        worker::markdown::md_line_to_events,
+        worker::markdown::section_to_events,
     };
     use mdfrier::MdFrier;
 
@@ -160,15 +173,15 @@ mod tests {
         let mut events = Vec::new();
         let mut section_id: Option<usize> = None;
         for section in parser.parse_sections(width, &text, theme) {
-            for event in md_line_to_events(
-                document_id,
+            let (sections, section_events) = section_to_events(
                 &mut section_id,
                 width,
                 has_text_size_protocol,
                 &theme,
                 section,
-            ) {
-                events.push(event);
+            );
+            for section in sections {
+                events.push(Event::Parsed(document_id, section));
             }
         }
 

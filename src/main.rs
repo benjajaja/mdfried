@@ -445,6 +445,9 @@ fn view(model: &Model, frame: &mut Frame) {
                     let mut flat_index = 0usize;
                     for (line_offset, (line, extras)) in lines.iter().enumerate() {
                         let line_y = y + line_offset as u16;
+                        if line_y >= inner_area.height {
+                            break;
+                        }
                         let p = Paragraph::new(line.clone());
                         render_widget(p, 1, line_y, inner_area, frame);
 
