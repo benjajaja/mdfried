@@ -38,8 +38,6 @@ pub struct Model {
     cmd_tx: Sender<Cmd>,
     event_rx: Receiver<Event>,
     can_render_headers: bool,
-    #[cfg(test)]
-    pub pending_image_count: usize,
 }
 
 // The temporary keypress input queue for operations like search or movement-count prefix.
@@ -100,9 +98,12 @@ impl Model {
             can_render_headers,
             log_snapshot: None,
             document_id: DocumentId::default(),
-            #[cfg(test)]
-            pending_image_count: 0,
         }
+    }
+
+    #[cfg(test)]
+    pub fn has_pending_images(&self) -> bool {
+        self.document.has_pending_images()
     }
 
     pub fn reload(&mut self, screen_size: Size) -> Result<(), Error> {
@@ -212,13 +213,6 @@ impl Model {
                         log::debug!("stale event, ignoring");
                         continue;
                     }
-                    #[cfg(test)]
-                    for section in &updates {
-                        if let SectionContent::Image(_, _) = section.content {
-                            log::debug!("Update #{}: {:?}", section.id, section.content);
-                            self.pending_image_count -= 1;
-                        }
-                    }
                     self.document.update(updates);
                 }
                 Event::ParsedImage(
@@ -264,11 +258,6 @@ impl Model {
                                 )]),
                             }]);
                         }
-                        #[cfg(test)]
-                        {
-                            log::debug!("UrlImage");
-                            self.pending_image_count += 1;
-                        }
                         self.cmd_tx.send(Cmd::UrlImage(
                             document_id,
                             id,
@@ -300,11 +289,6 @@ impl Model {
                             height: 2,
                             content: SectionContent::Lines(vec![(line, Vec::new())]),
                         }]);
-                    }
-                    #[cfg(test)]
-                    {
-                        log::debug!("ParseHeader");
-                        self.pending_image_count += 1;
                     }
                     if self.can_render_headers {
                         self.cmd_tx
@@ -591,7 +575,6 @@ mod tests {
             event_rx,
             log_snapshot: None,
             document_id: DocumentId::default(),
-            pending_image_count: 0,
             can_render_headers: true,
         }
     }

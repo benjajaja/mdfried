@@ -669,7 +669,7 @@ mod tests {
 
     // Poll until parsed and no pending images.
     fn poll_done(model: &mut Model, screen_size: &Size) {
-        while model.pending_image_count > 0 {
+        while model.has_pending_images() {
             model.process_events(screen_size.width).unwrap();
         }
         log::debug!("poll_done completed");
