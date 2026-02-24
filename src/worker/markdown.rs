@@ -50,7 +50,7 @@ pub fn section_to_events(
                     .map(|part| Section {
                         id: post_incr_section_id(section_id),
                         height: 2,
-                        content: SectionContent::Header(part.to_string(), tier),
+                        content: SectionContent::Header(part.to_string(), tier, None),
                     })
                     .collect();
                 (sections, Vec::new())
@@ -60,7 +60,7 @@ pub fn section_to_events(
                     vec![Section {
                         id,
                         height: 2,
-                        content: SectionContent::Header(text.clone(), tier),
+                        content: SectionContent::Header(text.clone(), tier, None),
                     }],
                     vec![SectionEvent::Header(id, text, tier)],
                 )

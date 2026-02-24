@@ -95,7 +95,7 @@ pub fn worker_thread(
                                     MarkdownImage { destination, .. },
                                 ) => {
                                     if let Some(proto) = image_cache.images.remove(destination) {
-                                        log::debug!("reusing cached image: {destination}");
+                                        log::debug!("image cache hit: {destination}");
                                         event_tx.send(Event::ImageLoaded(
                                             document_id,
                                             *section_id,
@@ -106,8 +106,21 @@ pub fn worker_thread(
                                         uncached_image_events.push(event);
                                     }
                                 }
-                                SectionEvent::Header(_, _, _) => {
-                                    uncached_image_events.push(event);
+                                SectionEvent::Header(section_id, text, tier) => {
+                                    let key = (text.clone(), *tier);
+                                    if let Some(protos) = image_cache.headers.remove(&key) {
+                                        log::debug!("header cache hit: {text}");
+                                        event_tx.send(Event::HeaderLoaded(
+                                            document_id,
+                                            *section_id,
+                                            protos
+                                                .into_iter()
+                                                .map(|proto| (text.clone(), *tier, proto))
+                                                .collect(),
+                                        ))?;
+                                    } else {
+                                        uncached_image_events.push(event);
+                                    }
                                 }
                             }
                         }
@@ -216,10 +229,10 @@ fn process_post_parse_events(
 #[derive(Default)]
 pub struct ImageCache {
     pub images: HashMap<String, Protocol>,
-    pub headers: HashMap<String, Protocol>,
+    pub headers: HashMap<(String, u8), Vec<Protocol>>,
 }
 impl ImageCache {
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.images.is_empty() && self.headers.is_empty()
     }
 }
