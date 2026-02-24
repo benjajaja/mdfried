@@ -116,7 +116,8 @@ pub use markdown::{Modifier, SourceContent, Span};
 // Re-export for internal use by lines module
 pub(crate) use lines::MdLineContainer;
 
-use crate::{markdown::MdIterator, sections::SectionIterator};
+pub use crate::sections::{Section, SectionIterator, SectionKind};
+use crate::markdown::MdIterator;
 
 // ============================================================================
 // Public output types
@@ -856,10 +857,18 @@ mod tests {
     #[test]
     fn parse_simple_text() {
         let mut frier = MdFrier::new().unwrap();
-        let lines = frier.parse(80, "Hello world!", &DefaultMapper);
-        assert_eq!(lines.len(), 1);
+        let sections: Vec<_> = frier
+            .parse_sections(80, "Hello world!", &DefaultMapper)
+            .unwrap()
+            .collect();
+        assert_eq!(sections.len(), 1);
 
-        let line = &lines[0];
+        let section = &sections[0];
+        assert!(matches!(section.kind, SectionKind::Paragraph));
+        // At least one content line (may also have trailing blank for section separator)
+        assert!(!section.lines.is_empty());
+
+        let line = &section.lines[0];
         assert_eq!(line.spans.len(), 1);
         assert_eq!(line.spans[0].content, "Hello world!");
     }
@@ -868,10 +877,16 @@ mod tests {
     fn parse_styled_text() {
         let mut frier = MdFrier::new().unwrap();
         // DefaultMapper preserves decorators around emphasis
-        let lines = frier.parse(80, "Hello *world*!", &DefaultMapper);
-        assert_eq!(lines.len(), 1);
+        let sections: Vec<_> = frier
+            .parse_sections(80, "Hello *world*!", &DefaultMapper)
+            .unwrap()
+            .collect();
+        assert_eq!(sections.len(), 1);
 
-        let line = &lines[0];
+        let section = &sections[0];
+        assert!(matches!(section.kind, SectionKind::Paragraph));
+
+        let line = &section.lines[0];
         // Spans: "Hello " + "*" (open) + "world" (emphasis) + "*" (close) + "!"
         assert_eq!(line.spans.len(), 5);
         assert_eq!(line.spans[0].content, "Hello ");
@@ -887,32 +902,56 @@ mod tests {
     #[test]
     fn parse_header() {
         let mut frier = MdFrier::new().unwrap();
-        let lines = frier.parse(80, "# Hello\n", &DefaultMapper);
-        assert_eq!(lines.len(), 1);
+        let sections: Vec<_> = frier
+            .parse_sections(80, "# Hello\n", &DefaultMapper)
+            .unwrap()
+            .collect();
+        assert_eq!(sections.len(), 1);
 
-        let line = &lines[0];
+        let section = &sections[0];
+        assert!(matches!(section.kind, SectionKind::Header));
+        assert_eq!(section.backend, "Hello");
+
+        let line = &section.lines[0];
         assert!(matches!(line.kind, LineKind::Header(1)));
     }
 
     #[test]
     fn parse_code_block() {
         let mut frier = MdFrier::new().unwrap();
-        let lines = frier.parse(80, "```rust\nlet x = 1;\n```\n", &DefaultMapper);
-        assert_eq!(lines.len(), 1);
+        let sections: Vec<_> = frier
+            .parse_sections(80, "```rust\nlet x = 1;\n```\n", &DefaultMapper)
+            .unwrap()
+            .collect();
+        assert_eq!(sections.len(), 1);
 
-        let line = &lines[0];
-        assert!(matches!(line.kind, LineKind::CodeBlock { .. }));
-        // First span is the code content
-        assert!(line.spans[0].content.starts_with("let x = 1;"));
+        let section = &sections[0];
+        assert!(matches!(section.kind, SectionKind::CodeBlock));
+        // Backend stores the raw code content
+        assert!(section.backend.contains("let x = 1;"));
+
+        // Find the code line (skip blank lines)
+        let code_line = section
+            .lines
+            .iter()
+            .find(|l| matches!(l.kind, LineKind::CodeBlock { .. }))
+            .unwrap();
+        assert!(code_line.spans[0].content.starts_with("let x = 1;"));
     }
 
     #[test]
     fn parse_blockquote() {
         let mut frier = MdFrier::new().unwrap();
-        let lines = frier.parse(80, "> Hello world", &DefaultMapper);
-        assert_eq!(lines.len(), 1);
+        let sections: Vec<_> = frier
+            .parse_sections(80, "> Hello world", &DefaultMapper)
+            .unwrap()
+            .collect();
+        assert_eq!(sections.len(), 1);
 
-        let line = &lines[0];
+        let section = &sections[0];
+        assert!(matches!(section.kind, SectionKind::Paragraph));
+
+        let line = &section.lines[0];
         // With flat API, first span should be the blockquote bar
         assert!(line.spans[0].modifiers.contains(Modifier::BlockquoteBar));
         assert_eq!(line.spans[0].content, "> ");
@@ -921,41 +960,70 @@ mod tests {
     #[test]
     fn parse_list() {
         let mut frier = MdFrier::new().unwrap();
-        let lines = frier.parse(80, "- Item 1\n- Item 2", &DefaultMapper);
-        assert_eq!(lines.len(), 2);
+        let sections: Vec<_> = frier
+            .parse_sections(80, "- Item 1\n- Item 2", &DefaultMapper)
+            .unwrap()
+            .collect();
+        // Two list items become two sections
+        assert_eq!(sections.len(), 2);
+
+        for (i, section) in sections.iter().enumerate() {
+            assert!(
+                matches!(section.kind, SectionKind::Paragraph),
+                "Section {} should be Paragraph",
+                i
+            );
+            // Each section has content line(s)
+            assert!(
+                !section.lines.is_empty(),
+                "Section {} should have lines",
+                i
+            );
+        }
     }
 
     #[test]
     fn paragraph_breaks() {
         let mut frier = MdFrier::new().unwrap();
-        let lines = frier.parse(10, "longline1\nlongline2", &DefaultMapper);
-        assert_eq!(lines.len(), 2);
-        assert_eq!(lines[0].spans[0].content, "longline1");
-        assert_eq!(lines[1].spans[0].content, "longline2");
+        // Soft breaks within a paragraph create separate lines in a single section
+        let sections: Vec<_> = frier
+            .parse_sections(10, "longline1\nlongline2", &DefaultMapper)
+            .unwrap()
+            .collect();
+        assert_eq!(sections.len(), 1);
+
+        let section = &sections[0];
+        assert!(matches!(section.kind, SectionKind::Paragraph));
+        // Two content lines within one paragraph section
+        assert!(section.lines.len() >= 2);
+        assert_eq!(section.lines[0].spans[0].content, "longline1");
+        assert_eq!(section.lines[1].spans[0].content, "longline2");
     }
 
     #[test]
     fn soft_break_with_styling() {
         let mut frier = MdFrier::new().unwrap();
         // DefaultMapper preserves decorators
-        let lines = frier.parse(80, "This \n*is* a test.", &DefaultMapper);
-        assert_eq!(lines.len(), 2);
-        assert_eq!(lines[0].spans[0].content, "This");
+        let sections: Vec<_> = frier
+            .parse_sections(80, "This \n*is* a test.", &DefaultMapper)
+            .unwrap()
+            .collect();
+        assert_eq!(sections.len(), 1);
+
+        let section = &sections[0];
+        assert!(matches!(section.kind, SectionKind::Paragraph));
+        // Soft break creates two lines within one paragraph section
+        assert!(section.lines.len() >= 2);
+
+        assert_eq!(section.lines[0].spans[0].content, "This");
         // Second line: "*" (open) + "is" (emphasis) + "*" (close) + " a test."
-        assert_eq!(lines[1].spans[0].content, "*");
-        assert!(
-            lines[1].spans[0]
-                .modifiers
-                .contains(Modifier::EmphasisWrapper)
-        );
-        assert_eq!(lines[1].spans[1].content, "is");
-        assert!(lines[1].spans[1].modifiers.contains(Modifier::Emphasis));
-        assert_eq!(lines[1].spans[2].content, "*");
-        assert!(
-            lines[1].spans[2]
-                .modifiers
-                .contains(Modifier::EmphasisWrapper)
-        );
+        let line2 = &section.lines[1];
+        assert_eq!(line2.spans[0].content, "*");
+        assert!(line2.spans[0].modifiers.contains(Modifier::EmphasisWrapper));
+        assert_eq!(line2.spans[1].content, "is");
+        assert!(line2.spans[1].modifiers.contains(Modifier::Emphasis));
+        assert_eq!(line2.spans[2].content, "*");
+        assert!(line2.spans[2].modifiers.contains(Modifier::EmphasisWrapper));
     }
 
     #[test]
@@ -967,7 +1035,21 @@ let x = 1;
 Paragraph after.";
 
         let mut frier = MdFrier::new().unwrap();
-        let lines = frier.parse(80, input, &DefaultMapper);
+        let sections: Vec<_> = frier
+            .parse_sections(80, input, &DefaultMapper)
+            .unwrap()
+            .collect();
+
+        // Verify we get 3 distinct sections: paragraph, code block, paragraph
+        assert_eq!(sections.len(), 3);
+        assert!(matches!(sections[0].kind, SectionKind::Paragraph));
+        assert!(matches!(sections[1].kind, SectionKind::CodeBlock));
+        assert!(matches!(sections[2].kind, SectionKind::Paragraph));
+
+        // Verify code block captures the source code
+        assert!(sections[1].backend.contains("let x = 1;"));
+
+        let lines: Vec<Line> = sections.into_iter().flat_map(|s| s.lines).collect();
         let output = lines_to_string(&lines);
         insta::assert_snapshot!(output);
     }
@@ -980,7 +1062,17 @@ let x = 1;
 - list item";
 
         let mut frier = MdFrier::new().unwrap();
-        let lines = frier.parse(80, input, &DefaultMapper);
+        let sections: Vec<_> = frier
+            .parse_sections(80, input, &DefaultMapper)
+            .unwrap()
+            .collect();
+
+        // Verify we get 2 sections: code block, list item
+        assert_eq!(sections.len(), 2);
+        assert!(matches!(sections[0].kind, SectionKind::CodeBlock));
+        assert!(matches!(sections[1].kind, SectionKind::Paragraph));
+
+        let lines: Vec<Line> = sections.into_iter().flat_map(|s| s.lines).collect();
         let output = lines_to_string(&lines);
         insta::assert_snapshot!(output);
     }
@@ -1001,7 +1093,20 @@ Quote break.
 > > > ...or with spaces between arrows."#;
 
         let mut frier = MdFrier::new().unwrap();
-        let lines = frier.parse(80, input, &DefaultMapper);
+        let sections: Vec<_> = frier
+            .parse_sections(80, input, &DefaultMapper)
+            .unwrap()
+            .collect();
+
+        // Verify we have multiple sections for distinct blockquotes and paragraphs
+        assert!(sections.len() >= 4, "Expected multiple sections for blockquotes and paragraphs");
+
+        // Check that blockquote sections are paragraphs (the quoted content)
+        // and that plain text paragraph exists
+        let has_paragraph = sections.iter().any(|s| matches!(s.kind, SectionKind::Paragraph));
+        assert!(has_paragraph, "Should have at least one paragraph section");
+
+        let lines: Vec<Line> = sections.into_iter().flat_map(|s| s.lines).collect();
         let output = lines_to_string(&lines);
         insta::assert_snapshot!(output);
     }
@@ -1009,8 +1114,22 @@ Quote break.
     #[test]
     fn bare_url_line_broken() {
         let mut frier = MdFrier::new().unwrap();
-        let lines = frier.parse(15, "See https://example.com/path ok?", &DefaultMapper);
-        let spans: Vec<_> = lines.into_iter().flat_map(|l| l.spans).collect();
+        let sections: Vec<_> = frier
+            .parse_sections(15, "See https://example.com/path ok?", &DefaultMapper)
+            .unwrap()
+            .collect();
+
+        // Should be a single paragraph section
+        assert_eq!(sections.len(), 1);
+        assert!(matches!(sections[0].kind, SectionKind::Paragraph));
+
+        let spans: Vec<_> = sections
+            .into_iter()
+            .flat_map(|s| s.lines)
+            .filter(|l| !matches!(l.kind, LineKind::Blank))
+            .flat_map(|l| l.spans)
+            .collect();
+
         let url_source = SourceContent::from("https://example.com/path");
         assert_eq!(
             spans,
@@ -1087,7 +1206,23 @@ Quote break.
 "#;
 
         let mut frier = MdFrier::new().unwrap();
-        let lines = frier.parse(80, input, &DefaultMapper);
+        let sections: Vec<_> = frier
+            .parse_sections(80, input, &DefaultMapper)
+            .unwrap()
+            .collect();
+
+        // Verify we get multiple sections representing different list items and paragraphs
+        assert!(sections.len() > 10, "Expected many sections for complex list structure");
+
+        // All sections in a list should be paragraphs (list items render as paragraph kind)
+        for section in &sections {
+            assert!(
+                matches!(section.kind, SectionKind::Paragraph),
+                "List items should be Paragraph sections"
+            );
+        }
+
+        let lines: Vec<Line> = sections.into_iter().flat_map(|s| s.lines).collect();
         let output = lines_to_string(&lines);
         insta::assert_snapshot!(output);
     }
@@ -1099,12 +1234,26 @@ Quote break.
 
         let mut frier = MdFrier::new().unwrap();
         // Width of 5 should wrap "abcdefghij" into two lines
-        let lines = frier.parse(5, input, &DefaultMapper);
-        assert_eq!(lines.len(), 2);
-        // First line should be 5 chars
-        assert_eq!(lines[0].spans[0].content, "abcde");
-        // Second line should be remaining 5 chars
-        assert_eq!(lines[1].spans[0].content, "fghij");
+        let sections: Vec<_> = frier
+            .parse_sections(5, input, &DefaultMapper)
+            .unwrap()
+            .collect();
+        assert_eq!(sections.len(), 1);
+
+        let section = &sections[0];
+        assert!(matches!(section.kind, SectionKind::CodeBlock));
+        // Backend stores the raw code content (original, not wrapped)
+        assert!(section.backend.contains("abcdefghij"));
+
+        // The section's lines should show wrapping
+        let content_lines: Vec<_> = section
+            .lines
+            .iter()
+            .filter(|l| matches!(l.kind, LineKind::CodeBlock { .. }))
+            .collect();
+        assert_eq!(content_lines.len(), 2);
+        assert_eq!(content_lines[0].spans[0].content, "abcde");
+        assert_eq!(content_lines[1].spans[0].content, "fghij");
     }
 
     #[test]
@@ -1113,9 +1262,25 @@ Quote break.
         let input = "```\nabcde\n```\n";
 
         let mut frier = MdFrier::new().unwrap();
-        let lines = frier.parse(5, input, &DefaultMapper);
-        assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].spans[0].content, "abcde");
+        let sections: Vec<_> = frier
+            .parse_sections(5, input, &DefaultMapper)
+            .unwrap()
+            .collect();
+        assert_eq!(sections.len(), 1);
+
+        let section = &sections[0];
+        assert!(matches!(section.kind, SectionKind::CodeBlock));
+        // Backend stores the raw code content
+        assert!(section.backend.contains("abcde"));
+
+        // Content should fit in one line (excluding trailing blank)
+        let content_lines: Vec<_> = section
+            .lines
+            .iter()
+            .filter(|l| matches!(l.kind, LineKind::CodeBlock { .. }))
+            .collect();
+        assert_eq!(content_lines.len(), 1);
+        assert_eq!(content_lines[0].spans[0].content, "abcde");
     }
 
     #[test]
@@ -1128,12 +1293,25 @@ Quote break.
             }
         }
         let mapper = HideUrlsMapper {};
-        let lines = frier.parse(80, "[desc](https://url)", &mapper);
-        assert_eq!(lines.len(), 1);
+        let sections: Vec<_> = frier
+            .parse_sections(80, "[desc](https://url)", &mapper)
+            .unwrap()
+            .collect();
+        assert_eq!(sections.len(), 1);
+
+        let section = &sections[0];
+        assert!(matches!(section.kind, SectionKind::Paragraph));
+
+        // Get content line (skip blank lines)
+        let content_line = section
+            .lines
+            .iter()
+            .find(|l| !matches!(l.kind, LineKind::Blank))
+            .unwrap();
 
         let url_source = SourceContent::from("https://url");
         assert_eq!(
-            lines[0].spans,
+            content_line.spans,
             vec![
                 Span::new(
                     "[".into(),
