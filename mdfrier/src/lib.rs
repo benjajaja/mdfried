@@ -116,10 +116,7 @@ pub use markdown::{Modifier, SourceContent, Span};
 // Re-export for internal use by lines module
 pub(crate) use lines::MdLineContainer;
 
-use crate::{
-    markdown::MdIterator,
-    sections::{Section, SectionIterator},
-};
+use crate::{markdown::MdIterator, sections::SectionIterator};
 
 // ============================================================================
 // Public output types
@@ -232,14 +229,10 @@ impl MdFrier {
         width: u16,
         text: &'a str,
         mapper: &'a M,
-    ) -> SectionIterator<'a, M> {
-        let tree = self
-            .parser
-            .parse(text, None)
-            .ok_or(MarkdownParseError)
-            .unwrap();
+    ) -> Result<SectionIterator<'a, M>, MarkdownParseError> {
+        let tree = self.parser.parse(text, None).ok_or(MarkdownParseError)?;
         let iter = MdIterator::new(tree, &mut self.inline_parser, text);
-        SectionIterator::new(iter, width, mapper)
+        Ok(SectionIterator::new(iter, width, mapper))
     }
 }
 
@@ -248,7 +241,7 @@ impl MdFrier {
 // ============================================================================
 
 /// Convert a RawLine to MdLine by applying the mapper and flattening nesting.
-pub fn convert_raw_to_mdline<M: Mapper>(raw: RawLine, width: u16, mapper: &M) -> Line {
+pub(crate) fn convert_raw_to_mdline<M: Mapper>(raw: RawLine, width: u16, mapper: &M) -> Line {
     let RawLine { spans, meta } = raw;
 
     // Build prefix spans from nesting
@@ -336,7 +329,7 @@ pub fn convert_raw_to_mdline<M: Mapper>(raw: RawLine, width: u16, mapper: &M) ->
             // TODO: helper fn
             let image_spans = vec![
                 Span {
-                    content: "![".to_string(),
+                    content: "![".to_owned(),
                     modifiers: Modifier::LinkDescriptionWrapper,
                     source_content: None,
                 },
@@ -346,12 +339,12 @@ pub fn convert_raw_to_mdline<M: Mapper>(raw: RawLine, width: u16, mapper: &M) ->
                     source_content: None,
                 },
                 Span {
-                    content: "]".to_string(),
+                    content: "]".to_owned(),
                     modifiers: Modifier::LinkDescriptionWrapper,
                     source_content: None,
                 },
                 Span {
-                    content: "(".to_string(),
+                    content: "(".to_owned(),
                     modifiers: Modifier::LinkURLWrapper,
                     source_content: None,
                 },
@@ -361,7 +354,7 @@ pub fn convert_raw_to_mdline<M: Mapper>(raw: RawLine, width: u16, mapper: &M) ->
                     source_content: None,
                 },
                 Span {
-                    content: ")".to_string(),
+                    content: ")".to_owned(),
                     modifiers: Modifier::LinkURLWrapper,
                     source_content: None,
                 },
@@ -705,7 +698,7 @@ struct RawLineProcessor {
 }
 
 impl RawLineProcessor {
-    fn new(mut doc: MdDocument, width: u16) -> Self {
+    fn new(doc: MdDocument, width: u16) -> Self {
         let sections: Vec<_> = doc.into_sections().collect();
         Self {
             sections,

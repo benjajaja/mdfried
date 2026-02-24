@@ -71,7 +71,8 @@ pub fn worker_thread(
                         event_tx.send(Event::NewDocument(document_id))?;
 
                         let mut section_id: Option<usize> = None;
-                        for section in parser.parse_sections(width, &text, &theme) {
+                        let sections = parser.parse_sections(width, &text, &theme)?;
+                        for section in sections {
                             let (sections, section_events) = section_to_events(
                                 &mut section_id,
                                 width,
@@ -167,13 +168,7 @@ fn process_post_parse_events(
     tokio::spawn(async move {
         for event in post_parse_events {
             match event {
-                SectionEvent::Image(
-                    section_id,
-                    MarkdownImage {
-                        destination,
-                        description: _,
-                    },
-                ) => {
+                SectionEvent::Image(section_id, MarkdownImage { destination, .. }) => {
                     // Load fresh image
                     match image_section(
                         &picker,
