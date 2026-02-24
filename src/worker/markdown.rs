@@ -2,10 +2,7 @@
 //!
 //! Uses the mdfrier crate for parsing and styling, then converts to application Events.
 
-use mdfrier::{
-    LineKind,
-    ratatui::{Tag, render_line},
-};
+use mdfrier::ratatui::{Tag, render_line};
 use textwrap::{Options, wrap};
 
 use crate::{
@@ -13,6 +10,7 @@ use crate::{
     big_text::BigText,
     config::Theme,
     document::{LineExtra, Section, SectionContent},
+    worker::sections::{Section as MdSection, SectionKind},
 };
 
 pub enum SectionEvent {
@@ -20,23 +18,21 @@ pub enum SectionEvent {
     Header(usize, String, u8),
 }
 
-/// Convert an MdLine to application Events.
+/// Convert an MdSection to application Events.
 pub fn section_to_events(
     section_id: &mut Option<usize>,
     width: u16,
     has_text_size_protocol: bool,
     theme: &Theme,
-    section: mdfrier::sections::Section,
+    section: MdSection,
 ) -> (Vec<Section>, Vec<SectionEvent>) {
     match section.kind {
-        mdfrier::sections::SectionKind::Header => {
-            let Some(line) = section.lines.first() else {
-                panic!("Header section must have one line: {:?}", section.lines);
-            };
-            let LineKind::Header(tier) = line.kind else {
-                panic!("SectionKind::Header first line not Header kind");
-            };
-            let text: String = line.spans.iter().map(|s| s.content.as_str()).collect();
+        SectionKind::Header(tier) => {
+            let text: String = section
+                .lines
+                .first()
+                .map(|line| line.spans.iter().map(|s| s.content.as_str()).collect())
+                .unwrap_or_default();
 
             if has_text_size_protocol {
                 // Wrap header text for big text rendering
@@ -66,43 +62,41 @@ pub fn section_to_events(
                 )
             }
         }
-        // All other lines: render via mdfrier and convert to Event
-        _ => {
-            let mut images = Vec::new();
+
+        SectionKind::Image { url, description } => {
+            let id = post_incr_section_id(section_id);
             let lines: Vec<_> = section
                 .lines
                 .into_iter()
                 .map(|line| {
-                    if let LineKind::Image { url, description } = &line.kind {
-                        images.push(MarkdownImage {
-                            destination: url.clone(),
-                            description: description.clone(),
-                        });
-                    }
                     let (line, tags) = render_line(line, theme);
+                    let links = extract_links(&line, tags);
+                    (line, links)
+                })
+                .collect();
+            (
+                vec![Section {
+                    id,
+                    height: lines.len() as u16,
+                    content: SectionContent::Lines(lines),
+                }],
+                vec![SectionEvent::Image(
+                    id,
+                    MarkdownImage {
+                        destination: url,
+                        description,
+                    },
+                )],
+            )
+        }
 
-                    // Extract link info from tags, using span index to calculate character offsets
-                    let links: Vec<LineExtra> = tags
-                        .into_iter()
-                        .filter_map(|tag| {
-                            if let Tag::Link(span_idx, url) = tag {
-                                // Sum widths of spans before this one to get character offset
-                                let offset: u16 = line.spans[..span_idx]
-                                    .iter()
-                                    .map(|s| {
-                                        unicode_width::UnicodeWidthStr::width(s.content.as_ref())
-                                            as u16
-                                    })
-                                    .sum();
-                                let span_width = unicode_width::UnicodeWidthStr::width(
-                                    line.spans[span_idx].content.as_ref(),
-                                ) as u16;
-                                Some(LineExtra::Link(url, offset, offset + span_width))
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
+        SectionKind::Text => {
+            let lines: Vec<_> = section
+                .lines
+                .into_iter()
+                .map(|line| {
+                    let (line, tags) = render_line(line, theme);
+                    let links = extract_links(&line, tags);
                     (line, links)
                 })
                 .collect();
@@ -114,13 +108,31 @@ pub fn section_to_events(
                     height: lines.len() as u16,
                     content: SectionContent::Lines(lines),
                 }],
-                images
-                    .into_iter()
-                    .map(|img| SectionEvent::Image(id, img))
-                    .collect(),
+                Vec::new(),
             )
         }
     }
+}
+
+/// Extract link info from tags, using span index to calculate character offsets.
+fn extract_links(line: &ratatui::text::Line<'_>, tags: Vec<Tag>) -> Vec<LineExtra> {
+    tags.into_iter()
+        .filter_map(|tag| {
+            if let Tag::Link(span_idx, url) = tag {
+                // Sum widths of spans before this one to get character offset
+                let offset: u16 = line.spans[..span_idx]
+                    .iter()
+                    .map(|s| unicode_width::UnicodeWidthStr::width(s.content.as_ref()) as u16)
+                    .sum();
+                let span_width =
+                    unicode_width::UnicodeWidthStr::width(line.spans[span_idx].content.as_ref())
+                        as u16;
+                Some(LineExtra::Link(url, offset, offset + span_width))
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 /// Post-increment the source ID.
@@ -140,7 +152,7 @@ mod tests {
         DocumentId, Event,
         config::Theme,
         document::{Section, SectionContent},
-        worker::markdown::section_to_events,
+        worker::{markdown::section_to_events, sections::SectionIterator},
     };
     use mdfrier::MdFrier;
 
@@ -155,12 +167,13 @@ mod tests {
     ) -> (Vec<Event>, Option<usize>) {
         let mut events = Vec::new();
         let mut section_id: Option<usize> = None;
-        for section in parser.parse_sections(width, &text, theme).unwrap() {
+        let lines = parser.parse(width, text, theme);
+        for section in SectionIterator::new(lines) {
             let (sections, _section_events) = section_to_events(
                 &mut section_id,
                 width,
                 has_text_size_protocol,
-                &theme,
+                theme,
                 section,
             );
             for section in sections {

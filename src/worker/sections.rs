@@ -56,16 +56,32 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<I> {
             match kind {
                 // Headers are always their own section
                 LineKind::Header(tier) => {
+                    let mut lines = vec![first];
+                    // Add trailing blank line if there are more sections after this one
+                    if self.inner.peek().is_some() {
+                        lines.push(Line {
+                            spans: Vec::new(),
+                            kind: LineKind::Blank,
+                        });
+                    }
                     return Some(Section {
-                        lines: vec![first],
+                        lines,
                         kind: SectionKind::Header(tier),
                     });
                 }
 
                 // Images are always their own section
                 LineKind::Image { url, description } => {
+                    let mut lines = vec![first];
+                    // Add trailing blank line if there are more sections after this one
+                    if self.inner.peek().is_some() {
+                        lines.push(Line {
+                            spans: Vec::new(),
+                            kind: LineKind::Blank,
+                        });
+                    }
                     return Some(Section {
-                        lines: vec![first],
+                        lines,
                         kind: SectionKind::Image { url, description },
                     });
                 }
@@ -100,6 +116,14 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<I> {
                     // Skip if section ended up empty after trimming
                     if lines.is_empty() {
                         continue;
+                    }
+
+                    // Add trailing blank line if there are more sections after this one
+                    if self.inner.peek().is_some() {
+                        lines.push(Line {
+                            spans: Vec::new(),
+                            kind: LineKind::Blank,
+                        });
                     }
 
                     return Some(Section {
