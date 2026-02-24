@@ -95,10 +95,12 @@ impl Document {
             return;
         };
 
-        // Find the line containing this image URL
-        let Some((line, extras)) = lines.iter_mut().find(|(line, _)| {
+        // Find the line containing this image URL (skip lines that already have an image)
+        let Some((_line, extras)) = lines.iter_mut().find(|(line, extras)| {
             let text = line.to_string();
-            text.starts_with("![") && text.contains(url)
+            text.starts_with("![")
+                && text.contains(url)
+                && !extras.iter().any(|e| matches!(e, LineExtra::Image(_)))
         }) else {
             log::error!("update_image: no line with url {url} in section #{section_id}");
             return;
@@ -124,6 +126,36 @@ impl Document {
             })
             .sum();
         section.height = height;
+    }
+
+    /// Extract all image protocols from the document for caching before reparse.
+    /// Returns Vec<(url, protocol)>. Protocols are moved out, lines revert to height 1.
+    pub fn take_image_protocols(&mut self) -> Vec<(String, Protocol)> {
+        let mut result = Vec::new();
+        for section in &mut self.sections {
+            let SectionContent::Lines(lines) = &mut section.content else {
+                continue;
+            };
+            for (line, extras) in lines.iter_mut() {
+                // Find and remove LineExtra::Image
+                if let Some(pos) = extras.iter().position(|e| matches!(e, LineExtra::Image(_))) {
+                    let LineExtra::Image(proto) = extras.remove(pos) else {
+                        unreachable!()
+                    };
+                    // Extract URL from line text (format: ![...](url))
+                    let text = line.to_string();
+                    if let Some(start) = text.rfind('(') {
+                        if let Some(end) = text.rfind(')') {
+                            let url = text[start + 1..end].to_string();
+                            result.push((url, proto));
+                        }
+                    }
+                }
+            }
+            // Recalculate section height (all lines now height 1)
+            section.height = lines.len() as u16;
+        }
+        result
     }
 
     pub fn replace(&mut self, id: SectionID, url: &str) -> Option<Section> {
