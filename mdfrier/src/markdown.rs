@@ -1116,9 +1116,8 @@ mod tests {
         let source = r#"> First paragraph
 >
 > Second paragraph"#;
-        let doc = MdDocument::new(source, &mut parser, &mut inline_parser).unwrap();
-
-        let sections: Vec<_> = doc.into_sections().collect();
+        let tree = parser.parse(source, None).unwrap();
+        let sections: Vec<_> = MdIterator::new(tree, &mut inline_parser, source).collect();
         assert_eq!(sections.len(), 3);
         assert!(!sections[0].content.is_blank());
         assert!(sections[1].content.is_blank());
@@ -1129,8 +1128,9 @@ mod tests {
     fn parse_header() {
         let mut parser = make_parser();
         let mut inline_parser = make_inline_parser();
-        let doc = MdDocument::new("# Hello\n", &mut parser, &mut inline_parser).unwrap();
-        let sections: Vec<_> = doc.into_sections().collect();
+        let source = "# Hello\n";
+        let tree = parser.parse(source, None).unwrap();
+        let sections: Vec<_> = MdIterator::new(tree, &mut inline_parser, source).collect();
         assert_eq!(sections.len(), 1);
         assert!(matches!(
             sections[0].content,
