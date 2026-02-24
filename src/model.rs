@@ -168,9 +168,10 @@ impl Model {
         self.document.iter().map(|s| s.height).sum()
     }
 
-    pub fn process_events(&mut self) -> Result<(bool, bool), Error> {
+    pub fn process_events(&mut self) -> Result<(bool, bool, bool), Error> {
         let mut had_events = false;
         let mut had_done = false;
+        let mut had_reload = false;
         while let Ok(event) = self.event_rx.try_recv() {
             had_events = true;
 
@@ -227,10 +228,11 @@ impl Model {
                 Event::FileChanged => {
                     log::info!("reload: FileChanged");
                     self.reload(self.screen_size)?;
+                    had_reload = true;
                 }
             }
         }
-        Ok((had_events, had_done))
+        Ok((had_events, had_done, had_reload))
     }
 
     fn reload_search(&mut self) {

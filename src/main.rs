@@ -374,7 +374,7 @@ fn run(
 ) -> Result<(), Error> {
     terminal.draw(|frame| view(&model, frame))?;
     loop {
-        let (had_events, _) = model.process_events()?;
+        let (had_events, _, had_reload) = model.process_events()?;
 
         let (had_input, skip_render) = match keybindings::poll(had_events, &mut model)? {
             PollResult::Quit => return Ok(()),
@@ -383,7 +383,7 @@ fn run(
             PollResult::SkipRender => (true, true),
         };
 
-        if (had_events || had_input) && !skip_render {
+        if (had_events || had_input) && !skip_render && !had_reload {
             if let Some(ref mut snapshot) = model.log_snapshot {
                 ui_logger.update_snapshot(snapshot)?;
             }
@@ -679,7 +679,7 @@ mod tests {
     fn poll_parsed(model: &mut Model) {
         let mut fuse = 1000_000;
         loop {
-            let (_, parse_done) = model.process_events().unwrap();
+            let (_, parse_done, _) = model.process_events().unwrap();
             if parse_done {
                 break;
             }
