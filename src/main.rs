@@ -285,7 +285,6 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 enum Cmd {
     /// Parse document. Optional image cache: Vec<(url, protocol)> for reuse on reparse.
     Parse(DocumentId, u16, String, Option<Vec<(String, Protocol)>>),
-    UrlImage(DocumentId, usize, u16, String, String),
     Header(DocumentId, usize, u16, u8, String),
 }
 
@@ -301,10 +300,6 @@ impl Display for Cmd {
             Cmd::Parse(reload_id, width, _, cache) => {
                 write!(f, "Cmd::Parse({reload_id:?}, {width}, <text>, cache={})", cache.as_ref().map(|c| c.len()).unwrap_or(0))
             }
-            Cmd::UrlImage(document_id, source_id, width, url, _) => write!(
-                f,
-                "Cmd::UrlImage({document_id}, {source_id}, {width}, {url}, _, _)"
-            ),
             Cmd::Header(document_id, source_id, width, tier, text) => write!(
                 f,
                 "Cmd::Header({document_id}, {source_id}, {width}, {tier}, {text})"
@@ -317,7 +312,6 @@ pub enum Event {
     NewDocument(DocumentId),
     ParseDone(DocumentId, Option<SectionID>), // Only signals "parsing done", not "images ready"!
     Parsed(DocumentId, Section),
-    ParsedImage(DocumentId, SectionID, MarkdownImage),
     ParseHeader(DocumentId, SectionID, u8, String),
     Update(DocumentId, Vec<Section>),
     /// Image loaded: section_id, url, protocol
@@ -341,16 +335,12 @@ impl Display for Event {
                 )
             }
 
-            Event::Update(document_id, updates) => {
-                write!(f, "Event::Update({document_id}, <{updates:?}>)",)
-            }
-
-            Event::ParsedImage(document_id, id, args) => {
-                write!(f, "Event::ParseImage({document_id}, {id}, {args})")
-            }
-
             Event::ParseHeader(document_id, id, tier, text) => {
                 write!(f, "Event::ParseHeader({document_id}, {id}, {tier}, {text})")
+            }
+
+            Event::Update(document_id, updates) => {
+                write!(f, "Event::Update({document_id}, <{updates:?}>)",)
             }
 
             Event::ImageLoaded(document_id, section_id, url, _) => {
