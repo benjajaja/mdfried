@@ -373,10 +373,8 @@ fn run(
     ui_logger: &LoggerHandle,
 ) -> Result<(), Error> {
     terminal.draw(|frame| view(&model, frame))?;
-    let screen_size = terminal.size()?;
-
     loop {
-        let (had_events, _) = model.process_events(screen_size.width)?;
+        let (had_events, _) = model.process_events()?;
 
         let (had_input, skip_render) = match keybindings::poll(had_events, &mut model)? {
             PollResult::Quit => return Ok(()),
@@ -678,10 +676,10 @@ mod tests {
     }
 
     // Poll until parsed and no pending images.
-    fn poll_parsed(model: &mut Model, screen_size: &Size) {
+    fn poll_parsed(model: &mut Model) {
         let mut fuse = 1000_000;
         loop {
-            let (_, parse_done) = model.process_events(screen_size.width).unwrap();
+            let (_, parse_done) = model.process_events().unwrap();
             if parse_done {
                 break;
             }
@@ -694,9 +692,9 @@ mod tests {
     }
 
     // Poll until parsed and no pending images.
-    fn poll_done(model: &mut Model, screen_size: &Size) {
+    fn poll_done(model: &mut Model) {
         while model.has_pending_images() {
-            model.process_events(screen_size.width).unwrap();
+            model.process_events().unwrap();
         }
         log::debug!("poll_done completed");
     }
@@ -726,11 +724,11 @@ Goodbye."#,
                 ),
             )
             .unwrap();
-        poll_parsed(&mut model, &screen_size);
+        poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("first parse image previews", terminal.backend());
         // Must load an image.
-        poll_done(&mut model, &screen_size);
+        poll_done(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("first parse done", terminal.backend());
 
@@ -759,8 +757,8 @@ Goodbye."#,
                 ),
             )
             .unwrap();
-        poll_parsed(&mut model, &screen_size);
-        poll_done(&mut model, &screen_size);
+        poll_parsed(&mut model);
+        poll_done(&mut model);
 
         model
             .reparse(
@@ -773,7 +771,7 @@ Goodbye."#,
                 ),
             )
             .unwrap();
-        poll_parsed(&mut model, &screen_size);
+        poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("reload move image up", terminal.backend());
 
@@ -788,7 +786,7 @@ Goodbye."#,
                 ),
             )
             .unwrap();
-        poll_parsed(&mut model, &screen_size);
+        poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("reload move image down", terminal.backend());
 
@@ -817,8 +815,8 @@ Goodbye."#,
                 ),
             )
             .unwrap();
-        poll_parsed(&mut model, &screen_size);
-        poll_done(&mut model, &screen_size);
+        poll_parsed(&mut model);
+        poll_done(&mut model);
 
         model
             .reparse(
@@ -832,11 +830,11 @@ Goodbye."#,
                 ),
             )
             .unwrap();
-        poll_parsed(&mut model, &screen_size);
+        poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("reload add image preview", terminal.backend());
         // Must load an image.
-        poll_done(&mut model, &screen_size);
+        poll_done(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("reload add image done", terminal.backend());
         teardown(model, worker);
@@ -863,8 +861,8 @@ Goodbye."#,
                 ),
             )
             .unwrap();
-        poll_parsed(&mut model, &screen_size);
-        poll_done(&mut model, &screen_size);
+        poll_parsed(&mut model);
+        poll_done(&mut model);
 
         model
             .reparse(
@@ -877,11 +875,11 @@ Goodbye.
                 ),
             )
             .unwrap();
-        poll_parsed(&mut model, &screen_size);
+        poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("duplicate image preview", terminal.backend());
         // Must load an image.
-        poll_done(&mut model, &screen_size);
+        poll_done(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("duplicate image done", terminal.backend());
         teardown(model, worker);

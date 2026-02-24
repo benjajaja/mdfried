@@ -168,8 +168,7 @@ impl Model {
         self.document.iter().map(|s| s.height).sum()
     }
 
-    pub fn process_events(&mut self, screen_width: u16) -> Result<(bool, bool), Error> {
-        let inner_width = self.inner_width(screen_width);
+    pub fn process_events(&mut self) -> Result<(bool, bool), Error> {
         let mut had_events = false;
         let mut had_done = false;
         while let Ok(event) = self.event_rx.try_recv() {
