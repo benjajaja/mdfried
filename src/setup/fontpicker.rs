@@ -117,13 +117,11 @@ pub fn interactive_font_picker(picker: &mut Picker) -> Result<Option<String>, Er
                         1,
                         false,
                     )?;
-                    let sections = header_sections(picker, inner_width, 0, dyn_imgs, false)?;
+                    let sections = header_sections(picker, inner_width, dyn_imgs, false)?;
 
                     // Just render the first line if it got split.
-                    if let Some(section) = sections.into_iter().next() {
-                        if let SectionContent::Image(_, proto) = section.content {
-                            last_rendered = Some((first_match.clone(), proto));
-                        }
+                    if let Some((text, proto)) = sections.into_iter().next() {
+                        last_rendered = Some((first_match.clone(), proto));
                     }
                 }
             }

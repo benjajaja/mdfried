@@ -49,7 +49,7 @@ use crate::{
     keybindings::PollResult,
     model::{DocumentId, InputQueue, Model},
     watch::watch,
-    worker::worker_thread,
+    worker::{ImageCache, worker_thread},
 };
 
 const OK_END: &str = " ok.";
@@ -223,7 +223,6 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let watch_event_tx = event_tx.clone();
 
     let config_max_image_height = config.max_image_height;
-    let can_render_headers = renderer.is_some();
     let cmd_thread = worker_thread(
         basepath,
         picker,
@@ -247,14 +246,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     terminal.clear()?;
 
     let terminal_size = terminal.size()?;
-    let model = Model::new(
-        path.cloned(),
-        cmd_tx,
-        event_rx,
-        terminal.size()?,
-        config,
-        can_render_headers,
-    );
+    let model = Model::new(path.cloned(), cmd_tx, event_rx, terminal.size()?, config);
     model.open(terminal_size, text)?;
 
     let debouncer = if let Some(path) = watchmode_path {
@@ -283,9 +275,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 }
 
 enum Cmd {
-    /// Parse document. Optional image cache: Vec<(url, protocol)> for reuse on reparse.
-    Parse(DocumentId, u16, String, Option<Vec<(String, Protocol)>>),
-    Header(DocumentId, usize, u16, u8, String),
+    Parse(DocumentId, u16, String, Option<ImageCache>),
 }
 
 impl std::fmt::Debug for Cmd {
@@ -298,12 +288,15 @@ impl Display for Cmd {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Cmd::Parse(reload_id, width, _, cache) => {
-                write!(f, "Cmd::Parse({reload_id:?}, {width}, <text>, cache={})", cache.as_ref().map(|c| c.len()).unwrap_or(0))
+                write!(
+                    f,
+                    "Cmd::Parse({reload_id:?}, {width}, <text>, cache={})",
+                    cache
+                        .as_ref()
+                        .map(|c| c.images.len() + c.headers.len())
+                        .unwrap_or(0)
+                )
             }
-            Cmd::Header(document_id, source_id, width, tier, text) => write!(
-                f,
-                "Cmd::Header({document_id}, {source_id}, {width}, {tier}, {text})"
-            ),
         }
     }
 }
@@ -312,10 +305,8 @@ pub enum Event {
     NewDocument(DocumentId),
     ParseDone(DocumentId, Option<SectionID>), // Only signals "parsing done", not "images ready"!
     Parsed(DocumentId, Section),
-    ParseHeader(DocumentId, SectionID, u8, String),
-    Update(DocumentId, Vec<Section>),
-    /// Image loaded: section_id, url, protocol
     ImageLoaded(DocumentId, SectionID, String, Protocol),
+    HeaderLoaded(DocumentId, SectionID, Vec<(String, Protocol)>),
     FileChanged,
 }
 
@@ -335,16 +326,18 @@ impl Display for Event {
                 )
             }
 
-            Event::ParseHeader(document_id, id, tier, text) => {
-                write!(f, "Event::ParseHeader({document_id}, {id}, {tier}, {text})")
-            }
-
-            Event::Update(document_id, updates) => {
-                write!(f, "Event::Update({document_id}, <{updates:?}>)",)
-            }
-
             Event::ImageLoaded(document_id, section_id, url, _) => {
                 write!(f, "Event::ImageLoaded({document_id}, {section_id}, {url})")
+            }
+
+            Event::HeaderLoaded(document_id, section_id, rows) => {
+                write!(
+                    f,
+                    "Event::HeaderLoaded({document_id}, {section_id}, {})",
+                    rows.first()
+                        .map(|(text, _)| text.clone())
+                        .unwrap_or_default()
+                )
             }
 
             Event::FileChanged => write!(f, "Event::FileChanged"),
@@ -669,7 +662,7 @@ mod tests {
 
         let screen_size = (80, 20).into();
 
-        let model = Model::new(None, cmd_tx, event_rx, screen_size, config, false);
+        let model = Model::new(None, cmd_tx, event_rx, screen_size, config);
         (model, worker, screen_size)
     }
 
