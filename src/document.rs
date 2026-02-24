@@ -315,7 +315,7 @@ impl Document {
             FindMode::Next => {
                 if let SectionContent::Lines(lines) = &section.content {
                     let id = section.id;
-                    let mut flat_index = 0usize;
+                    let mut flat_index = 0;
                     let flattened: Vec<_> = lines
                         .iter()
                         .flat_map(|(_, extras)| {
@@ -337,7 +337,7 @@ impl Document {
             FindMode::Prev => {
                 if let SectionContent::Lines(lines) = &section.content {
                     let id = section.id;
-                    let mut flat_index = 0usize;
+                    let mut flat_index = 0;
                     let mut flattened: Vec<_> = lines
                         .iter()
                         .flat_map(|(_, extras)| {

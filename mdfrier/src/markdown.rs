@@ -57,6 +57,9 @@ impl<'a> MdIterator<'a> {
     pub fn new(tree: Tree, inline_parser: &'a mut Parser, source: &'a str) -> Self {
         let tree = Box::new(tree);
         let cursor =
+            // SAFETY:
+            // cursor references tree, cursor must be dropped before tree, so order of fields
+            // matters.
             unsafe { std::mem::transmute::<TreeCursor<'_>, TreeCursor<'static>>(tree.walk()) };
 
         MdIterator {
@@ -64,7 +67,7 @@ impl<'a> MdIterator<'a> {
             cursor,
             tree,
             done: false,
-            inline_parser: inline_parser,
+            inline_parser,
             context: Vec::new(),
             depth: 0,
             list_item_content_depth: None,
@@ -347,6 +350,7 @@ impl<'a> MdIterator<'a> {
     }
 
     fn parse_paragraph(&mut self, node: &Node<'_>) -> Option<MdContent> {
+        #[expect(clippy::string_slice)]
         let text = &self.source[node.byte_range()];
 
         // Skip empty/whitespace-only paragraphs
@@ -620,9 +624,10 @@ impl MdParagraph {
         if p.spans.is_empty() {
             return None;
         }
-        return Some(MdContent::Paragraph(p));
+        Some(MdContent::Paragraph(p))
     }
 
+    #[expect(clippy::string_slice)]
     fn recurse(
         &mut self,
         node: Node<'_>,

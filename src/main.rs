@@ -442,7 +442,7 @@ fn view(model: &Model, frame: &mut Frame) {
             let y: u16 = y as u16;
             match &section.content {
                 SectionContent::Lines(lines) => {
-                    let mut flat_index = 0usize;
+                    let mut flat_index = 0;
                     let mut line_y = y;
                     for (line, extras) in lines.iter() {
                         if line_y >= inner_area.height {

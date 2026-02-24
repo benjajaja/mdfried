@@ -34,7 +34,7 @@ pub struct SectionIterator<'a, M: Mapper> {
 }
 
 impl<'a, M: Mapper> SectionIterator<'a, M> {
-    pub fn new(inner: MdIterator<'a>, width: u16, mapper: &'a M) -> Self {
+    pub(crate) fn new(inner: MdIterator<'a>, width: u16, mapper: &'a M) -> Self {
         SectionIterator {
             inner: inner.peekable(),
             width,
@@ -42,7 +42,7 @@ impl<'a, M: Mapper> SectionIterator<'a, M> {
         }
     }
 
-    fn from_content(&self, nesting: Vec<MdLineContainer>, content: MdContent) -> Section {
+    fn section_from_content(&self, nesting: Vec<MdLineContainer>, content: MdContent) -> Section {
         match content {
             MdContent::Paragraph(p) if p.is_empty() => Section::default(),
             MdContent::Paragraph(p) => {
@@ -171,14 +171,12 @@ impl<M: Mapper> Iterator for SectionIterator<'_, M> {
     type Item = Section;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let Some(md_section) = self.inner.next() else {
-            return None;
-        };
+        let md_section = self.inner.next()?;
 
         let is_blank = md_section.content.is_blank();
 
         let nesting = convert_nesting(&md_section.nesting, md_section.is_list_continuation);
-        let mut section: Section = self.from_content(nesting, md_section.content);
+        let mut section: Section = self.section_from_content(nesting, md_section.content);
 
         if self.inner.peek().is_some() && !is_blank {
             section.lines.push(Line {
