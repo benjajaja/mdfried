@@ -38,7 +38,7 @@
 //! let mut frier = MdFrier::new().unwrap();
 //!
 //! // StyledMapper removes decorators (for use with colors/bold/italic styling)
-//! let text: String = frier.parse(80, "*emphasis* and **strong**", &StyledMapper)
+//! let text: String = frier.parse(80, "*emphasis* and **strong**", &StyledMapper).unwrap()
 //!     .flat_map(|l: Line| l.spans.into_iter().map(|s: Span|
 //!         // We should really add colors from `s.modifiers` here!
 //!         s.content
@@ -63,7 +63,7 @@
 //!
 //! let mut frier = MdFrier::new().unwrap();
 //!
-//! let lines = frier.parse(80, "Hello *world*!\n\n> Quote\n\n**Bold**", &FancyMapper);
+//! let lines = frier.parse(80, "Hello *world*!\n\n> Quote\n\n**Bold**", &FancyMapper).unwrap();
 //! let mut output = String::new();
 //! for line in lines {
 //!     for span in line.spans {
@@ -83,7 +83,7 @@
 //!
 //! let mut frier = MdFrier::new().unwrap();
 //!
-//! let text: String = frier.parse(80, "*emphasis* and **strong**", &DefaultMapper)
+//! let text: String = frier.parse(80, "*emphasis* and **strong**", &DefaultMapper).unwrap()
 //!     .flat_map(|l| l.spans.into_iter().map(|s| s.content))
 //!     .collect();
 //! assert_eq!(text, "*emphasis* and **strong**");
@@ -211,18 +211,10 @@ impl MdFrier {
         width: u16,
         text: &'a str,
         mapper: &'a M,
-    ) -> LineIterator<'a, M> {
-        let tree = match self.parser.parse(text, None) {
-            Some(tree) => tree,
-            None => {
-                // Return empty iterator by creating one with no content
-                let empty_tree = self.parser.parse("", None).unwrap();
-                let iter = MdIterator::new(empty_tree, &mut self.inline_parser, "");
-                return LineIterator::new(iter, width, mapper);
-            }
-        };
+    ) -> Result<LineIterator<'a, M>, MarkdownParseError> {
+        let tree = self.parser.parse(text, None).ok_or(MarkdownParseError)?;
         let iter = MdIterator::new(tree, &mut self.inline_parser, text);
-        LineIterator::new(iter, width, mapper)
+        Ok(LineIterator::new(iter, width, mapper))
     }
 
     pub fn parse_sections<'a, M: Mapper>(
@@ -709,7 +701,7 @@ mod tests {
     #[test]
     fn parse_simple_text() {
         let mut frier = MdFrier::new().unwrap();
-        let lines: Vec<_> = frier.parse(80, "Hello world!", &DefaultMapper).collect();
+        let lines: Vec<_> = frier.parse(80, "Hello world!", &DefaultMapper).unwrap().collect();
         assert_eq!(lines.len(), 1);
 
         let line = &lines[0];
@@ -721,7 +713,7 @@ mod tests {
     fn parse_styled_text() {
         let mut frier = MdFrier::new().unwrap();
         // DefaultMapper preserves decorators around emphasis
-        let lines: Vec<_> = frier.parse(80, "Hello *world*!", &DefaultMapper).collect();
+        let lines: Vec<_> = frier.parse(80, "Hello *world*!", &DefaultMapper).unwrap().collect();
         assert_eq!(lines.len(), 1);
 
         let line = &lines[0];
@@ -740,7 +732,7 @@ mod tests {
     #[test]
     fn parse_header() {
         let mut frier = MdFrier::new().unwrap();
-        let lines: Vec<_> = frier.parse(80, "# Hello\n", &DefaultMapper).collect();
+        let lines: Vec<_> = frier.parse(80, "# Hello\n", &DefaultMapper).unwrap().collect();
         assert_eq!(lines.len(), 1);
 
         let line = &lines[0];
@@ -750,7 +742,10 @@ mod tests {
     #[test]
     fn parse_code_block() {
         let mut frier = MdFrier::new().unwrap();
-        let lines: Vec<_> = frier.parse(80, "```rust\nlet x = 1;\n```\n", &DefaultMapper).collect();
+        let lines: Vec<_> = frier
+            .parse(80, "```rust\nlet x = 1;\n```\n", &DefaultMapper)
+            .unwrap()
+            .collect();
         assert_eq!(lines.len(), 1);
 
         let line = &lines[0];
@@ -762,7 +757,7 @@ mod tests {
     #[test]
     fn parse_blockquote() {
         let mut frier = MdFrier::new().unwrap();
-        let lines: Vec<_> = frier.parse(80, "> Hello world", &DefaultMapper).collect();
+        let lines: Vec<_> = frier.parse(80, "> Hello world", &DefaultMapper).unwrap().collect();
         assert_eq!(lines.len(), 1);
 
         let line = &lines[0];
@@ -774,14 +769,20 @@ mod tests {
     #[test]
     fn parse_list() {
         let mut frier = MdFrier::new().unwrap();
-        let lines: Vec<_> = frier.parse(80, "- Item 1\n- Item 2", &DefaultMapper).collect();
+        let lines: Vec<_> = frier
+            .parse(80, "- Item 1\n- Item 2", &DefaultMapper)
+            .unwrap()
+            .collect();
         assert_eq!(lines.len(), 2);
     }
 
     #[test]
     fn paragraph_breaks() {
         let mut frier = MdFrier::new().unwrap();
-        let lines: Vec<_> = frier.parse(10, "longline1\nlongline2", &DefaultMapper).collect();
+        let lines: Vec<_> = frier
+            .parse(10, "longline1\nlongline2", &DefaultMapper)
+            .unwrap()
+            .collect();
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].spans[0].content, "longline1");
         assert_eq!(lines[1].spans[0].content, "longline2");
@@ -791,7 +792,10 @@ mod tests {
     fn soft_break_with_styling() {
         let mut frier = MdFrier::new().unwrap();
         // DefaultMapper preserves decorators
-        let lines: Vec<_> = frier.parse(80, "This \n*is* a test.", &DefaultMapper).collect();
+        let lines: Vec<_> = frier
+            .parse(80, "This \n*is* a test.", &DefaultMapper)
+            .unwrap()
+            .collect();
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].spans[0].content, "This");
         // Second line: "*" (open) + "is" (emphasis) + "*" (close) + " a test."
@@ -820,7 +824,7 @@ let x = 1;
 Paragraph after.";
 
         let mut frier = MdFrier::new().unwrap();
-        let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).collect();
+        let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).unwrap().collect();
         let output = lines_to_string(&lines);
         insta::assert_snapshot!(output);
     }
@@ -833,7 +837,7 @@ let x = 1;
 - list item";
 
         let mut frier = MdFrier::new().unwrap();
-        let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).collect();
+        let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).unwrap().collect();
         let output = lines_to_string(&lines);
         insta::assert_snapshot!(output);
     }
@@ -854,7 +858,7 @@ Quote break.
 > > > ...or with spaces between arrows."#;
 
         let mut frier = MdFrier::new().unwrap();
-        let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).collect();
+        let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).unwrap().collect();
         let output = lines_to_string(&lines);
         insta::assert_snapshot!(output);
     }
@@ -864,6 +868,7 @@ Quote break.
         let mut frier = MdFrier::new().unwrap();
         let spans: Vec<_> = frier
             .parse(15, "See https://example.com/path ok?", &DefaultMapper)
+            .unwrap()
             .flat_map(|l| l.spans)
             .collect();
         let url_source = SourceContent::from("https://example.com/path");
@@ -942,7 +947,7 @@ Quote break.
 "#;
 
         let mut frier = MdFrier::new().unwrap();
-        let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).collect();
+        let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).unwrap().collect();
         let output = lines_to_string(&lines);
         insta::assert_snapshot!(output);
     }
@@ -954,7 +959,7 @@ Quote break.
 
         let mut frier = MdFrier::new().unwrap();
         // Width of 5 should wrap "abcdefghij" into two lines
-        let lines: Vec<_> = frier.parse(5, input, &DefaultMapper).collect();
+        let lines: Vec<_> = frier.parse(5, input, &DefaultMapper).unwrap().collect();
         assert_eq!(lines.len(), 2);
         // First line should be 5 chars
         assert_eq!(lines[0].spans[0].content, "abcde");
@@ -968,7 +973,7 @@ Quote break.
         let input = "```\nabcde\n```\n";
 
         let mut frier = MdFrier::new().unwrap();
-        let lines: Vec<_> = frier.parse(5, input, &DefaultMapper).collect();
+        let lines: Vec<_> = frier.parse(5, input, &DefaultMapper).unwrap().collect();
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].spans[0].content, "abcde");
     }
@@ -983,7 +988,7 @@ Quote break.
             }
         }
         let mapper = HideUrlsMapper {};
-        let lines: Vec<_> = frier.parse(80, "[desc](https://url)", &mapper).collect();
+        let lines: Vec<_> = frier.parse(80, "[desc](https://url)", &mapper).unwrap().collect();
         assert_eq!(lines.len(), 1);
 
         let url_source = SourceContent::from("https://url");
