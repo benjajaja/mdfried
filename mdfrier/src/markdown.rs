@@ -7,35 +7,8 @@ use std::sync::LazyLock;
 use tree_sitter::{Node, Parser, Tree, TreeCursor};
 use unicode_width::UnicodeWidthStr;
 
-use crate::MarkdownParseError;
-
 /// Default list marker when none can be determined.
 const DEFAULT_LIST_MARKER: &str = "-";
-
-pub(crate) struct MdDocument<'a> {
-    source: &'a str,
-    tree: Tree,
-    inline_parser: &'a mut Parser,
-}
-
-impl<'a> MdDocument<'a> {
-    pub fn new(
-        source: &'a str,
-        parser: &'a mut Parser,
-        inline_parser: &'a mut Parser,
-    ) -> Result<MdDocument<'a>, MarkdownParseError> {
-        let tree = parser.parse(source, None).ok_or(MarkdownParseError)?;
-        Ok(Self {
-            source,
-            tree,
-            inline_parser,
-        })
-    }
-
-    pub fn into_sections(self) -> MdIterator<'a> {
-        MdIterator::new(self.tree, self.inline_parser, self.source)
-    }
-}
 
 pub(crate) struct MdIterator<'a> {
     source: &'a str,
@@ -1238,5 +1211,4 @@ mod tests {
         assert!(result[3].modifiers.contains(Modifier::LinkURLWrapper));
         assert_eq!(result[4].content, ">");
     }
-
 }

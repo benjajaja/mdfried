@@ -677,7 +677,7 @@ mod tests {
 
     // Poll until parsed and no pending images.
     fn poll_parsed(model: &mut Model) {
-        let mut fuse = 1000_000;
+        let mut fuse = 1_000_000;
         loop {
             let (_, parse_done, _) = model.process_events().unwrap();
             if parse_done {

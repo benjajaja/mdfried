@@ -157,6 +157,7 @@ mod tests {
     use mdfrier::MdFrier;
 
     /// Main pipeline function that parses markdown text into Events.
+    #[expect(clippy::unwrap_used)]
     fn parse_to_events(
         parser: &mut MdFrier,
         document_id: DocumentId,
