@@ -10,14 +10,14 @@ use crate::{
     wrap::wrap_md_spans,
 };
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub struct Section {
     pub backend: String,
     pub lines: Vec<Line>,
     pub kind: SectionKind,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone, PartialEq)]
 pub enum SectionKind {
     #[default]
     Paragraph,
