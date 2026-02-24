@@ -24,7 +24,7 @@ use reqwest::Client;
 use tokio::{runtime::Builder, sync::RwLock};
 
 use crate::{
-    Cmd, Event, MarkdownImage,
+    Cmd, Event, MarkdownImage, Protocol,
     config::Theme,
     document::{Section, SectionContent, header_images, header_sections, image_section},
     error::Error,
@@ -63,7 +63,7 @@ pub fn worker_thread(
             for cmd in cmd_rx {
                 log::debug!("Cmd: {cmd}");
                 match cmd {
-                    Cmd::Parse(document_id, width, text) => {
+                    Cmd::Parse(document_id, width, text, image_cache) => {
                         log::info!("Parse {document_id}");
 
                         let mut post_parse_events = Vec::new();
@@ -85,19 +85,49 @@ pub fn worker_thread(
                             post_parse_events.extend(section_events);
                         }
 
+                        // Send cached images synchronously before ParseDone
+                        let mut cache: std::collections::HashMap<String, Protocol> = image_cache
+                            .unwrap_or_default()
+                            .into_iter()
+                            .collect();
+                        let mut uncached_events = Vec::new();
+                        for event in post_parse_events {
+                            match &event {
+                                markdown::SectionEvent::Image(
+                                    section_id,
+                                    MarkdownImage { destination, .. },
+                                ) => {
+                                    if let Some(proto) = cache.remove(destination) {
+                                        log::debug!("reusing cached image: {destination}");
+                                        event_tx.send(Event::ImageLoaded(
+                                            document_id,
+                                            *section_id,
+                                            destination.clone(),
+                                            proto,
+                                        ))?;
+                                    } else {
+                                        uncached_events.push(event);
+                                    }
+                                }
+                                _ => uncached_events.push(event),
+                            }
+                        }
+
                         event_tx.send(Event::ParseDone(document_id, section_id))?;
 
-                        process_post_parse_events(
-                            event_tx.clone(),
-                            basepath.clone(),
-                            client.clone(),
-                            thread_picker.clone(),
-                            width,
-                            config_max_image_height,
-                            deep_fry,
-                            document_id,
-                            post_parse_events,
-                        );
+                        if !uncached_events.is_empty() {
+                            process_post_parse_events(
+                                event_tx.clone(),
+                                basepath.clone(),
+                                client.clone(),
+                                thread_picker.clone(),
+                                width,
+                                config_max_image_height,
+                                deep_fry,
+                                document_id,
+                                uncached_events,
+                            );
+                        }
                     }
                     Cmd::Header(document_id, section_id, width, tier, text) => {
                         debug_assert!(
@@ -195,9 +225,10 @@ fn process_post_parse_events(
                     section_id,
                     MarkdownImage {
                         destination,
-                        description,
+                        description: _,
                     },
                 ) => {
+                    // Load fresh image
                     match image_section(
                         &picker,
                         config_max_image_height,

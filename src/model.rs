@@ -14,6 +14,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::Padding,
 };
+use ratatui_image::protocol::Protocol;
 use regex::RegexBuilder;
 
 use crate::{
@@ -116,12 +117,18 @@ impl Model {
     }
 
     pub fn open(&self, screen_size: Size, text: String) -> Result<(), Error> {
-        self.parse(self.document_id.open(), screen_size, text)
+        self.parse(self.document_id.open(), screen_size, text, None)
     }
 
-    pub fn reparse(&self, screen_size: Size, text: String) -> Result<(), Error> {
+    pub fn reparse(&mut self, screen_size: Size, text: String) -> Result<(), Error> {
         log::info!("reparse");
-        self.parse(self.document_id.reload(), screen_size, text)
+        let image_cache = self.document.take_image_protocols();
+        let cache = if image_cache.is_empty() {
+            None
+        } else {
+            Some(image_cache)
+        };
+        self.parse(self.document_id.reload(), screen_size, text, cache)
     }
 
     fn parse(
@@ -129,6 +136,7 @@ impl Model {
         next_document_id: DocumentId,
         screen_size: Size,
         mut text: String,
+        image_cache: Option<Vec<(String, Protocol)>>,
     ) -> Result<(), Error> {
         let inner_width = self.inner_width(screen_size.width);
         if !text.ends_with('\n') {
@@ -137,7 +145,7 @@ impl Model {
             text.push('\n');
         }
         self.cmd_tx
-            .send(Cmd::Parse(next_document_id, inner_width, text))?;
+            .send(Cmd::Parse(next_document_id, inner_width, text, image_cache))?;
         Ok(())
     }
 

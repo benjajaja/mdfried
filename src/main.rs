@@ -282,18 +282,24 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     Ok(())
 }
 
-#[derive(Debug)]
 enum Cmd {
-    Parse(DocumentId, u16, String),
+    /// Parse document. Optional image cache: Vec<(url, protocol)> for reuse on reparse.
+    Parse(DocumentId, u16, String, Option<Vec<(String, Protocol)>>),
     UrlImage(DocumentId, usize, u16, String, String),
     Header(DocumentId, usize, u16, u8, String),
+}
+
+impl std::fmt::Debug for Cmd {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self, f)
+    }
 }
 
 impl Display for Cmd {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Cmd::Parse(reload_id, width, _) => {
-                write!(f, "Cmd::Parse({reload_id:?}, {width}, <text>)")
+            Cmd::Parse(reload_id, width, _, cache) => {
+                write!(f, "Cmd::Parse({reload_id:?}, {width}, <text>, cache={})", cache.as_ref().map(|c| c.len()).unwrap_or(0))
             }
             Cmd::UrlImage(document_id, source_id, width, url, _) => write!(
                 f,
