@@ -32,7 +32,10 @@ use crate::{
     error::Error,
     model::DocumentId,
     setup::FontRenderer,
-    worker::markdown::{SectionEvent, section_to_events},
+    worker::{
+        markdown::{SectionEvent, section_to_events},
+        sections::SectionIterator,
+    },
 };
 
 #[expect(clippy::too_many_arguments)]
@@ -72,8 +75,8 @@ pub fn worker_thread(
                         event_tx.send(Event::NewDocument(document_id))?;
 
                         let mut section_id: Option<usize> = None;
-                        let sections = parser.parse_sections(width, &text, &theme)?;
-                        for section in sections {
+                        let lines = parser.parse(width, &text, &theme);
+                        for section in SectionIterator::new(lines) {
                             let (sections, section_events) = section_to_events(
                                 &mut section_id,
                                 width,
