@@ -128,7 +128,7 @@ mod tests {
         let mut frier = MdFrier::new().unwrap();
         struct TestMapper;
         impl Mapper for TestMapper {}
-        let lines = frier.parse(80, text, &TestMapper);
+        let lines = frier.parse(80, text, &TestMapper).unwrap();
         SectionIterator::new(lines).collect()
     }
 

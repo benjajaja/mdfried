@@ -75,7 +75,7 @@ pub fn worker_thread(
                         event_tx.send(Event::NewDocument(document_id))?;
 
                         let mut section_id: Option<usize> = None;
-                        let lines = parser.parse(width, &text, &theme);
+                        let lines = parser.parse(width, &text, &theme)?;
                         for section in SectionIterator::new(lines) {
                             let (sections, section_events) = section_to_events(
                                 &mut section_id,

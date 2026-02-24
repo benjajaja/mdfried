@@ -167,7 +167,7 @@ mod tests {
     ) -> (Vec<Event>, Option<usize>) {
         let mut events = Vec::new();
         let mut section_id: Option<usize> = None;
-        let lines = parser.parse(width, text, theme);
+        let lines = parser.parse(width, text, theme).unwrap();
         for section in SectionIterator::new(lines) {
             let (sections, _section_events) = section_to_events(
                 &mut section_id,
