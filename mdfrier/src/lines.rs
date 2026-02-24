@@ -20,19 +20,6 @@ pub(crate) struct RawLine {
     pub meta: LineMeta,
 }
 
-impl RawLine {
-    /// Create a blank line.
-    pub fn blank() -> Self {
-        Self {
-            spans: Vec::new(),
-            meta: LineMeta {
-                kind: RawLineKind::Blank,
-                nesting: Vec::new(),
-            },
-        }
-    }
-}
-
 #[cfg(test)]
 impl std::fmt::Display for RawLine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -193,7 +180,7 @@ pub struct LineIterator<'a, M: Mapper> {
 }
 
 impl<'a, M: Mapper> LineIterator<'a, M> {
-    pub fn new(inner: MdIterator<'a>, width: u16, mapper: &'a M) -> Self {
+    pub(crate) fn new(inner: MdIterator<'a>, width: u16, mapper: &'a M) -> Self {
         LineIterator {
             inner: inner.peekable(),
             width,

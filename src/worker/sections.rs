@@ -100,7 +100,10 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<I> {
                     }
 
                     // Trim trailing blank lines
-                    while lines.last().is_some_and(|l| matches!(l.kind, LineKind::Blank)) {
+                    while lines
+                        .last()
+                        .is_some_and(|l| matches!(l.kind, LineKind::Blank))
+                    {
                         lines.pop();
                     }
 
@@ -122,8 +125,9 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<I> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mdfrier::{MdFrier, Mapper};
+    use mdfrier::{Mapper, MdFrier};
 
+    #[expect(clippy::unwrap_used)]
     fn parse_sections(text: &str) -> Vec<Section> {
         let mut frier = MdFrier::new().unwrap();
         struct TestMapper;
