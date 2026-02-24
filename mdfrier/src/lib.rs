@@ -93,7 +93,6 @@
 mod lines;
 pub mod mapper;
 mod markdown;
-pub mod sections;
 mod wrap;
 
 #[cfg(feature = "ratatui")]
@@ -113,7 +112,6 @@ pub use markdown::{Modifier, SourceContent, Span};
 pub(crate) use lines::MdLineContainer;
 
 use crate::markdown::MdIterator;
-pub use crate::sections::{Section, SectionIterator, SectionKind};
 
 // ============================================================================
 // Public output types
@@ -215,17 +213,6 @@ impl MdFrier {
         let tree = self.parser.parse(text, None).ok_or(MarkdownParseError)?;
         let iter = MdIterator::new(tree, &mut self.inline_parser, text);
         Ok(LineIterator::new(iter, width, mapper))
-    }
-
-    pub fn parse_sections<'a, M: Mapper>(
-        &'a mut self,
-        width: u16,
-        text: &'a str,
-        mapper: &'a M,
-    ) -> Result<SectionIterator<'a, M>, MarkdownParseError> {
-        let tree = self.parser.parse(text, None).ok_or(MarkdownParseError)?;
-        let iter = MdIterator::new(tree, &mut self.inline_parser, text);
-        Ok(SectionIterator::new(iter, width, mapper))
     }
 }
 
@@ -701,7 +688,10 @@ mod tests {
     #[test]
     fn parse_simple_text() {
         let mut frier = MdFrier::new().unwrap();
-        let lines: Vec<_> = frier.parse(80, "Hello world!", &DefaultMapper).unwrap().collect();
+        let lines: Vec<_> = frier
+            .parse(80, "Hello world!", &DefaultMapper)
+            .unwrap()
+            .collect();
         assert_eq!(lines.len(), 1);
 
         let line = &lines[0];
@@ -713,7 +703,10 @@ mod tests {
     fn parse_styled_text() {
         let mut frier = MdFrier::new().unwrap();
         // DefaultMapper preserves decorators around emphasis
-        let lines: Vec<_> = frier.parse(80, "Hello *world*!", &DefaultMapper).unwrap().collect();
+        let lines: Vec<_> = frier
+            .parse(80, "Hello *world*!", &DefaultMapper)
+            .unwrap()
+            .collect();
         assert_eq!(lines.len(), 1);
 
         let line = &lines[0];
@@ -732,7 +725,10 @@ mod tests {
     #[test]
     fn parse_header() {
         let mut frier = MdFrier::new().unwrap();
-        let lines: Vec<_> = frier.parse(80, "# Hello\n", &DefaultMapper).unwrap().collect();
+        let lines: Vec<_> = frier
+            .parse(80, "# Hello\n", &DefaultMapper)
+            .unwrap()
+            .collect();
         assert_eq!(lines.len(), 1);
 
         let line = &lines[0];
@@ -757,7 +753,10 @@ mod tests {
     #[test]
     fn parse_blockquote() {
         let mut frier = MdFrier::new().unwrap();
-        let lines: Vec<_> = frier.parse(80, "> Hello world", &DefaultMapper).unwrap().collect();
+        let lines: Vec<_> = frier
+            .parse(80, "> Hello world", &DefaultMapper)
+            .unwrap()
+            .collect();
         assert_eq!(lines.len(), 1);
 
         let line = &lines[0];
@@ -981,14 +980,17 @@ Quote break.
     #[test]
     fn hide_urls() {
         let mut frier = MdFrier::new().unwrap();
-        struct HideUrlsMapper {}
+        struct HideUrlsMapper;
         impl Mapper for HideUrlsMapper {
             fn hide_urls(&self) -> bool {
                 true
             }
         }
         let mapper = HideUrlsMapper {};
-        let lines: Vec<_> = frier.parse(80, "[desc](https://url)", &mapper).unwrap().collect();
+        let lines: Vec<_> = frier
+            .parse(80, "[desc](https://url)", &mapper)
+            .unwrap()
+            .collect();
         assert_eq!(lines.len(), 1);
 
         let url_source = SourceContent::from("https://url");
