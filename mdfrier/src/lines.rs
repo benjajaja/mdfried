@@ -193,7 +193,7 @@ pub struct LineIterator<'a, M: Mapper> {
 }
 
 impl<'a, M: Mapper> LineIterator<'a, M> {
-    pub(crate) fn new(inner: MdIterator<'a>, width: u16, mapper: &'a M) -> Self {
+    pub fn new(inner: MdIterator<'a>, width: u16, mapper: &'a M) -> Self {
         LineIterator {
             inner: inner.peekable(),
             width,
