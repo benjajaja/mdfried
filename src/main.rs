@@ -453,7 +453,7 @@ fn view(model: &Model, frame: &mut Frame) {
 
                         // Check if this line has a loaded image
                         let image_extra = extras.iter().find_map(|e| {
-                            if let LineExtra::Image(proto) = e {
+                            if let LineExtra::Image(_, proto) = e {
                                 Some(proto)
                             } else {
                                 None

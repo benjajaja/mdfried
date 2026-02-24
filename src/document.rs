@@ -94,14 +94,14 @@ impl Document {
             let text = line.to_string();
             text.starts_with("![")
                 && text.contains(url)
-                && !extras.iter().any(|e| matches!(e, LineExtra::Image(_)))
+                && !extras.iter().any(|e| matches!(e, LineExtra::Image(_, _)))
         }) else {
             log::error!("update_image: no line with url {url} in section #{section_id}");
             return;
         };
 
         // Add the image protocol to extras
-        extras.push(LineExtra::Image(proto));
+        extras.push(LineExtra::Image(url.to_owned(), proto));
 
         // Recalculate section height
         let height: u16 = lines
@@ -110,7 +110,7 @@ impl Document {
                 extras
                     .iter()
                     .find_map(|e| {
-                        if let LineExtra::Image(proto) = e {
+                        if let LineExtra::Image(_, proto) = e {
                             Some(proto.area().height)
                         } else {
                             None
@@ -151,22 +151,17 @@ impl Document {
         for section in &mut self.sections {
             match &mut section.content {
                 SectionContent::Lines(lines) => {
-                    for (line, extras) in lines.iter_mut() {
+                    for (_, extras) in lines.iter_mut() {
                         // Find and remove LineExtra::Image
-                        if let Some(pos) =
-                            extras.iter().position(|e| matches!(e, LineExtra::Image(_)))
+                        if let Some(idx) = extras
+                            .iter()
+                            .position(|e| matches!(e, LineExtra::Image(_, _)))
                         {
-                            let LineExtra::Image(proto) = extras.remove(pos) else {
+                            let LineExtra::Image(url, proto) = extras.remove(idx) else {
                                 unreachable!()
                             };
-                            // Extract URL from line text (format: ![...](url))
-                            let text = line.to_string();
-                            if let Some(start) = text.rfind('(') {
-                                if let Some(end) = text.rfind(')') {
-                                    let url = text[start + 1..end].to_string();
-                                    cache.images.insert(url, proto);
-                                }
-                            }
+
+                            cache.images.insert(url, proto);
                         }
                     }
                     // Recalculate section height (all lines now height 1)
@@ -392,7 +387,7 @@ impl Document {
                 lines.iter().any(|(line, extras)| {
                     // Line is a pending image if it starts with "![" and has no LineExtra::Image
                     line.to_string().starts_with("![")
-                        && !extras.iter().any(|e| matches!(e, LineExtra::Image(_)))
+                        && !extras.iter().any(|e| matches!(e, LineExtra::Image(_, _)))
                 })
             } else {
                 false
@@ -565,7 +560,7 @@ impl Display for Section {
 }
 
 pub enum LineExtra {
-    Image(Protocol),
+    Image(String, Protocol),
     Link(SourceContent, u16, u16),
     SearchMatch(usize, usize, String),
 }
@@ -573,7 +568,7 @@ pub enum LineExtra {
 impl Debug for LineExtra {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LineExtra::Image(protocol) => write!(f, "Image({:?})", protocol.type_id()),
+            LineExtra::Image(url, protocol) => write!(f, "Image({url}, {:?})", protocol.type_id()),
             LineExtra::Link(url, start, end) => {
                 write!(f, "Link({:?}, {}, {})", url, start, end)
             }

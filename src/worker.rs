@@ -150,6 +150,7 @@ pub fn worker_thread(
     })
 }
 
+#[expect(clippy::too_many_arguments)]
 fn process_post_parse_events(
     task_tx: Sender<Event>,
     basepath: Option<PathBuf>,
