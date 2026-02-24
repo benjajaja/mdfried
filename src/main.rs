@@ -306,7 +306,7 @@ pub enum Event {
     ParseDone(DocumentId, Option<SectionID>), // Only signals "parsing done", not "images ready"!
     Parsed(DocumentId, Section),
     ImageLoaded(DocumentId, SectionID, String, Protocol),
-    HeaderLoaded(DocumentId, SectionID, Vec<(String, Protocol)>),
+    HeaderLoaded(DocumentId, SectionID, Vec<(String, u8, Protocol)>),
     FileChanged,
 }
 
@@ -335,7 +335,7 @@ impl Display for Event {
                     f,
                     "Event::HeaderLoaded({document_id}, {section_id}, {})",
                     rows.first()
-                        .map(|(text, _)| text.clone())
+                        .map(|(text, _, _)| text.clone())
                         .unwrap_or_default()
                 )
             }
@@ -535,9 +535,14 @@ fn view(model: &Model, frame: &mut Frame) {
                     let p = Paragraph::new(text);
                     render_widget(p, height as u16, y, inner_area, frame);
                 }
-                SectionContent::Header(text, tier) => {
-                    let big_text = BigText::new(text, *tier);
-                    render_widget(big_text, 2, y, inner_area, frame);
+                SectionContent::Header(text, tier, proto) => {
+                    if let Some(proto) = proto {
+                        let img = Image::new(proto);
+                        render_widget(img, section.height, y, inner_area, frame);
+                    } else {
+                        let big_text = BigText::new(text, *tier);
+                        render_widget(big_text, 2, y, inner_area, frame);
+                    }
                 }
             }
         }

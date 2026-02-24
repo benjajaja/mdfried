@@ -122,7 +122,7 @@ impl Document {
         section.height = height;
     }
 
-    pub fn update_header(&mut self, section_id: SectionID, rows: Vec<(String, Protocol)>) {
+    pub fn update_header(&mut self, section_id: SectionID, rows: Vec<(String, u8, Protocol)>) {
         if rows.is_empty() {
             log::error!("update_header: empty rows for section #{section_id}");
             return;
@@ -130,13 +130,13 @@ impl Document {
 
         let new_sections: Vec<Section> = rows
             .into_iter()
-            .map(|(text, proto)| {
+            .map(|(text, tier, proto)| {
                 log::debug!("update_header: {text}");
                 let height = proto.area().height;
                 Section {
                     id: section_id,
                     height,
-                    content: SectionContent::Image(text, proto),
+                    content: SectionContent::Header(text, tier, Some(proto)),
                 }
             })
             .collect();
@@ -172,7 +172,16 @@ impl Document {
                     // Recalculate section height (all lines now height 1)
                     section.height = lines.len() as u16;
                 }
-                SectionContent::Header(text, tier) => {}
+                SectionContent::Header(text, tier, proto) => {
+                    if let Some(proto) = proto.take() {
+                        let key = (text.clone(), *tier);
+                        if let Some(existing) = cache.headers.get_mut(&key) {
+                            existing.push(proto);
+                        } else {
+                            cache.headers.insert(key, vec![proto]);
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -437,7 +446,7 @@ pub struct Section {
 pub enum SectionContent {
     Image(String, Protocol),
     BrokenImage(String, String),
-    Header(String, u8),
+    Header(String, u8, Option<Protocol>),
     Lines(Vec<(Line<'static>, Vec<LineExtra>)>),
 }
 
@@ -478,7 +487,9 @@ impl PartialEq for SectionContent {
             }
             (Self::BrokenImage(l0, l1), Self::BrokenImage(r0, r1)) => l0 == r0 && l1 == r1,
             (Self::Lines(l), Self::Lines(r)) => l == r,
-            (Self::Header(l0, l1), Self::Header(r0, r1)) => l0 == r0 && l1 == r1,
+            (Self::Header(l0, l1, l2), Self::Header(r0, r1, r2)) => {
+                l0 == r0 && l1 == r1 && l2.is_some() == r2.is_some()
+            }
             _ => false,
         }
     }
@@ -501,7 +512,7 @@ impl Debug for SectionContent {
                 }
                 tuple.finish()
             }
-            Self::Header(text, tier) => f.debug_tuple("Header").field(text).field(tier).finish(),
+            Self::Header(text, tier, _) => f.debug_tuple("Header").field(text).field(tier).finish(),
         }
     }
 }
@@ -512,7 +523,7 @@ impl Display for SectionContent {
             Self::Image(url, protocol) => write!(f, "Image({url}, {:?})", protocol.type_id()),
             Self::BrokenImage(url, _) => write!(f, "BrokenImage({url})"),
             Self::Lines(lines) => write!(f, "Line({lines:?})"),
-            Self::Header(text, tier) => write!(f, "Header({text}, {tier})"),
+            Self::Header(text, tier, _) => write!(f, "Header({text}, {tier})"),
         }
     }
 }
@@ -546,7 +557,7 @@ impl Display for Section {
                 }
                 Ok(())
             }
-            SectionContent::Header(text, tier) => {
+            SectionContent::Header(text, tier, _) => {
                 write!(f, "{} {}", "#".repeat(*tier as usize), text)
             }
         }
@@ -598,7 +609,7 @@ pub fn header_images(
     text: String,
     tier: u8,
     deep_fry_meme: bool,
-) -> Result<Vec<(String, DynamicImage)>, Error> {
+) -> Result<Vec<(String, u8, DynamicImage)>, Error> {
     const HEADER_ROW_COUNT: u16 = 2;
     let (font_width, font_height) = font_renderer.font_size;
 
@@ -641,7 +652,7 @@ pub fn header_images(
         let img: RgbaImage =
             RgbaImage::from_pixel(img_width, img_height, Rgba::<u8>::from(RGBA_BG));
         let dyn_img = DynamicImage::ImageRgba8(img);
-        dyn_imgs.push((layout_run.text.into(), dyn_img));
+        dyn_imgs.push((layout_run.text.into(), tier, dyn_img));
     }
 
     let fg = Color::rgba(255, 255, 255, 255);
@@ -672,7 +683,7 @@ pub fn header_images(
                 return;
             }
 
-            let dyn_img = &mut dyn_imgs[index].1;
+            let dyn_img = &mut dyn_imgs[index].2;
 
             // Adjust picked image's Y coord offset.
             let y_offset: u32 = index as u32 * img_height;
@@ -689,11 +700,11 @@ const HEADER_ROW_COUNT: u16 = 2;
 pub fn header_sections(
     picker: &Picker,
     width: u16,
-    dyn_imgs: Vec<(String, DynamicImage)>,
+    dyn_imgs: Vec<(String, u8, DynamicImage)>,
     deep_fry_meme: bool,
-) -> Result<Vec<(String, Protocol)>, Error> {
+) -> Result<Vec<(String, u8, Protocol)>, Error> {
     let mut protos = vec![];
-    for (text, mut dyn_img) in dyn_imgs {
+    for (text, tier, mut dyn_img) in dyn_imgs {
         if deep_fry_meme {
             dyn_img = deep_fry(dyn_img);
         }
@@ -702,7 +713,7 @@ pub fn header_sections(
             Rect::new(0, 0, width, HEADER_ROW_COUNT),
             Resize::Fit(None),
         )?;
-        protos.push((text, proto));
+        protos.push((text, tier, proto));
     }
     Ok(protos)
 }
