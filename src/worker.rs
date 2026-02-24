@@ -10,6 +10,7 @@
 pub mod markdown;
 
 use std::{
+    collections::HashMap,
     path::PathBuf,
     sync::{
         Arc,
@@ -19,7 +20,7 @@ use std::{
 };
 
 use mdfrier::MdFrier;
-use ratatui_image::picker::{Picker, ProtocolType};
+use ratatui_image::picker::Picker;
 use reqwest::Client;
 use tokio::{runtime::Builder, sync::RwLock};
 
@@ -30,7 +31,7 @@ use crate::{
     error::Error,
     model::DocumentId,
     setup::FontRenderer,
-    worker::markdown::section_to_events,
+    worker::markdown::{SectionEvent, section_to_events},
 };
 
 #[expect(clippy::too_many_arguments)]
@@ -53,7 +54,6 @@ pub fn worker_thread(
         runtime.block_on(async {
             let basepath = basepath.clone();
             let client = Arc::new(RwLock::new(Client::new()));
-            let protocol_type = picker.protocol_type(); // Won't change
             // Specifically not a tokio Mutex, because we use it in spawn_blocking.
             let thread_renderer =
                 renderer.map(|renderer| Arc::new(std::sync::Mutex::new(renderer)));
@@ -86,72 +86,47 @@ pub fn worker_thread(
                         }
 
                         // Send cached images synchronously before ParseDone
-                        let mut cache: std::collections::HashMap<String, Protocol> = image_cache
-                            .unwrap_or_default()
-                            .into_iter()
-                            .collect();
-                        let mut uncached_events = Vec::new();
+                        let mut image_cache = image_cache.unwrap_or_default();
+                        let mut uncached_image_events = Vec::new();
                         for event in post_parse_events {
-                            let markdown::SectionEvent::Image(
-                                section_id,
-                                MarkdownImage { destination, .. },
-                            ) = &event;
-                            if let Some(proto) = cache.remove(destination) {
-                                log::debug!("reusing cached image: {destination}");
-                                event_tx.send(Event::ImageLoaded(
-                                    document_id,
-                                    *section_id,
-                                    destination.clone(),
-                                    proto,
-                                ))?;
-                            } else {
-                                uncached_events.push(event);
+                            match &event {
+                                SectionEvent::Image(
+                                    section_id,
+                                    MarkdownImage { destination, .. },
+                                ) => {
+                                    if let Some(proto) = image_cache.images.remove(destination) {
+                                        log::debug!("reusing cached image: {destination}");
+                                        event_tx.send(Event::ImageLoaded(
+                                            document_id,
+                                            *section_id,
+                                            destination.clone(),
+                                            proto,
+                                        ))?;
+                                    } else {
+                                        uncached_image_events.push(event);
+                                    }
+                                }
+                                SectionEvent::Header(_, _, _) => {
+                                    uncached_image_events.push(event);
+                                }
                             }
                         }
 
                         event_tx.send(Event::ParseDone(document_id, section_id))?;
 
-                        if !uncached_events.is_empty() {
+                        if !uncached_image_events.is_empty() {
                             process_post_parse_events(
                                 event_tx.clone(),
                                 basepath.clone(),
                                 client.clone(),
                                 thread_picker.clone(),
+                                thread_renderer.clone(),
                                 width,
                                 config_max_image_height,
                                 deep_fry,
                                 document_id,
-                                uncached_events,
+                                uncached_image_events,
                             );
-                        }
-                    }
-                    Cmd::Header(document_id, section_id, width, tier, text) => {
-                        debug_assert!(
-                            thread_renderer.is_some(),
-                            "should not have sent Cmd::Header without renderer"
-                        );
-                        if let Some(thread_renderer) = &thread_renderer {
-                            let task_tx = event_tx.clone();
-                            if protocol_type != ProtocolType::Halfblocks {
-                                let renderer = thread_renderer.clone();
-                                let picker = thread_picker.clone();
-                                tokio::spawn(async move {
-                                    let images = tokio::task::spawn_blocking(move || {
-                                        let mut r = renderer.lock()?;
-                                        header_images(&mut r, width, text, tier, deep_fry)
-                                    })
-                                    .await??;
-
-                                    let headers = tokio::task::spawn_blocking(move || {
-                                        header_sections(
-                                            &picker, width, section_id, images, deep_fry,
-                                        )
-                                    })
-                                    .await??;
-                                    task_tx.send(Event::Update(document_id, headers))?;
-                                    Ok::<(), Error>(())
-                                });
-                            }
                         }
                     }
                 }
@@ -167,17 +142,18 @@ fn process_post_parse_events(
     basepath: Option<PathBuf>,
     client: Arc<RwLock<Client>>,
     picker: Arc<Picker>,
+    font_renderer: Option<Arc<std::sync::Mutex<Box<FontRenderer>>>>,
     width: u16,
     config_max_image_height: u16,
     deep_fry: bool,
     document_id: DocumentId,
-    post_parse_events: Vec<markdown::SectionEvent>,
+    post_parse_events: Vec<SectionEvent>,
 ) {
     // TODO: handle spawned task result errors, right now it's just discarded.
     tokio::spawn(async move {
         for event in post_parse_events {
             match event {
-                markdown::SectionEvent::Image(
+                SectionEvent::Image(
                     section_id,
                     MarkdownImage {
                         destination,
@@ -201,12 +177,7 @@ fn process_post_parse_events(
                             let SectionContent::Image(url, proto) = section.content else {
                                 unreachable!("image_section should return SectionContent::Image");
                             };
-                            task_tx.send(Event::ImageLoaded(
-                                document_id,
-                                section_id,
-                                url,
-                                proto,
-                            ))?
+                            task_tx.send(Event::ImageLoaded(document_id, section_id, url, proto))?
                         }
                         Err(Error::UnknownImage(_id, link)) => {
                             log::error!("image_section UnknownImage: {link}");
@@ -218,8 +189,37 @@ fn process_post_parse_events(
                         }
                     }
                 }
+                SectionEvent::Header(section_id, text, tier) => {
+                    log::debug!("SectionEvent::Header: {text}");
+                    let Some(font_renderer) = &font_renderer else {
+                        panic!("should not have produced SectionEvent::Header without renderer");
+                    };
+                    let font_renderer = font_renderer.clone();
+                    let images = tokio::task::spawn_blocking(move || {
+                        let mut r = font_renderer.lock()?;
+                        header_images(&mut r, width, text, tier, deep_fry)
+                    })
+                    .await??;
+                    let picker = picker.clone();
+                    let images = tokio::task::spawn_blocking(move || {
+                        header_sections(&picker, width, images, deep_fry)
+                    })
+                    .await??;
+                    task_tx.send(Event::HeaderLoaded(document_id, section_id, images))?;
+                }
             }
         }
         Ok::<(), Error>(())
     });
+}
+
+#[derive(Default)]
+pub struct ImageCache {
+    pub images: HashMap<String, Protocol>,
+    pub headers: HashMap<String, Protocol>,
+}
+impl ImageCache {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.images.is_empty() && self.headers.is_empty()
+    }
 }

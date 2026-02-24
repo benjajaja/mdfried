@@ -23,7 +23,7 @@ use reqwest::{
 use tokio::sync::RwLock;
 use unicode_width::UnicodeWidthStr as _;
 
-use crate::{Error, cursor::CursorPointer, setup::FontRenderer};
+use crate::{Error, cursor::CursorPointer, setup::FontRenderer, worker::ImageCache};
 
 #[derive(Default)]
 pub struct Document {
@@ -122,34 +122,61 @@ impl Document {
         section.height = height;
     }
 
+    pub fn update_header(&mut self, section_id: SectionID, rows: Vec<(String, Protocol)>) {
+        if rows.is_empty() {
+            log::error!("update_header: empty rows for section #{section_id}");
+            return;
+        }
+
+        let new_sections: Vec<Section> = rows
+            .into_iter()
+            .map(|(text, proto)| {
+                log::debug!("update_header: {text}");
+                let height = proto.area().height;
+                Section {
+                    id: section_id,
+                    height,
+                    content: SectionContent::Image(text, proto),
+                }
+            })
+            .collect();
+
+        self.update(new_sections);
+    }
+
     /// Extract all image protocols from the document for caching before reparse.
     /// Returns Vec<(url, protocol)>. Protocols are moved out, lines revert to height 1.
-    pub fn take_image_protocols(&mut self) -> Vec<(String, Protocol)> {
-        let mut result = Vec::new();
+    pub fn take_image_protocols(&mut self) -> ImageCache {
+        let mut cache = ImageCache::default();
         for section in &mut self.sections {
-            let SectionContent::Lines(lines) = &mut section.content else {
-                continue;
-            };
-            for (line, extras) in lines.iter_mut() {
-                // Find and remove LineExtra::Image
-                if let Some(pos) = extras.iter().position(|e| matches!(e, LineExtra::Image(_))) {
-                    let LineExtra::Image(proto) = extras.remove(pos) else {
-                        unreachable!()
-                    };
-                    // Extract URL from line text (format: ![...](url))
-                    let text = line.to_string();
-                    if let Some(start) = text.rfind('(') {
-                        if let Some(end) = text.rfind(')') {
-                            let url = text[start + 1..end].to_string();
-                            result.push((url, proto));
+            match &mut section.content {
+                SectionContent::Lines(lines) => {
+                    for (line, extras) in lines.iter_mut() {
+                        // Find and remove LineExtra::Image
+                        if let Some(pos) =
+                            extras.iter().position(|e| matches!(e, LineExtra::Image(_)))
+                        {
+                            let LineExtra::Image(proto) = extras.remove(pos) else {
+                                unreachable!()
+                            };
+                            // Extract URL from line text (format: ![...](url))
+                            let text = line.to_string();
+                            if let Some(start) = text.rfind('(') {
+                                if let Some(end) = text.rfind(')') {
+                                    let url = text[start + 1..end].to_string();
+                                    cache.images.insert(url, proto);
+                                }
+                            }
                         }
                     }
+                    // Recalculate section height (all lines now height 1)
+                    section.height = lines.len() as u16;
                 }
+                SectionContent::Header(text, tier) => {}
+                _ => {}
             }
-            // Recalculate section height (all lines now height 1)
-            section.height = lines.len() as u16;
         }
-        result
+        cache
     }
 
     pub fn trim(&mut self, last_section_id: Option<usize>) {
@@ -662,11 +689,10 @@ const HEADER_ROW_COUNT: u16 = 2;
 pub fn header_sections(
     picker: &Picker,
     width: u16,
-    id: SectionID,
     dyn_imgs: Vec<(String, DynamicImage)>,
     deep_fry_meme: bool,
-) -> Result<Vec<Section>, Error> {
-    let mut sections = vec![];
+) -> Result<Vec<(String, Protocol)>, Error> {
+    let mut protos = vec![];
     for (text, mut dyn_img) in dyn_imgs {
         if deep_fry_meme {
             dyn_img = deep_fry(dyn_img);
@@ -676,14 +702,9 @@ pub fn header_sections(
             Rect::new(0, 0, width, HEADER_ROW_COUNT),
             Resize::Fit(None),
         )?;
-        sections.push(Section {
-            id,
-            height: HEADER_ROW_COUNT,
-            content: SectionContent::Image(text, proto),
-        });
+        protos.push((text, proto));
     }
-
-    Ok(sections)
+    Ok(protos)
 }
 
 #[expect(clippy::too_many_arguments)]

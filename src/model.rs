@@ -10,21 +10,19 @@ use std::{
 use mdfrier::SourceContent;
 use ratatui::{
     layout::{Rect, Size},
-    style::Stylize as _,
-    text::{Line, Span},
     widgets::Padding,
 };
-use ratatui_image::protocol::Protocol;
 use regex::RegexBuilder;
 
+use crate::Event;
 use crate::{
     Cmd,
     config::{Config, PaddingConfig, Theme},
     cursor::{Cursor, CursorPointer},
     document::{Document, FindMode, FindTarget, LineExtra, Section, SectionContent},
     error::Error,
+    worker::ImageCache,
 };
-use crate::Event;
 
 pub struct Model {
     pub scroll: u16,
@@ -38,7 +36,6 @@ pub struct Model {
     config: Config,
     cmd_tx: Sender<Cmd>,
     event_rx: Receiver<Event>,
-    can_render_headers: bool,
 }
 
 // The temporary keypress input queue for operations like search or movement-count prefix.
@@ -84,7 +81,6 @@ impl Model {
         event_rx: Receiver<Event>,
         screen_size: Size,
         config: Config,
-        can_render_headers: bool,
     ) -> Model {
         Model {
             original_file_path,
@@ -96,7 +92,6 @@ impl Model {
             document: Document::default(),
             cmd_tx,
             event_rx,
-            can_render_headers,
             log_snapshot: None,
             document_id: DocumentId::default(),
         }
@@ -136,7 +131,7 @@ impl Model {
         next_document_id: DocumentId,
         screen_size: Size,
         mut text: String,
-        image_cache: Option<Vec<(String, Protocol)>>,
+        image_cache: Option<ImageCache>,
     ) -> Result<(), Error> {
         let inner_width = self.inner_width(screen_size.width);
         if !text.ends_with('\n') {
@@ -216,47 +211,19 @@ impl Model {
                         self.document.update(vec![section]);
                     }
                 }
-                Event::Update(document_id, updates) => {
-                    if !self.document_id.is_same_document(&document_id) {
-                        log::debug!("stale event, ignoring");
-                        continue;
-                    }
-                    self.document.update(updates);
-                }
-                Event::ParseHeader(document_id, id, tier, text) => {
-                    if !self.document_id.is_same_document(&document_id) {
-                        log::debug!("stale event, ignoring");
-                        continue;
-                    }
-                    let line = Line::from(vec![
-                        #[expect(clippy::string_add)]
-                        Span::from("#".repeat(tier as usize) + " ").light_blue(),
-                        Span::from(text.clone()),
-                    ]);
-                    if self.document_id.is_first_load() {
-                        self.document.push(Section {
-                            id,
-                            height: 2,
-                            content: SectionContent::Lines(vec![(line, Vec::new())]),
-                        });
-                    } else {
-                        self.document.update(vec![Section {
-                            id,
-                            height: 2,
-                            content: SectionContent::Lines(vec![(line, Vec::new())]),
-                        }]);
-                    }
-                    if self.can_render_headers {
-                        self.cmd_tx
-                            .send(Cmd::Header(document_id, id, inner_width, tier, text))?;
-                    }
-                }
                 Event::ImageLoaded(document_id, section_id, url, proto) => {
                     if !self.document_id.is_same_document(&document_id) {
                         log::debug!("stale event, ignoring");
                         continue;
                     }
                     self.document.update_image(section_id, &url, proto);
+                }
+                Event::HeaderLoaded(document_id, section_id, rows) => {
+                    if !self.document_id.is_same_document(&document_id) {
+                        log::debug!("stale event, ignoring");
+                        continue;
+                    }
+                    self.document.update_header(section_id, rows);
                 }
                 Event::FileChanged => {
                     log::info!("reload: FileChanged");
@@ -538,7 +505,6 @@ mod tests {
             event_rx,
             log_snapshot: None,
             document_id: DocumentId::default(),
-            can_render_headers: true,
         }
     }
 

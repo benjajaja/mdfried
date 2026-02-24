@@ -17,6 +17,7 @@ use crate::{
 
 pub enum SectionEvent {
     Image(usize, MarkdownImage),
+    Header(usize, String, u8),
 }
 
 /// Convert an MdLine to application Events.
@@ -59,29 +60,12 @@ pub fn section_to_events(
                     vec![Section {
                         id,
                         height: 2,
-                        content: SectionContent::Header(text, tier),
+                        content: SectionContent::Header(text.clone(), tier),
                     }],
-                    Vec::new(),
+                    vec![SectionEvent::Header(id, text, tier)],
                 )
             }
         }
-        // mdfrier::sections::SectionKind::Image => {
-        // eprintln!("Image section");
-        // let Some(line) = section.lines.first() else {
-        // panic!("Image section must have one line");
-        // };
-        // let LineKind::Image { url, description } = &line.kind else {
-        // panic!("Header section must have one header line");
-        // };
-        // vec![Event::ParsedImage(
-        // document_id,
-        // post_incr_section_id(section_id),
-        // MarkdownImage {
-        // destination: url.clone(),
-        // description: description.clone(),
-        // },
-        // )]
-        // }
         // All other lines: render via mdfrier and convert to Event
         _ => {
             let mut images = Vec::new();
