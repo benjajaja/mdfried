@@ -193,7 +193,7 @@ mod tests {
         let Event::Parsed(
             _,
             Section {
-                content: SectionContent::Header(text, tier),
+                content: SectionContent::Header(text, tier, _),
                 ..
             },
         ) = &events[0]
@@ -206,7 +206,7 @@ mod tests {
         let Event::Parsed(
             _,
             Section {
-                content: SectionContent::Header(text, tier),
+                content: SectionContent::Header(text, tier, _),
                 ..
             },
         ) = &events[1]
