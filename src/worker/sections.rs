@@ -56,16 +56,8 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<I> {
             match kind {
                 // Headers are always their own section
                 LineKind::Header(tier) => {
-                    let mut lines = vec![first];
-                    // Add trailing blank line if there are more sections after this one
-                    if self.inner.peek().is_some() {
-                        lines.push(Line {
-                            spans: Vec::new(),
-                            kind: LineKind::Blank,
-                        });
-                    }
                     return Some(Section {
-                        lines,
+                        lines: vec![first],
                         kind: SectionKind::Header(tier),
                     });
                 }
@@ -73,12 +65,11 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<I> {
                 // Images are always their own section
                 LineKind::Image { url, description } => {
                     let mut lines = vec![first];
-                    // Add trailing blank line if there are more sections after this one
-                    if self.inner.peek().is_some() {
-                        lines.push(Line {
-                            spans: Vec::new(),
-                            kind: LineKind::Blank,
-                        });
+                    // Include trailing blank line if present (to maintain spacing)
+                    if let Some(peeked) = self.inner.peek() {
+                        if matches!(peeked.kind, LineKind::Blank) {
+                            lines.push(self.inner.next().expect("peeked"));
+                        }
                     }
                     return Some(Section {
                         lines,
@@ -116,14 +107,6 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<I> {
                     // Skip if section ended up empty after trimming
                     if lines.is_empty() {
                         continue;
-                    }
-
-                    // Add trailing blank line if there are more sections after this one
-                    if self.inner.peek().is_some() {
-                        lines.push(Line {
-                            spans: Vec::new(),
-                            kind: LineKind::Blank,
-                        });
                     }
 
                     return Some(Section {
