@@ -6,7 +6,7 @@ use unicode_width::UnicodeWidthStr as _;
 use crate::{
     BulletStyle, Line, LineKind, Mapper, MdLineContainer, Span, convert_raw_to_mdline,
     lines::{ListMarker, table_to_raw_lines, wrapped_lines_to_raw_lines},
-    markdown::{MdContainer, MdContent, MdIterator},
+    markdown::{MdContainer, MdContent, MdIterator, MdSection as MdSectionInternal},
     wrap::wrap_md_spans,
 };
 
@@ -20,11 +20,8 @@ pub struct Section {
 #[derive(Default, Debug, Clone, PartialEq)]
 pub enum SectionKind {
     #[default]
-    Paragraph,
+    Text,
     Header,
-    CodeBlock,
-    HorizontalRule,
-    Table,
 }
 
 pub struct SectionIterator<'a, M: Mapper> {
@@ -42,11 +39,14 @@ impl<'a, M: Mapper> SectionIterator<'a, M> {
         }
     }
 
-    fn section_from_content(&self, nesting: Vec<MdLineContainer>, content: MdContent) -> Section {
-        match content {
-            MdContent::Paragraph(p) if p.is_empty() => Section::default(),
+    /// Convert an MdSection to lines, returning (lines, backend, is_header).
+    fn lines_from_md_section(&self, md_section: &MdSectionInternal) -> (Vec<Line>, String, bool) {
+        let nesting = convert_nesting(&md_section.nesting, md_section.is_list_continuation);
+
+        match &md_section.content {
+            MdContent::Paragraph(p) if p.is_empty() => (Vec::new(), String::new(), false),
             MdContent::Paragraph(p) => {
-                let prefix_width = nesting
+                let prefix_width: usize = nesting
                     .iter()
                     .map(|c| match c {
                         MdLineContainer::Blockquote => 2,
@@ -59,31 +59,22 @@ impl<'a, M: Mapper> SectionIterator<'a, M> {
                     .into_iter()
                     .map(|raw| convert_raw_to_mdline(raw, self.width, self.mapper))
                     .collect();
-                Section {
-                    kind: SectionKind::Paragraph,
-                    backend: String::new(),
-                    lines,
-                }
+                (lines, String::new(), false)
             }
             MdContent::Header { tier, text } => {
                 let line = Line {
                     spans: vec![Span::from(text.clone())],
-                    kind: LineKind::Header(tier),
+                    kind: LineKind::Header(*tier),
                 };
-                Section {
-                    kind: SectionKind::Header,
-                    backend: text.clone(),
-                    lines: vec![line],
-                }
+                (vec![line], text.clone(), true)
             }
             MdContent::CodeBlock { language, code } => {
                 let code_lines: Vec<&str> = code.lines().collect();
                 let num_lines = code_lines.len();
                 if num_lines == 0 {
-                    return Section::default();
+                    return (Vec::new(), code.clone(), false);
                 }
 
-                // Calculate available width for wrapping
                 let prefix_width: usize = nesting
                     .iter()
                     .map(|c| match c {
@@ -94,76 +85,92 @@ impl<'a, M: Mapper> SectionIterator<'a, M> {
                 let available_width = (self.width as usize).saturating_sub(prefix_width).max(1);
 
                 let mut lines = Vec::new();
-                let last_source_idx = num_lines - 1;
-                let mut nesting_owned = Some(nesting);
 
-                for (source_idx, line) in code_lines.into_iter().enumerate() {
-                    let is_last_source = source_idx == last_source_idx;
+                for line in code_lines {
                     let line_width = line.width();
 
                     if line_width > available_width {
-                        // Wrap this line
                         let options = Options::new(available_width)
                             .break_words(true)
                             .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation);
                         let parts: Vec<_> = wrap(line, options).into_iter().collect();
-                        let num_parts = parts.len();
-                        let last_part_idx = num_parts.saturating_sub(1);
 
-                        for (part_idx, part) in parts.into_iter().enumerate() {
-                            let is_last_part = part_idx == last_part_idx;
-                            let is_last = is_last_source && is_last_part;
+                        for part in parts {
+                            let part_str = part.into_owned();
+                            let part_width = part_str.width();
+                            let padding = available_width.saturating_sub(part_width);
+                            let mut spans = vec![Span::from(part_str)];
+                            if padding > 0 {
+                                spans.push(Span::from(" ".repeat(padding)));
+                            }
                             lines.push(Line {
-                                spans: vec![Span::from(part.into_owned())],
+                                spans,
                                 kind: LineKind::CodeBlock {
                                     language: language.clone(),
                                 },
                             });
                         }
                     } else {
-                        // Line fits, no wrapping needed
+                        let padding = available_width.saturating_sub(line_width);
+                        let mut spans = vec![Span::from(line.to_owned())];
+                        if padding > 0 {
+                            spans.push(Span::from(" ".repeat(padding)));
+                        }
                         lines.push(Line {
-                            spans: vec![Span::from(line.to_owned())],
+                            spans,
                             kind: LineKind::CodeBlock {
                                 language: language.clone(),
                             },
                         });
                     }
                 }
-                Section {
-                    kind: SectionKind::CodeBlock,
-                    backend: code,
-                    lines,
-                }
+                (lines, code.clone(), false)
             }
             MdContent::HorizontalRule => {
                 let line = Line {
                     spans: Vec::new(),
                     kind: LineKind::HorizontalRule,
                 };
-                Section {
-                    kind: SectionKind::HorizontalRule,
-                    backend: String::new(),
-                    lines: vec![line],
-                }
+                (vec![line], String::new(), false)
             }
             MdContent::Table {
                 header,
                 rows,
                 alignments,
             } => {
-                let lines = table_to_raw_lines(self.width, &header, &rows, &alignments, nesting);
-                let lines = lines
+                let raw_lines = table_to_raw_lines(self.width, header, rows, alignments, nesting);
+                let lines = raw_lines
                     .into_iter()
                     .map(|raw| convert_raw_to_mdline(raw, self.width, self.mapper))
                     .collect();
-                Section {
-                    kind: SectionKind::Table,
-                    backend: String::new(),
-                    lines,
-                }
+                (lines, String::new(), false)
             }
         }
+    }
+
+}
+
+/// Check if the next MdSection should be aggregated with the current one.
+/// Returns true if they share the same top-level container (for lists only).
+fn should_aggregate(current_top: Option<&MdContainer>, peeked: &MdSectionInternal) -> bool {
+    // Headers are never aggregated
+    if matches!(peeked.content, MdContent::Header { .. }) {
+        return false;
+    }
+
+    // Compare top-level containers
+    // Only aggregate within lists, not blockquotes (blockquotes don't have distinguishable markers)
+    match (current_top, peeked.nesting.first()) {
+        (Some(MdContainer::List(a)), Some(MdContainer::List(b))) => {
+            // For lists: aggregate if same top-level list
+            a == b
+        }
+        (Some(MdContainer::Blockquote(_)), Some(MdContainer::Blockquote(_))) => {
+            // Don't aggregate blockquotes - each becomes its own section
+            // (parser doesn't distinguish same vs different blockquotes)
+            false
+        }
+        _ => false, // Don't aggregate standalone content or across different container types
     }
 }
 
@@ -171,21 +178,66 @@ impl<M: Mapper> Iterator for SectionIterator<'_, M> {
     type Item = Section;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let md_section = self.inner.next()?;
+        loop {
+            let first = self.inner.next()?;
 
-        let is_blank = md_section.content.is_blank();
+            // Get lines from first MdSection
+            let (mut lines, backend, is_header) = self.lines_from_md_section(&first);
 
-        let nesting = convert_nesting(&md_section.nesting, md_section.is_list_continuation);
-        let mut section: Section = self.section_from_content(nesting, md_section.content);
+            // Headers are always their own section
+            if is_header {
+                return Some(Section {
+                    lines,
+                    backend,
+                    kind: SectionKind::Header,
+                });
+            }
 
-        if self.inner.peek().is_some() && !is_blank {
-            section.lines.push(Line {
-                spans: Vec::new(),
-                kind: LineKind::Blank,
+            let current_top = first.nesting.first().cloned();
+
+            // Aggregate consecutive MdSections with the same top-level container
+            while let Some(peeked) = self.inner.peek() {
+                if !should_aggregate(current_top.as_ref(), peeked) {
+                    break;
+                }
+
+                // Add blank line before continuation paragraphs within lists
+                let needs_blank = peeked.is_list_continuation;
+
+                let next = self.inner.next().expect("peeked value should exist");
+                let (next_lines, _, _) = self.lines_from_md_section(&next);
+
+                if needs_blank && !lines.is_empty() && !next_lines.is_empty() {
+                    lines.push(Line {
+                        spans: Vec::new(),
+                        kind: LineKind::Blank,
+                    });
+                }
+
+                lines.extend(next_lines);
+            }
+
+            // Skip empty sections (e.g., blank blockquote lines)
+            if lines.is_empty() {
+                continue;
+            }
+
+            // Add trailing blank line if there are more sections after this one
+            // But not if this section is only blank lines (don't double-up blanks)
+            let has_content = lines.iter().any(|l| !matches!(l.kind, LineKind::Blank));
+            if self.inner.peek().is_some() && has_content {
+                lines.push(Line {
+                    spans: Vec::new(),
+                    kind: LineKind::Blank,
+                });
+            }
+
+            return Some(Section {
+                lines,
+                backend,
+                kind: SectionKind::Text,
             });
         }
-
-        Some(section)
     }
 }
 

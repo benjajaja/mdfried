@@ -1143,7 +1143,7 @@ mod tests {
         let source = r#"> First paragraph
 >
 > Second paragraph"#;
-        let mut doc = MdDocument::new(source, &mut parser, &mut inline_parser).unwrap();
+        let doc = MdDocument::new(source, &mut parser, &mut inline_parser).unwrap();
 
         let sections: Vec<_> = doc.into_sections().collect();
         assert_eq!(sections.len(), 3);
@@ -1156,7 +1156,7 @@ mod tests {
     fn parse_header() {
         let mut parser = make_parser();
         let mut inline_parser = make_inline_parser();
-        let mut doc = MdDocument::new("# Hello\n", &mut parser, &mut inline_parser).unwrap();
+        let doc = MdDocument::new("# Hello\n", &mut parser, &mut inline_parser).unwrap();
         let sections: Vec<_> = doc.into_sections().collect();
         assert_eq!(sections.len(), 1);
         assert!(matches!(
@@ -1239,48 +1239,4 @@ mod tests {
         assert_eq!(result[4].content, ">");
     }
 
-    #[test]
-    fn list_nesting_structure() {
-        let mut parser = make_parser();
-        let mut inline_parser = make_inline_parser();
-        // Test list with continuation paragraphs
-        let source = r#"1. First ordered list item
-2. Another item
-   - Unordered sub-list.
-3. Actual numbers don't matter, just that it's a number
-   1. Ordered sub-list
-4. And another item.
-
-   You can have properly indented paragraphs within list items.
-
-   To have a line break without a paragraph.
-   Note that this line is separate.
-   (This is contrary to the typical GFM.)"#;
-        let doc = MdDocument::new(source, &mut parser, &mut inline_parser).unwrap();
-
-        let sections: Vec<_> = doc.into_sections().collect();
-
-        for (i, section) in sections.iter().enumerate() {
-            let content = match &section.content {
-                MdContent::Paragraph(p) => {
-                    let text: String = p.spans.iter().map(|s| s.content.as_str()).collect();
-                    text.chars().take(40).collect::<String>()
-                }
-                _ => "?".to_string(),
-            };
-            let nesting_summary: Vec<_> = section
-                .nesting
-                .iter()
-                .map(|c| match c {
-                    MdContainer::List(m) => format!("L({})", m.original),
-                    MdContainer::ListItem(m) => format!("I({})", m.original),
-                    MdContainer::Blockquote(_) => "BQ".to_string(),
-                })
-                .collect();
-            eprintln!(
-                "Section {:2}: nesting={:?} cont={} | {:?}",
-                i, nesting_summary, section.is_list_continuation, content
-            );
-        }
-    }
 }

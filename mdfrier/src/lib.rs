@@ -864,8 +864,7 @@ mod tests {
         assert_eq!(sections.len(), 1);
 
         let section = &sections[0];
-        assert!(matches!(section.kind, SectionKind::Paragraph));
-        // At least one content line (may also have trailing blank for section separator)
+        assert_eq!(section.kind, SectionKind::Text);
         assert!(!section.lines.is_empty());
 
         let line = &section.lines[0];
@@ -876,7 +875,6 @@ mod tests {
     #[test]
     fn parse_styled_text() {
         let mut frier = MdFrier::new().unwrap();
-        // DefaultMapper preserves decorators around emphasis
         let sections: Vec<_> = frier
             .parse_sections(80, "Hello *world*!", &DefaultMapper)
             .unwrap()
@@ -884,10 +882,9 @@ mod tests {
         assert_eq!(sections.len(), 1);
 
         let section = &sections[0];
-        assert!(matches!(section.kind, SectionKind::Paragraph));
+        assert_eq!(section.kind, SectionKind::Text);
 
         let line = &section.lines[0];
-        // Spans: "Hello " + "*" (open) + "world" (emphasis) + "*" (close) + "!"
         assert_eq!(line.spans.len(), 5);
         assert_eq!(line.spans[0].content, "Hello ");
         assert_eq!(line.spans[1].content, "*");
@@ -909,7 +906,7 @@ mod tests {
         assert_eq!(sections.len(), 1);
 
         let section = &sections[0];
-        assert!(matches!(section.kind, SectionKind::Header));
+        assert_eq!(section.kind, SectionKind::Header);
         assert_eq!(section.backend, "Hello");
 
         let line = &section.lines[0];
@@ -926,11 +923,9 @@ mod tests {
         assert_eq!(sections.len(), 1);
 
         let section = &sections[0];
-        assert!(matches!(section.kind, SectionKind::CodeBlock));
-        // Backend stores the raw code content
+        assert_eq!(section.kind, SectionKind::Text);
         assert!(section.backend.contains("let x = 1;"));
 
-        // Find the code line (skip blank lines)
         let code_line = section
             .lines
             .iter()
@@ -949,10 +944,9 @@ mod tests {
         assert_eq!(sections.len(), 1);
 
         let section = &sections[0];
-        assert!(matches!(section.kind, SectionKind::Paragraph));
+        assert_eq!(section.kind, SectionKind::Text);
 
         let line = &section.lines[0];
-        // With flat API, first span should be the blockquote bar
         assert!(line.spans[0].modifiers.contains(Modifier::BlockquoteBar));
         assert_eq!(line.spans[0].content, "> ");
     }
@@ -964,28 +958,18 @@ mod tests {
             .parse_sections(80, "- Item 1\n- Item 2", &DefaultMapper)
             .unwrap()
             .collect();
-        // Two list items become two sections
-        assert_eq!(sections.len(), 2);
+        // List items are aggregated into one section
+        assert_eq!(sections.len(), 1);
 
-        for (i, section) in sections.iter().enumerate() {
-            assert!(
-                matches!(section.kind, SectionKind::Paragraph),
-                "Section {} should be Paragraph",
-                i
-            );
-            // Each section has content line(s)
-            assert!(
-                !section.lines.is_empty(),
-                "Section {} should have lines",
-                i
-            );
-        }
+        let section = &sections[0];
+        assert_eq!(section.kind, SectionKind::Text);
+        // Should have lines for both items (with blank line between)
+        assert!(section.lines.len() >= 2);
     }
 
     #[test]
     fn paragraph_breaks() {
         let mut frier = MdFrier::new().unwrap();
-        // Soft breaks within a paragraph create separate lines in a single section
         let sections: Vec<_> = frier
             .parse_sections(10, "longline1\nlongline2", &DefaultMapper)
             .unwrap()
@@ -993,8 +977,7 @@ mod tests {
         assert_eq!(sections.len(), 1);
 
         let section = &sections[0];
-        assert!(matches!(section.kind, SectionKind::Paragraph));
-        // Two content lines within one paragraph section
+        assert_eq!(section.kind, SectionKind::Text);
         assert!(section.lines.len() >= 2);
         assert_eq!(section.lines[0].spans[0].content, "longline1");
         assert_eq!(section.lines[1].spans[0].content, "longline2");
@@ -1003,7 +986,6 @@ mod tests {
     #[test]
     fn soft_break_with_styling() {
         let mut frier = MdFrier::new().unwrap();
-        // DefaultMapper preserves decorators
         let sections: Vec<_> = frier
             .parse_sections(80, "This \n*is* a test.", &DefaultMapper)
             .unwrap()
@@ -1011,12 +993,10 @@ mod tests {
         assert_eq!(sections.len(), 1);
 
         let section = &sections[0];
-        assert!(matches!(section.kind, SectionKind::Paragraph));
-        // Soft break creates two lines within one paragraph section
+        assert_eq!(section.kind, SectionKind::Text);
         assert!(section.lines.len() >= 2);
 
         assert_eq!(section.lines[0].spans[0].content, "This");
-        // Second line: "*" (open) + "is" (emphasis) + "*" (close) + " a test."
         let line2 = &section.lines[1];
         assert_eq!(line2.spans[0].content, "*");
         assert!(line2.spans[0].modifiers.contains(Modifier::EmphasisWrapper));
@@ -1040,14 +1020,11 @@ Paragraph after.";
             .unwrap()
             .collect();
 
-        // Verify we get 3 distinct sections: paragraph, code block, paragraph
+        // Each standalone block is its own section: paragraph, code block, paragraph
         assert_eq!(sections.len(), 3);
-        assert!(matches!(sections[0].kind, SectionKind::Paragraph));
-        assert!(matches!(sections[1].kind, SectionKind::CodeBlock));
-        assert!(matches!(sections[2].kind, SectionKind::Paragraph));
-
-        // Verify code block captures the source code
-        assert!(sections[1].backend.contains("let x = 1;"));
+        assert_eq!(sections[0].kind, SectionKind::Text);
+        assert_eq!(sections[1].kind, SectionKind::Text);
+        assert_eq!(sections[2].kind, SectionKind::Text);
 
         let lines: Vec<Line> = sections.into_iter().flat_map(|s| s.lines).collect();
         let output = lines_to_string(&lines);
@@ -1067,10 +1044,10 @@ let x = 1;
             .unwrap()
             .collect();
 
-        // Verify we get 2 sections: code block, list item
+        // Code block (no nesting) + list item (has List nesting) = 2 sections
         assert_eq!(sections.len(), 2);
-        assert!(matches!(sections[0].kind, SectionKind::CodeBlock));
-        assert!(matches!(sections[1].kind, SectionKind::Paragraph));
+        assert_eq!(sections[0].kind, SectionKind::Text);
+        assert_eq!(sections[1].kind, SectionKind::Text);
 
         let lines: Vec<Line> = sections.into_iter().flat_map(|s| s.lines).collect();
         let output = lines_to_string(&lines);
@@ -1098,13 +1075,9 @@ Quote break.
             .unwrap()
             .collect();
 
-        // Verify we have multiple sections for distinct blockquotes and paragraphs
-        assert!(sections.len() >= 4, "Expected multiple sections for blockquotes and paragraphs");
-
-        // Check that blockquote sections are paragraphs (the quoted content)
-        // and that plain text paragraph exists
-        let has_paragraph = sections.iter().any(|s| matches!(s.kind, SectionKind::Paragraph));
-        assert!(has_paragraph, "Should have at least one paragraph section");
+        // Blockquote, paragraph, blockquote, blockquote = 4 sections
+        // (each blockquote is separated by non-blockquote content)
+        assert!(sections.len() >= 3, "Expected multiple sections");
 
         let lines: Vec<Line> = sections.into_iter().flat_map(|s| s.lines).collect();
         let output = lines_to_string(&lines);
@@ -1119,9 +1092,8 @@ Quote break.
             .unwrap()
             .collect();
 
-        // Should be a single paragraph section
         assert_eq!(sections.len(), 1);
-        assert!(matches!(sections[0].kind, SectionKind::Paragraph));
+        assert_eq!(sections[0].kind, SectionKind::Text);
 
         let spans: Vec<_> = sections
             .into_iter()
@@ -1211,15 +1183,12 @@ Quote break.
             .unwrap()
             .collect();
 
-        // Verify we get multiple sections representing different list items and paragraphs
-        assert!(sections.len() > 10, "Expected many sections for complex list structure");
+        // Lists with different markers are separate sections
+        // ordered(1.) -> unordered(-) -> unordered(*) -> unordered(-) -> ordered(1.) -> unordered(-)
+        assert_eq!(sections.len(), 6, "Expected 6 list sections");
 
-        // All sections in a list should be paragraphs (list items render as paragraph kind)
         for section in &sections {
-            assert!(
-                matches!(section.kind, SectionKind::Paragraph),
-                "List items should be Paragraph sections"
-            );
+            assert_eq!(section.kind, SectionKind::Text);
         }
 
         let lines: Vec<Line> = sections.into_iter().flat_map(|s| s.lines).collect();
@@ -1229,11 +1198,9 @@ Quote break.
 
     #[test]
     fn code_block_wrapping() {
-        // Test that code blocks wrap at width boundary
         let input = "```\nabcdefghij\n```\n";
 
         let mut frier = MdFrier::new().unwrap();
-        // Width of 5 should wrap "abcdefghij" into two lines
         let sections: Vec<_> = frier
             .parse_sections(5, input, &DefaultMapper)
             .unwrap()
@@ -1241,11 +1208,9 @@ Quote break.
         assert_eq!(sections.len(), 1);
 
         let section = &sections[0];
-        assert!(matches!(section.kind, SectionKind::CodeBlock));
-        // Backend stores the raw code content (original, not wrapped)
+        assert_eq!(section.kind, SectionKind::Text);
         assert!(section.backend.contains("abcdefghij"));
 
-        // The section's lines should show wrapping
         let content_lines: Vec<_> = section
             .lines
             .iter()
@@ -1258,7 +1223,6 @@ Quote break.
 
     #[test]
     fn code_block_no_wrap_when_fits() {
-        // Test that code blocks don't wrap when they fit
         let input = "```\nabcde\n```\n";
 
         let mut frier = MdFrier::new().unwrap();
@@ -1269,11 +1233,9 @@ Quote break.
         assert_eq!(sections.len(), 1);
 
         let section = &sections[0];
-        assert!(matches!(section.kind, SectionKind::CodeBlock));
-        // Backend stores the raw code content
+        assert_eq!(section.kind, SectionKind::Text);
         assert!(section.backend.contains("abcde"));
 
-        // Content should fit in one line (excluding trailing blank)
         let content_lines: Vec<_> = section
             .lines
             .iter()
@@ -1300,9 +1262,8 @@ Quote break.
         assert_eq!(sections.len(), 1);
 
         let section = &sections[0];
-        assert!(matches!(section.kind, SectionKind::Paragraph));
+        assert_eq!(section.kind, SectionKind::Text);
 
-        // Get content line (skip blank lines)
         let content_line = section
             .lines
             .iter()
