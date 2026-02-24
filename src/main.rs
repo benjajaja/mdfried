@@ -395,13 +395,14 @@ fn run(
     loop {
         let (had_events, _) = model.process_events(screen_size.width)?;
 
-        let had_input = match keybindings::poll(had_events, &mut model)? {
+        let (had_input, skip_render) = match keybindings::poll(had_events, &mut model)? {
             PollResult::Quit => return Ok(()),
-            PollResult::None => false,
-            PollResult::HadInput => true,
+            PollResult::None => (false, false),
+            PollResult::HadInput => (true, false),
+            PollResult::SkipRender => (true, true),
         };
 
-        if had_events || had_input {
+        if (had_events || had_input) && !skip_render {
             if let Some(ref mut snapshot) = model.log_snapshot {
                 ui_logger.update_snapshot(snapshot)?;
             }

@@ -18,6 +18,8 @@ use crate::{
 pub enum PollResult {
     None,
     HadInput,
+    /// Input was handled but don't render yet (e.g., reload triggered, wait for events)
+    SkipRender,
     Quit,
 }
 
@@ -38,8 +40,9 @@ pub fn poll(had_events: bool, model: &mut Model) -> Result<PollResult, Error> {
                 if model.screen_size.width != new_width || model.screen_size.height != new_height {
                     let screen_size = Size::new(new_width, new_height);
                     model.reload(screen_size)?;
+                    return Ok(PollResult::SkipRender);
                 }
-                return Ok(PollResult::HadInput);
+                return Ok(PollResult::None);
             }
             event::Event::Mouse(mouse) => match mouse.kind {
                 MouseEventKind::ScrollUp => {
@@ -158,6 +161,7 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
         // Others
         KeyCode::Char('r') => {
             model.reload(model.screen_size)?;
+            return Ok(PollResult::SkipRender);
         }
         KeyCode::Char('/') => {
             model.input_queue = InputQueue::Search(String::new());
