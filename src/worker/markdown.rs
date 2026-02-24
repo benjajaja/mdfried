@@ -16,7 +16,6 @@ use crate::{
 };
 
 pub enum SectionEvent {
-    Header(usize, u8, String),
     Image(usize, MarkdownImage),
 }
 
@@ -60,9 +59,9 @@ pub fn section_to_events(
                     vec![Section {
                         id,
                         height: 2,
-                        content: SectionContent::Header(text.clone(), tier),
+                        content: SectionContent::Header(text, tier),
                     }],
-                    vec![SectionEvent::Header(id, tier, text)],
+                    Vec::new(),
                 )
             }
         }
@@ -173,7 +172,7 @@ mod tests {
         let mut events = Vec::new();
         let mut section_id: Option<usize> = None;
         for section in parser.parse_sections(width, &text, theme) {
-            let (sections, section_events) = section_to_events(
+            let (sections, _section_events) = section_to_events(
                 &mut section_id,
                 width,
                 has_text_size_protocol,

@@ -26,7 +26,7 @@ use tokio::{runtime::Builder, sync::RwLock};
 use crate::{
     Cmd, Event, MarkdownImage, Protocol,
     config::Theme,
-    document::{Section, SectionContent, header_images, header_sections, image_section},
+    document::{SectionContent, header_images, header_sections, image_section},
     error::Error,
     model::DocumentId,
     setup::FontRenderer,
@@ -92,24 +92,20 @@ pub fn worker_thread(
                             .collect();
                         let mut uncached_events = Vec::new();
                         for event in post_parse_events {
-                            match &event {
-                                markdown::SectionEvent::Image(
-                                    section_id,
-                                    MarkdownImage { destination, .. },
-                                ) => {
-                                    if let Some(proto) = cache.remove(destination) {
-                                        log::debug!("reusing cached image: {destination}");
-                                        event_tx.send(Event::ImageLoaded(
-                                            document_id,
-                                            *section_id,
-                                            destination.clone(),
-                                            proto,
-                                        ))?;
-                                    } else {
-                                        uncached_events.push(event);
-                                    }
-                                }
-                                _ => uncached_events.push(event),
+                            let markdown::SectionEvent::Image(
+                                section_id,
+                                MarkdownImage { destination, .. },
+                            ) = &event;
+                            if let Some(proto) = cache.remove(destination) {
+                                log::debug!("reusing cached image: {destination}");
+                                event_tx.send(Event::ImageLoaded(
+                                    document_id,
+                                    *section_id,
+                                    destination.clone(),
+                                    proto,
+                                ))?;
+                            } else {
+                                uncached_events.push(event);
                             }
                         }
 
@@ -157,46 +153,6 @@ pub fn worker_thread(
                                 });
                             }
                         }
-                    }
-                    Cmd::UrlImage(document_id, section_id, width, url, text) => {
-                        let task_tx = event_tx.clone();
-                        let basepath = basepath.clone();
-                        let client = client.clone();
-                        let picker = thread_picker.clone();
-                        // TODO: handle spawned task result errors, right now it's just discarded.
-                        tokio::spawn(async move {
-                            match image_section(
-                                &picker,
-                                config_max_image_height,
-                                width,
-                                &basepath,
-                                client,
-                                section_id,
-                                &url,
-                                deep_fry,
-                            )
-                            .await
-                            {
-                                Ok(section) => {
-                                    task_tx.send(Event::Update(document_id, vec![section]))?
-                                }
-                                Err(Error::UnknownImage(id, link)) => {
-                                    log::error!("image_section UnknownImage");
-                                    task_tx.send(Event::Update(
-                                        document_id,
-                                        vec![Section::image_unknown(id, link, text)],
-                                    ))?
-                                }
-                                Err(err) => {
-                                    log::error!("image_section error: {err}");
-                                    task_tx.send(Event::Update(
-                                        document_id,
-                                        vec![Section::image_unknown(section_id, url, text)],
-                                    ))?
-                                }
-                            }
-                            Ok::<(), Error>(())
-                        });
                     }
                 }
             }
@@ -262,7 +218,6 @@ fn process_post_parse_events(
                         }
                     }
                 }
-                _ => {}
             }
         }
         Ok::<(), Error>(())

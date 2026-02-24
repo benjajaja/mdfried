@@ -24,7 +24,7 @@ use crate::{
     document::{Document, FindMode, FindTarget, LineExtra, Section, SectionContent},
     error::Error,
 };
-use crate::{Event, MarkdownImage};
+use crate::Event;
 
 pub struct Model {
     pub scroll: u16,
@@ -222,58 +222,6 @@ impl Model {
                         continue;
                     }
                     self.document.update(updates);
-                }
-                Event::ParsedImage(
-                    document_id,
-                    id,
-                    MarkdownImage {
-                        destination: link_destination,
-                        description: image_description,
-                    },
-                ) => {
-                    if !self.document_id.is_same_document(&document_id) {
-                        log::debug!("stale event, ignoring");
-                        continue;
-                    }
-
-                    if let Some(mut existing_image) = self.document.replace(id, &link_destination) {
-                        log::debug!("replacing from existing image ({link_destination})");
-                        existing_image.id = id;
-                        self.document.update(vec![existing_image]);
-                    } else {
-                        if self.document_id.is_first_load() {
-                            log::debug!(
-                                "existing image not found, push placeholder and process image ({link_destination})"
-                            );
-                            self.document.push(Section {
-                                id,
-                                height: 1,
-                                content: SectionContent::Lines(vec![(
-                                    Line::from(format!("![Loading...]({link_destination})")),
-                                    Vec::new(),
-                                )]),
-                            });
-                        } else {
-                            log::debug!(
-                                "existing image not found, update placeholder and process image ({link_destination})"
-                            );
-                            self.document.update(vec![Section {
-                                id,
-                                height: 1,
-                                content: SectionContent::Lines(vec![(
-                                    Line::from(format!("![Loading...]({link_destination})")),
-                                    Vec::new(),
-                                )]),
-                            }]);
-                        }
-                        self.cmd_tx.send(Cmd::UrlImage(
-                            document_id,
-                            id,
-                            inner_width,
-                            link_destination,
-                            image_description,
-                        ))?;
-                    }
                 }
                 Event::ParseHeader(document_id, id, tier, text) => {
                     if !self.document_id.is_same_document(&document_id) {

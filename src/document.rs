@@ -28,7 +28,6 @@ use crate::{Error, cursor::CursorPointer, setup::FontRenderer};
 #[derive(Default)]
 pub struct Document {
     sections: Vec<Section>,
-    updated_images: Vec<(u16, String, Protocol)>,
 }
 
 impl Document {
@@ -65,12 +64,7 @@ impl Document {
         }
 
         if let Some((start, end)) = range {
-            let splice = self.sections.splice(start..end, updates);
-            for splice in splice {
-                if let SectionContent::Image(url, proto) = splice.content {
-                    self.updated_images.push((splice.height, url, proto));
-                }
-            }
+            self.sections.splice(start..end, updates);
         } else if let Some(last) = self.sections.last()
             && last.id < first_id
         {
@@ -158,44 +152,7 @@ impl Document {
         result
     }
 
-    pub fn replace(&mut self, id: SectionID, url: &str) -> Option<Section> {
-        for section in &mut self.sections {
-            if section.id < id {
-                continue;
-            }
-            if let SectionContent::Image(existing_url, _) = &section.content
-                && *existing_url == url
-            {
-                let removed_image = std::mem::replace(
-                    section,
-                    Section {
-                        id: section.id,
-                        height: 1,
-                        content: SectionContent::Lines(vec![(
-                            Line::from(format!("![Replacing...]({url})")),
-                            Vec::new(),
-                        )]),
-                    },
-                );
-                log::debug!("search & replaced #{}: {}", section.id, section.content);
-                return Some(removed_image);
-            }
-        }
-        self.updated_images
-            .iter()
-            .position(|(_, stored_url, _)| stored_url == url)
-            .map(|i| {
-                let (height, url, proto) = self.updated_images.remove(i);
-                Section {
-                    id: 0, // will be overwritten by caller
-                    height,
-                    content: SectionContent::Image(url, proto),
-                }
-            })
-    }
-
     pub fn trim(&mut self, last_section_id: Option<usize>) {
-        self.updated_images.clear();
         let Some(last_section_id) = last_section_id else {
             log::warn!("Document::trim without last_section_id, nothing parsed");
             return;
