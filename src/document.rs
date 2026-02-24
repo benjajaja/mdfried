@@ -874,24 +874,24 @@ mod tests {
             Section {
                 id: 1,
                 height: 2,
-                content: SectionContent::Header(String::from("headerline1"), 1),
+                content: SectionContent::Header(String::from("headerline1"), 1, None),
             },
             Section {
                 id: 1,
                 height: 2,
-                content: SectionContent::Header(String::from("headerline2"), 1),
+                content: SectionContent::Header(String::from("headerline2"), 1, None),
             },
         ]);
         assert_eq!(ws.sections.len(), 4);
         assert_eq!(0, ws.sections[0].id,);
         assert_eq!(1, ws.sections[1].id,);
         assert_eq!(
-            SectionContent::Header(String::from("headerline1"), 1),
+            SectionContent::Header(String::from("headerline1"), 1, None),
             ws.sections[1].content
         );
         assert_eq!(1, ws.sections[2].id,);
         assert_eq!(
-            SectionContent::Header(String::from("headerline2"), 1),
+            SectionContent::Header(String::from("headerline2"), 1, None),
             ws.sections[2].content
         );
         assert_eq!(2, ws.sections[3].id,);
@@ -900,24 +900,24 @@ mod tests {
             Section {
                 id: 1,
                 height: 2,
-                content: SectionContent::Header(String::from("headerline3"), 1),
+                content: SectionContent::Header(String::from("headerline3"), 1, None),
             },
             Section {
                 id: 1,
                 height: 2,
-                content: SectionContent::Header(String::from("headerline4"), 1),
+                content: SectionContent::Header(String::from("headerline4"), 1, None),
             },
         ]);
         assert_eq!(ws.sections.len(), 4);
         assert_eq!(0, ws.sections[0].id,);
         assert_eq!(1, ws.sections[1].id,);
         assert_eq!(
-            SectionContent::Header(String::from("headerline3"), 1),
+            SectionContent::Header(String::from("headerline3"), 1, None),
             ws.sections[1].content
         );
         assert_eq!(1, ws.sections[2].id,);
         assert_eq!(
-            SectionContent::Header(String::from("headerline4"), 1),
+            SectionContent::Header(String::from("headerline4"), 1, None),
             ws.sections[2].content
         );
         assert_eq!(2, ws.sections[3].id,);
@@ -929,7 +929,7 @@ mod tests {
         ws.push(Section {
             id: 1,
             height: 2,
-            content: SectionContent::Header(String::from("one"), 1),
+            content: SectionContent::Header(String::from("one"), 1, None),
         });
         ws.push(Section {
             id: 2,
@@ -944,7 +944,7 @@ mod tests {
         ws.push(Section {
             id: 4,
             height: 2,
-            content: SectionContent::Header(String::from("one"), 1),
+            content: SectionContent::Header(String::from("one"), 1, None),
         });
         ws.push(Section {
             id: 5,

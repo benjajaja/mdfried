@@ -669,8 +669,7 @@ impl MdParagraph {
                     extra.union(Modifier::LinkURL),
                     Some(source_content.clone()),
                 ));
-                // TODO: what do we do with source_content here? Must be a reason.
-                return None;
+                return Some(source_content);
             }
             _ => Modifier::default(),
         };
