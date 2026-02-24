@@ -101,13 +101,11 @@ mod wrap;
 #[cfg(feature = "ratatui")]
 pub mod ratatui;
 
-use std::collections::VecDeque;
-
 use tree_sitter::Parser;
 use unicode_width::UnicodeWidthStr as _;
 
-use lines::{RawLine, RawLineKind};
-use markdown::{MdContainer, MdContent, MdDocument, MdSection, TableAlignment};
+use lines::{LineIterator, RawLine, RawLineKind};
+use markdown::TableAlignment;
 
 pub use lines::BulletStyle;
 pub use mapper::{DefaultMapper, Mapper, StyledMapper};
@@ -116,8 +114,8 @@ pub use markdown::{Modifier, SourceContent, Span};
 // Re-export for internal use by lines module
 pub(crate) use lines::MdLineContainer;
 
-pub use crate::sections::{Section, SectionIterator, SectionKind};
 use crate::markdown::MdIterator;
+pub use crate::sections::{Section, SectionIterator, SectionKind};
 
 // ============================================================================
 // Public output types
@@ -199,7 +197,7 @@ impl MdFrier {
         })
     }
 
-    /// Parse markdown text and return a vector of `MdLine` items.
+    /// Parse markdown text and return a vector of `Line` items.
     ///
     /// The mapper controls how decorators are rendered (link brackets,
     /// blockquote bars, list markers, etc.). Use `DefaultMapper` for
@@ -211,18 +209,12 @@ impl MdFrier {
     /// * `text` - The markdown text to parse
     /// * `mapper` - The mapper to use for content transformation
     pub fn parse<M: Mapper>(&mut self, width: u16, text: &str, mapper: &M) -> Vec<Line> {
-        let doc = match MdDocument::new(text, &mut self.parser, &mut self.inline_parser) {
-            Ok(doc) => doc,
-            Err(_) => return Vec::new(),
+        let tree = match self.parser.parse(text, None) {
+            Some(tree) => tree,
+            None => return Vec::new(),
         };
-
-        let mut processor = RawLineProcessor::new(doc, width);
-        let raw_lines = processor.collect_all();
-
-        raw_lines
-            .into_iter()
-            .map(|raw| convert_raw_to_mdline(raw, width, mapper))
-            .collect()
+        let iter = MdIterator::new(tree, &mut self.inline_parser, text);
+        LineIterator::new(iter, width, mapper).collect()
     }
 
     pub fn parse_sections<'a, M: Mapper>(
@@ -682,154 +674,6 @@ fn build_table_row_spans<M: Mapper>(
     spans
 }
 
-// ============================================================================
-// Raw line processing (internal)
-// ============================================================================
-
-/// Processor for collecting raw lines from parsed markdown.
-struct RawLineProcessor {
-    sections: Vec<MdSection>,
-    section_idx: usize,
-    width: u16,
-    pending_lines: VecDeque<RawLine>,
-    needs_blank: bool,
-    prev_nesting: Vec<MdContainer>,
-    prev_was_blank: bool,
-    prev_in_list: bool,
-}
-
-impl RawLineProcessor {
-    fn new(doc: MdDocument, width: u16) -> Self {
-        let sections: Vec<_> = doc.into_sections().collect();
-        Self {
-            sections,
-            section_idx: 0,
-            width,
-            pending_lines: VecDeque::new(),
-            needs_blank: false,
-            prev_nesting: Vec::new(),
-            prev_was_blank: false,
-            prev_in_list: false,
-        }
-    }
-
-    fn collect_all(&mut self) -> Vec<RawLine> {
-        let mut result = Vec::new();
-        while self.process_next_section() {
-            while let Some(line) = self.pending_lines.pop_front() {
-                result.push(line);
-            }
-        }
-        result
-    }
-
-    fn process_next_section(&mut self) -> bool {
-        if self.section_idx >= self.sections.len() {
-            return false;
-        }
-
-        let section = &self.sections[self.section_idx];
-        self.section_idx += 1;
-
-        let in_list = section
-            .nesting
-            .iter()
-            .any(|c| matches!(c, MdContainer::ListItem(_)));
-
-        let is_blank_line = section.content.is_blank();
-
-        // Nesting change detection - compare container types, not exact values
-        let container_type_matches = |a: &MdContainer, b: &MdContainer| -> bool {
-            matches!(
-                (a, b),
-                (MdContainer::List(_), MdContainer::List(_))
-                    | (MdContainer::ListItem(_), MdContainer::ListItem(_))
-                    | (MdContainer::Blockquote(_), MdContainer::Blockquote(_))
-            )
-        };
-        let is_type_prefix = |shorter: &[MdContainer], longer: &[MdContainer]| -> bool {
-            !shorter.is_empty()
-                && shorter.len() < longer.len()
-                && shorter
-                    .iter()
-                    .zip(longer.iter())
-                    .all(|(a, b)| container_type_matches(a, b))
-        };
-        let nesting_change = is_type_prefix(&self.prev_nesting, &section.nesting)
-            || is_type_prefix(&section.nesting, &self.prev_nesting);
-
-        // Count list nesting depth (number of List containers)
-        let list_depth = |nesting: &[MdContainer]| -> usize {
-            nesting
-                .iter()
-                .filter(|c| matches!(c, MdContainer::List(_)))
-                .count()
-        };
-        let curr_list_depth = list_depth(&section.nesting);
-        let prev_list_depth = list_depth(&self.prev_nesting);
-
-        // Check if both sections are at the same top-level list (depth 1) with same List container
-        let same_top_level_list =
-            if in_list && self.prev_in_list && curr_list_depth == 1 && prev_list_depth == 1 {
-                // Compare first List container only for top-level items
-                let curr_list = section
-                    .nesting
-                    .iter()
-                    .find(|c| matches!(c, MdContainer::List(_)));
-                let prev_list = self
-                    .prev_nesting
-                    .iter()
-                    .find(|c| matches!(c, MdContainer::List(_)));
-                curr_list == prev_list
-            } else {
-                false
-            };
-
-        // For nested lists (depth > 1), treat all items at same depth as same context
-        // to avoid blanks between items with different markers
-        let same_nested_context =
-            in_list && self.prev_in_list && curr_list_depth > 1 && prev_list_depth > 1;
-
-        let same_list_context = same_top_level_list || same_nested_context;
-
-        // Check if we're exiting to a new top-level list (not part of previous ancestry)
-        let exiting_to_new_top_level =
-            nesting_change && curr_list_depth == 1 && prev_list_depth > 1 && {
-                // Check if the current top-level List was in the previous nesting
-                let curr_list = section
-                    .nesting
-                    .iter()
-                    .find(|c| matches!(c, MdContainer::List(_)));
-                let was_in_prev = curr_list.is_none_or(|cl| self.prev_nesting.contains(cl));
-                !was_in_prev
-            };
-
-        // Allow blank lines before continuation paragraphs or between different top-level lists,
-        // but not during nesting changes (unless exiting to a new top-level list)
-        let should_emit_blank = self.needs_blank
-            && (!same_list_context || section.is_list_continuation)
-            && !is_blank_line
-            && !self.prev_was_blank
-            && (!nesting_change || exiting_to_new_top_level);
-
-        if should_emit_blank {
-            self.pending_lines.push_back(RawLine::blank());
-        }
-
-        // Only headers don't need space after
-        self.needs_blank = !matches!(section.content, MdContent::Header { .. });
-        // Clone nesting for comparison in next iteration
-        self.prev_nesting.clone_from(&section.nesting);
-        self.prev_was_blank = is_blank_line;
-        self.prev_in_list = in_list;
-
-        let lines = lines::section_to_raw_lines(self.width, section);
-        self.pending_lines.extend(lines);
-
-        true
-    }
-}
-
 #[cfg(test)]
 #[expect(clippy::unwrap_used)]
 mod tests {
@@ -857,17 +701,10 @@ mod tests {
     #[test]
     fn parse_simple_text() {
         let mut frier = MdFrier::new().unwrap();
-        let sections: Vec<_> = frier
-            .parse_sections(80, "Hello world!", &DefaultMapper)
-            .unwrap()
-            .collect();
-        assert_eq!(sections.len(), 1);
+        let lines = frier.parse(80, "Hello world!", &DefaultMapper);
+        assert_eq!(lines.len(), 1);
 
-        let section = &sections[0];
-        assert_eq!(section.kind, SectionKind::Text);
-        assert!(!section.lines.is_empty());
-
-        let line = &section.lines[0];
+        let line = &lines[0];
         assert_eq!(line.spans.len(), 1);
         assert_eq!(line.spans[0].content, "Hello world!");
     }
@@ -875,16 +712,12 @@ mod tests {
     #[test]
     fn parse_styled_text() {
         let mut frier = MdFrier::new().unwrap();
-        let sections: Vec<_> = frier
-            .parse_sections(80, "Hello *world*!", &DefaultMapper)
-            .unwrap()
-            .collect();
-        assert_eq!(sections.len(), 1);
+        // DefaultMapper preserves decorators around emphasis
+        let lines = frier.parse(80, "Hello *world*!", &DefaultMapper);
+        assert_eq!(lines.len(), 1);
 
-        let section = &sections[0];
-        assert_eq!(section.kind, SectionKind::Text);
-
-        let line = &section.lines[0];
+        let line = &lines[0];
+        // Spans: "Hello " + "*" (open) + "world" (emphasis) + "*" (close) + "!"
         assert_eq!(line.spans.len(), 5);
         assert_eq!(line.spans[0].content, "Hello ");
         assert_eq!(line.spans[1].content, "*");
@@ -899,54 +732,33 @@ mod tests {
     #[test]
     fn parse_header() {
         let mut frier = MdFrier::new().unwrap();
-        let sections: Vec<_> = frier
-            .parse_sections(80, "# Hello\n", &DefaultMapper)
-            .unwrap()
-            .collect();
-        assert_eq!(sections.len(), 1);
+        let lines = frier.parse(80, "# Hello\n", &DefaultMapper);
+        assert_eq!(lines.len(), 1);
 
-        let section = &sections[0];
-        assert_eq!(section.kind, SectionKind::Header);
-        assert_eq!(section.backend, "Hello");
-
-        let line = &section.lines[0];
+        let line = &lines[0];
         assert!(matches!(line.kind, LineKind::Header(1)));
     }
 
     #[test]
     fn parse_code_block() {
         let mut frier = MdFrier::new().unwrap();
-        let sections: Vec<_> = frier
-            .parse_sections(80, "```rust\nlet x = 1;\n```\n", &DefaultMapper)
-            .unwrap()
-            .collect();
-        assert_eq!(sections.len(), 1);
+        let lines = frier.parse(80, "```rust\nlet x = 1;\n```\n", &DefaultMapper);
+        assert_eq!(lines.len(), 1);
 
-        let section = &sections[0];
-        assert_eq!(section.kind, SectionKind::Text);
-        assert!(section.backend.contains("let x = 1;"));
-
-        let code_line = section
-            .lines
-            .iter()
-            .find(|l| matches!(l.kind, LineKind::CodeBlock { .. }))
-            .unwrap();
-        assert!(code_line.spans[0].content.starts_with("let x = 1;"));
+        let line = &lines[0];
+        assert!(matches!(line.kind, LineKind::CodeBlock { .. }));
+        // First span is the code content
+        assert!(line.spans[0].content.starts_with("let x = 1;"));
     }
 
     #[test]
     fn parse_blockquote() {
         let mut frier = MdFrier::new().unwrap();
-        let sections: Vec<_> = frier
-            .parse_sections(80, "> Hello world", &DefaultMapper)
-            .unwrap()
-            .collect();
-        assert_eq!(sections.len(), 1);
+        let lines = frier.parse(80, "> Hello world", &DefaultMapper);
+        assert_eq!(lines.len(), 1);
 
-        let section = &sections[0];
-        assert_eq!(section.kind, SectionKind::Text);
-
-        let line = &section.lines[0];
+        let line = &lines[0];
+        // With flat API, first span should be the blockquote bar
         assert!(line.spans[0].modifiers.contains(Modifier::BlockquoteBar));
         assert_eq!(line.spans[0].content, "> ");
     }
@@ -954,56 +766,41 @@ mod tests {
     #[test]
     fn parse_list() {
         let mut frier = MdFrier::new().unwrap();
-        let sections: Vec<_> = frier
-            .parse_sections(80, "- Item 1\n- Item 2", &DefaultMapper)
-            .unwrap()
-            .collect();
-        // List items are aggregated into one section
-        assert_eq!(sections.len(), 1);
-
-        let section = &sections[0];
-        assert_eq!(section.kind, SectionKind::Text);
-        // Should have lines for both items (with blank line between)
-        assert!(section.lines.len() >= 2);
+        let lines = frier.parse(80, "- Item 1\n- Item 2", &DefaultMapper);
+        assert_eq!(lines.len(), 2);
     }
 
     #[test]
     fn paragraph_breaks() {
         let mut frier = MdFrier::new().unwrap();
-        let sections: Vec<_> = frier
-            .parse_sections(10, "longline1\nlongline2", &DefaultMapper)
-            .unwrap()
-            .collect();
-        assert_eq!(sections.len(), 1);
-
-        let section = &sections[0];
-        assert_eq!(section.kind, SectionKind::Text);
-        assert!(section.lines.len() >= 2);
-        assert_eq!(section.lines[0].spans[0].content, "longline1");
-        assert_eq!(section.lines[1].spans[0].content, "longline2");
+        let lines = frier.parse(10, "longline1\nlongline2", &DefaultMapper);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].spans[0].content, "longline1");
+        assert_eq!(lines[1].spans[0].content, "longline2");
     }
 
     #[test]
     fn soft_break_with_styling() {
         let mut frier = MdFrier::new().unwrap();
-        let sections: Vec<_> = frier
-            .parse_sections(80, "This \n*is* a test.", &DefaultMapper)
-            .unwrap()
-            .collect();
-        assert_eq!(sections.len(), 1);
-
-        let section = &sections[0];
-        assert_eq!(section.kind, SectionKind::Text);
-        assert!(section.lines.len() >= 2);
-
-        assert_eq!(section.lines[0].spans[0].content, "This");
-        let line2 = &section.lines[1];
-        assert_eq!(line2.spans[0].content, "*");
-        assert!(line2.spans[0].modifiers.contains(Modifier::EmphasisWrapper));
-        assert_eq!(line2.spans[1].content, "is");
-        assert!(line2.spans[1].modifiers.contains(Modifier::Emphasis));
-        assert_eq!(line2.spans[2].content, "*");
-        assert!(line2.spans[2].modifiers.contains(Modifier::EmphasisWrapper));
+        // DefaultMapper preserves decorators
+        let lines = frier.parse(80, "This \n*is* a test.", &DefaultMapper);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].spans[0].content, "This");
+        // Second line: "*" (open) + "is" (emphasis) + "*" (close) + " a test."
+        assert_eq!(lines[1].spans[0].content, "*");
+        assert!(
+            lines[1].spans[0]
+                .modifiers
+                .contains(Modifier::EmphasisWrapper)
+        );
+        assert_eq!(lines[1].spans[1].content, "is");
+        assert!(lines[1].spans[1].modifiers.contains(Modifier::Emphasis));
+        assert_eq!(lines[1].spans[2].content, "*");
+        assert!(
+            lines[1].spans[2]
+                .modifiers
+                .contains(Modifier::EmphasisWrapper)
+        );
     }
 
     #[test]
@@ -1015,18 +812,7 @@ let x = 1;
 Paragraph after.";
 
         let mut frier = MdFrier::new().unwrap();
-        let sections: Vec<_> = frier
-            .parse_sections(80, input, &DefaultMapper)
-            .unwrap()
-            .collect();
-
-        // Each standalone block is its own section: paragraph, code block, paragraph
-        assert_eq!(sections.len(), 3);
-        assert_eq!(sections[0].kind, SectionKind::Text);
-        assert_eq!(sections[1].kind, SectionKind::Text);
-        assert_eq!(sections[2].kind, SectionKind::Text);
-
-        let lines: Vec<Line> = sections.into_iter().flat_map(|s| s.lines).collect();
+        let lines = frier.parse(80, input, &DefaultMapper);
         let output = lines_to_string(&lines);
         insta::assert_snapshot!(output);
     }
@@ -1039,17 +825,7 @@ let x = 1;
 - list item";
 
         let mut frier = MdFrier::new().unwrap();
-        let sections: Vec<_> = frier
-            .parse_sections(80, input, &DefaultMapper)
-            .unwrap()
-            .collect();
-
-        // Code block (no nesting) + list item (has List nesting) = 2 sections
-        assert_eq!(sections.len(), 2);
-        assert_eq!(sections[0].kind, SectionKind::Text);
-        assert_eq!(sections[1].kind, SectionKind::Text);
-
-        let lines: Vec<Line> = sections.into_iter().flat_map(|s| s.lines).collect();
+        let lines = frier.parse(80, input, &DefaultMapper);
         let output = lines_to_string(&lines);
         insta::assert_snapshot!(output);
     }
@@ -1070,16 +846,7 @@ Quote break.
 > > > ...or with spaces between arrows."#;
 
         let mut frier = MdFrier::new().unwrap();
-        let sections: Vec<_> = frier
-            .parse_sections(80, input, &DefaultMapper)
-            .unwrap()
-            .collect();
-
-        // Blockquote, paragraph, blockquote, blockquote = 4 sections
-        // (each blockquote is separated by non-blockquote content)
-        assert!(sections.len() >= 3, "Expected multiple sections");
-
-        let lines: Vec<Line> = sections.into_iter().flat_map(|s| s.lines).collect();
+        let lines = frier.parse(80, input, &DefaultMapper);
         let output = lines_to_string(&lines);
         insta::assert_snapshot!(output);
     }
@@ -1087,21 +854,8 @@ Quote break.
     #[test]
     fn bare_url_line_broken() {
         let mut frier = MdFrier::new().unwrap();
-        let sections: Vec<_> = frier
-            .parse_sections(15, "See https://example.com/path ok?", &DefaultMapper)
-            .unwrap()
-            .collect();
-
-        assert_eq!(sections.len(), 1);
-        assert_eq!(sections[0].kind, SectionKind::Text);
-
-        let spans: Vec<_> = sections
-            .into_iter()
-            .flat_map(|s| s.lines)
-            .filter(|l| !matches!(l.kind, LineKind::Blank))
-            .flat_map(|l| l.spans)
-            .collect();
-
+        let lines = frier.parse(15, "See https://example.com/path ok?", &DefaultMapper);
+        let spans: Vec<_> = lines.into_iter().flat_map(|l| l.spans).collect();
         let url_source = SourceContent::from("https://example.com/path");
         assert_eq!(
             spans,
@@ -1178,71 +932,35 @@ Quote break.
 "#;
 
         let mut frier = MdFrier::new().unwrap();
-        let sections: Vec<_> = frier
-            .parse_sections(80, input, &DefaultMapper)
-            .unwrap()
-            .collect();
-
-        // Lists with different markers are separate sections
-        // ordered(1.) -> unordered(-) -> unordered(*) -> unordered(-) -> ordered(1.) -> unordered(-)
-        assert_eq!(sections.len(), 6, "Expected 6 list sections");
-
-        for section in &sections {
-            assert_eq!(section.kind, SectionKind::Text);
-        }
-
-        let lines: Vec<Line> = sections.into_iter().flat_map(|s| s.lines).collect();
+        let lines = frier.parse(80, input, &DefaultMapper);
         let output = lines_to_string(&lines);
         insta::assert_snapshot!(output);
     }
 
     #[test]
     fn code_block_wrapping() {
+        // Test that code blocks wrap at width boundary
         let input = "```\nabcdefghij\n```\n";
 
         let mut frier = MdFrier::new().unwrap();
-        let sections: Vec<_> = frier
-            .parse_sections(5, input, &DefaultMapper)
-            .unwrap()
-            .collect();
-        assert_eq!(sections.len(), 1);
-
-        let section = &sections[0];
-        assert_eq!(section.kind, SectionKind::Text);
-        assert!(section.backend.contains("abcdefghij"));
-
-        let content_lines: Vec<_> = section
-            .lines
-            .iter()
-            .filter(|l| matches!(l.kind, LineKind::CodeBlock { .. }))
-            .collect();
-        assert_eq!(content_lines.len(), 2);
-        assert_eq!(content_lines[0].spans[0].content, "abcde");
-        assert_eq!(content_lines[1].spans[0].content, "fghij");
+        // Width of 5 should wrap "abcdefghij" into two lines
+        let lines = frier.parse(5, input, &DefaultMapper);
+        assert_eq!(lines.len(), 2);
+        // First line should be 5 chars
+        assert_eq!(lines[0].spans[0].content, "abcde");
+        // Second line should be remaining 5 chars
+        assert_eq!(lines[1].spans[0].content, "fghij");
     }
 
     #[test]
     fn code_block_no_wrap_when_fits() {
+        // Test that code blocks don't wrap when they fit
         let input = "```\nabcde\n```\n";
 
         let mut frier = MdFrier::new().unwrap();
-        let sections: Vec<_> = frier
-            .parse_sections(5, input, &DefaultMapper)
-            .unwrap()
-            .collect();
-        assert_eq!(sections.len(), 1);
-
-        let section = &sections[0];
-        assert_eq!(section.kind, SectionKind::Text);
-        assert!(section.backend.contains("abcde"));
-
-        let content_lines: Vec<_> = section
-            .lines
-            .iter()
-            .filter(|l| matches!(l.kind, LineKind::CodeBlock { .. }))
-            .collect();
-        assert_eq!(content_lines.len(), 1);
-        assert_eq!(content_lines[0].spans[0].content, "abcde");
+        let lines = frier.parse(5, input, &DefaultMapper);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].spans[0].content, "abcde");
     }
 
     #[test]
@@ -1255,24 +973,12 @@ Quote break.
             }
         }
         let mapper = HideUrlsMapper {};
-        let sections: Vec<_> = frier
-            .parse_sections(80, "[desc](https://url)", &mapper)
-            .unwrap()
-            .collect();
-        assert_eq!(sections.len(), 1);
-
-        let section = &sections[0];
-        assert_eq!(section.kind, SectionKind::Text);
-
-        let content_line = section
-            .lines
-            .iter()
-            .find(|l| !matches!(l.kind, LineKind::Blank))
-            .unwrap();
+        let lines = frier.parse(80, "[desc](https://url)", &mapper);
+        assert_eq!(lines.len(), 1);
 
         let url_source = SourceContent::from("https://url");
         assert_eq!(
-            content_line.spans,
+            lines[0].spans,
             vec![
                 Span::new(
                     "[".into(),

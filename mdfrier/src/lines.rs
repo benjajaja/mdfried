@@ -1,8 +1,12 @@
+use std::collections::VecDeque;
+use std::iter::Peekable;
+
 use textwrap::{Options, wrap};
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
-    markdown::{MdContainer, MdContent, MdSection, Span, TableAlignment},
+    Line, Mapper, convert_raw_to_mdline,
+    markdown::{MdContainer, MdContent, MdIterator, MdSection, Span, TableAlignment},
     wrap::{wrap_md_spans, wrap_md_spans_lines},
 };
 
@@ -166,6 +170,168 @@ pub(crate) enum BorderPosition {
     Top,
     HeaderSeparator,
     Bottom,
+}
+
+/// Iterator that produces `Line` items from parsed markdown.
+///
+/// This handles the blank line logic between sections, producing lines
+/// one at a time with proper spacing.
+pub struct LineIterator<'a, M: Mapper> {
+    inner: Peekable<MdIterator<'a>>,
+    width: u16,
+    mapper: &'a M,
+    /// Buffer of pending lines to emit
+    pending_lines: VecDeque<Line>,
+    /// Whether we need a blank line before next content
+    needs_blank: bool,
+    /// Previous section's nesting for comparison
+    prev_nesting: Vec<MdContainer>,
+    /// Whether previous section was a blank line
+    prev_was_blank: bool,
+    /// Whether previous section was in a list
+    prev_in_list: bool,
+}
+
+impl<'a, M: Mapper> LineIterator<'a, M> {
+    pub(crate) fn new(inner: MdIterator<'a>, width: u16, mapper: &'a M) -> Self {
+        LineIterator {
+            inner: inner.peekable(),
+            width,
+            mapper,
+            pending_lines: VecDeque::new(),
+            needs_blank: false,
+            prev_nesting: Vec::new(),
+            prev_was_blank: false,
+            prev_in_list: false,
+        }
+    }
+
+    /// Process the next MdSection and queue its lines
+    fn process_next_section(&mut self) -> bool {
+        let section = match self.inner.next() {
+            Some(s) => s,
+            None => return false,
+        };
+
+        let in_list = section
+            .nesting
+            .iter()
+            .any(|c| matches!(c, MdContainer::ListItem(_)));
+
+        let is_blank_line = section.content.is_blank();
+
+        // Nesting change detection - compare container types, not exact values
+        let container_type_matches = |a: &MdContainer, b: &MdContainer| -> bool {
+            matches!(
+                (a, b),
+                (MdContainer::List(_), MdContainer::List(_))
+                    | (MdContainer::ListItem(_), MdContainer::ListItem(_))
+                    | (MdContainer::Blockquote(_), MdContainer::Blockquote(_))
+            )
+        };
+        let is_type_prefix = |shorter: &[MdContainer], longer: &[MdContainer]| -> bool {
+            !shorter.is_empty()
+                && shorter.len() < longer.len()
+                && shorter
+                    .iter()
+                    .zip(longer.iter())
+                    .all(|(a, b)| container_type_matches(a, b))
+        };
+        let nesting_change = is_type_prefix(&self.prev_nesting, &section.nesting)
+            || is_type_prefix(&section.nesting, &self.prev_nesting);
+
+        // Count list nesting depth (number of List containers)
+        let list_depth = |nesting: &[MdContainer]| -> usize {
+            nesting
+                .iter()
+                .filter(|c| matches!(c, MdContainer::List(_)))
+                .count()
+        };
+        let curr_list_depth = list_depth(&section.nesting);
+        let prev_list_depth = list_depth(&self.prev_nesting);
+
+        // Check if both sections are at the same top-level list (depth 1) with same List container
+        let same_top_level_list =
+            if in_list && self.prev_in_list && curr_list_depth == 1 && prev_list_depth == 1 {
+                let curr_list = section
+                    .nesting
+                    .iter()
+                    .find(|c| matches!(c, MdContainer::List(_)));
+                let prev_list = self
+                    .prev_nesting
+                    .iter()
+                    .find(|c| matches!(c, MdContainer::List(_)));
+                curr_list == prev_list
+            } else {
+                false
+            };
+
+        // For nested lists (depth > 1), treat all items at same depth as same context
+        let same_nested_context =
+            in_list && self.prev_in_list && curr_list_depth > 1 && prev_list_depth > 1;
+
+        let same_list_context = same_top_level_list || same_nested_context;
+
+        // Check if we're exiting to a new top-level list (not part of previous ancestry)
+        let exiting_to_new_top_level =
+            nesting_change && curr_list_depth == 1 && prev_list_depth > 1 && {
+                let curr_list = section
+                    .nesting
+                    .iter()
+                    .find(|c| matches!(c, MdContainer::List(_)));
+                let was_in_prev = curr_list.is_none_or(|cl| self.prev_nesting.contains(cl));
+                !was_in_prev
+            };
+
+        // Allow blank lines before continuation paragraphs or between different top-level lists,
+        // but not during nesting changes (unless exiting to a new top-level list)
+        let should_emit_blank = self.needs_blank
+            && (!same_list_context || section.is_list_continuation)
+            && !is_blank_line
+            && !self.prev_was_blank
+            && (!nesting_change || exiting_to_new_top_level);
+
+        if should_emit_blank {
+            self.pending_lines.push_back(Line {
+                spans: Vec::new(),
+                kind: crate::LineKind::Blank,
+            });
+        }
+
+        // Only headers don't need space after
+        self.needs_blank = !matches!(section.content, MdContent::Header { .. });
+        self.prev_nesting.clone_from(&section.nesting);
+        self.prev_was_blank = is_blank_line;
+        self.prev_in_list = in_list;
+
+        let raw_lines = section_to_raw_lines(self.width, &section);
+        for raw in raw_lines {
+            let line = convert_raw_to_mdline(raw, self.width, self.mapper);
+            self.pending_lines.push_back(line);
+        }
+
+        true
+    }
+}
+
+impl<M: Mapper> Iterator for LineIterator<'_, M> {
+    type Item = Line;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        // Return buffered line if available
+        if let Some(line) = self.pending_lines.pop_front() {
+            return Some(line);
+        }
+
+        // Process sections until we have a line to return
+        while self.process_next_section() {
+            if let Some(line) = self.pending_lines.pop_front() {
+                return Some(line);
+            }
+        }
+
+        None
+    }
 }
 
 /// Convert a markdown section to raw lines (internal).
