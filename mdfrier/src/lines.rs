@@ -5,44 +5,10 @@ use textwrap::{Options, wrap};
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
-    Line, Mapper, convert_raw_to_mdline,
-    markdown::{MdContainer, MdContent, MdIterator, MdSection, Span, TableAlignment},
+    Line, LineKind, Mapper,
+    markdown::{MdContainer, MdContent, MdIterator, MdSection, Modifier, Span, TableAlignment},
     wrap::{wrap_md_spans, wrap_md_spans_lines},
 };
-
-/// Internal intermediate line type with nesting metadata.
-/// This is converted to the public `MdLine` after applying the mapper.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct RawLine {
-    /// The text spans making up this line.
-    pub spans: Vec<Span>,
-    /// Metadata about this line.
-    pub meta: LineMeta,
-}
-
-#[cfg(test)]
-impl std::fmt::Display for RawLine {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            self.spans
-                .iter()
-                .map(|span| span.content.clone())
-                .collect::<Vec<String>>()
-                .join("")
-        )
-    }
-}
-
-/// Metadata about a raw markdown line (internal).
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct LineMeta {
-    /// The kind of line content.
-    pub kind: RawLineKind,
-    /// Nesting containers (blockquotes and list items).
-    pub nesting: Vec<MdLineContainer>,
-}
 
 /// A simplified nesting container.
 #[derive(Debug, Clone, PartialEq)]
@@ -97,63 +63,24 @@ impl BulletStyle {
 }
 
 impl ListMarker {
-    /// Calculate the display width of this marker.
-    pub fn width(&self) -> usize {
+    /// Calculate marker width using mapper's symbols.
+    pub fn width<M: Mapper>(&self, mapper: &M) -> usize {
         match self {
-            ListMarker::Unordered(_) => 2, // "- "
-            ListMarker::Ordered(n) => {
-                // "1. " = 3, "10. " = 4, etc.
-                let digits = if *n == 0 {
-                    1
-                } else {
-                    (*n as f64).log10().floor() as usize + 1
-                };
-                digits + 2
+            ListMarker::Unordered(b) => mapper.unordered_bullet(*b).width(),
+            ListMarker::Ordered(n) => mapper.ordered_marker(*n).width(),
+            ListMarker::TaskChecked(b) => {
+                mapper.unordered_bullet(*b).width() + mapper.task_checked().width()
             }
-            ListMarker::TaskUnchecked(_) => 6, // "- [ ] "
-            ListMarker::TaskChecked(_) => 6,   // "- [x] "
+            ListMarker::TaskUnchecked(b) => {
+                mapper.unordered_bullet(*b).width() + mapper.task_unchecked().width()
+            }
         }
     }
 }
 
-/// The kind of content a raw line represents (internal).
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum RawLineKind {
-    /// Regular text paragraph.
-    Paragraph,
-    /// Header line with tier (1-6).
-    Header(u8),
-    /// Code block line with language.
-    CodeBlock { language: String },
-    /// Horizontal rule.
-    HorizontalRule,
-    /// Table data row with cells preserved.
-    TableRow {
-        cells: Vec<Vec<Span>>,
-        column_info: TableColumnInfo,
-        is_header: bool,
-    },
-    /// Table border/separator.
-    TableBorder {
-        column_info: TableColumnInfo,
-        position: BorderPosition,
-    },
-    /// Image reference (rendered asynchronously).
-    Image { url: String, description: String },
-    /// Blank line.
-    Blank,
-}
-
-/// Information about table columns for rendering.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct TableColumnInfo {
-    pub widths: Vec<usize>,
-    pub alignments: Vec<TableAlignment>,
-}
-
 /// Position of a table border.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum BorderPosition {
+enum BorderPosition {
     Top,
     HeaderSeparator,
     Bottom,
@@ -281,7 +208,7 @@ impl<'a, M: Mapper> LineIterator<'a, M> {
         if should_emit_blank {
             self.pending_lines.push_back(Line {
                 spans: Vec::new(),
-                kind: crate::LineKind::Blank,
+                kind: LineKind::Blank,
             });
         }
 
@@ -291,11 +218,8 @@ impl<'a, M: Mapper> LineIterator<'a, M> {
         self.prev_was_blank = is_blank_line;
         self.prev_in_list = in_list;
 
-        let raw_lines = section_to_raw_lines(self.width, &section);
-        for raw in raw_lines {
-            let line = convert_raw_to_mdline(raw, self.width, self.mapper);
-            self.pending_lines.push_back(line);
-        }
+        let lines = section_to_lines(self.width, &section, self.mapper);
+        self.pending_lines.extend(lines);
 
         true
     }
@@ -321,125 +245,275 @@ impl<M: Mapper> Iterator for LineIterator<'_, M> {
     }
 }
 
-/// Convert a markdown section to raw lines (internal).
-pub(crate) fn section_to_raw_lines(width: u16, section: &MdSection) -> Vec<RawLine> {
+/// Convert a markdown section to output lines.
+/// Applies mapper decorators before wrapping so widths are correct.
+fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> Vec<Line> {
     let nesting = convert_nesting(&section.nesting, section.is_list_continuation);
 
     match &section.content {
         MdContent::Paragraph(p) if p.is_empty() => {
-            vec![RawLine {
+            vec![Line {
                 spans: Vec::new(),
-                meta: LineMeta {
-                    kind: RawLineKind::Blank,
-                    nesting,
-                },
+                kind: LineKind::Blank,
             }]
         }
         MdContent::Paragraph(p) => {
-            let prefix_width = nesting
-                .iter()
-                .map(|c| match c {
-                    MdLineContainer::Blockquote => 2,
-                    MdLineContainer::ListItem { marker, .. } => marker.width(),
-                })
-                .sum();
-            let wrapped_lines = wrap_md_spans(width, p.spans.clone(), prefix_width);
-            wrapped_lines_to_raw_lines(wrapped_lines, nesting)
-        }
-        MdContent::Header { tier, text } => {
-            vec![RawLine {
-                spans: vec![Span::from(text.clone())],
-                meta: LineMeta {
-                    kind: RawLineKind::Header(*tier),
-                    nesting,
-                },
-            }]
-        }
-        MdContent::CodeBlock { language, code } => {
-            let code_lines: Vec<&str> = code.lines().collect();
-            let num_lines = code_lines.len();
-            if num_lines == 0 {
-                return vec![];
-            }
-
-            // Calculate available width for wrapping
+            // Apply decorators first, then wrap
+            let decorated_spans = apply_decorators(p.spans.clone(), mapper);
             let prefix_width: usize = nesting
                 .iter()
                 .map(|c| match c {
-                    MdLineContainer::Blockquote => 2,
-                    MdLineContainer::ListItem { marker, .. } => marker.width(),
+                    MdLineContainer::Blockquote => mapper.blockquote_bar().width(),
+                    MdLineContainer::ListItem { marker, .. } => marker.width(mapper),
                 })
                 .sum();
-            let available_width = (width as usize).saturating_sub(prefix_width).max(1);
-
-            let mut result = Vec::new();
-            let last_source_idx = num_lines - 1;
-            let mut nesting_owned = Some(nesting);
-
-            for (source_idx, line) in code_lines.into_iter().enumerate() {
-                let is_last_source = source_idx == last_source_idx;
-                let line_width = line.width();
-
-                if line_width > available_width {
-                    // Wrap this line
-                    let options = Options::new(available_width)
-                        .break_words(true)
-                        .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation);
-                    let parts: Vec<_> = wrap(line, options).into_iter().collect();
-                    let num_parts = parts.len();
-                    let last_part_idx = num_parts.saturating_sub(1);
-
-                    for (part_idx, part) in parts.into_iter().enumerate() {
-                        let is_last_part = part_idx == last_part_idx;
-                        let is_last = is_last_source && is_last_part;
-                        result.push(RawLine {
-                            spans: vec![Span::from(part.into_owned())],
-                            meta: LineMeta {
-                                kind: RawLineKind::CodeBlock {
-                                    language: language.clone(),
-                                },
-                                nesting: if is_last {
-                                    nesting_owned.take().expect("is_last holds true")
-                                } else {
-                                    nesting_owned.as_ref().expect("is_last holds true").clone()
-                                },
-                            },
-                        });
-                    }
-                } else {
-                    // Line fits, no wrapping needed
-                    result.push(RawLine {
-                        spans: vec![Span::from(line.to_owned())],
-                        meta: LineMeta {
-                            kind: RawLineKind::CodeBlock {
-                                language: language.clone(),
-                            },
-                            nesting: if is_last_source {
-                                nesting_owned.take().expect("is_last holds true")
-                            } else {
-                                nesting_owned.as_ref().expect("is_last holds true").clone()
-                            },
-                        },
-                    });
-                }
-            }
-            result
+            let wrapped_lines = wrap_md_spans(width, decorated_spans, prefix_width);
+            wrapped_to_lines(wrapped_lines, nesting, mapper)
+        }
+        MdContent::Header { tier, text } => {
+            let mut spans = nesting_to_prefix_spans(&nesting, mapper);
+            spans.push(Span::from(text.clone()));
+            vec![Line {
+                spans,
+                kind: LineKind::Header(*tier),
+            }]
+        }
+        MdContent::CodeBlock { language, code } => {
+            code_block_to_lines(width, language, code, nesting, mapper)
         }
         MdContent::HorizontalRule => {
-            vec![RawLine {
-                spans: Vec::new(),
-                meta: LineMeta {
-                    kind: RawLineKind::HorizontalRule,
-                    nesting,
-                },
+            let prefix_spans = nesting_to_prefix_spans(&nesting, mapper);
+            let prefix_width: usize = prefix_spans.iter().map(|s| s.content.width()).sum();
+            let available = (width as usize).saturating_sub(prefix_width);
+
+            let mut spans = prefix_spans;
+            spans.push(Span::new(
+                mapper.horizontal_rule_char().repeat(available),
+                Modifier::HorizontalRule,
+            ));
+            vec![Line {
+                spans,
+                kind: LineKind::HorizontalRule,
             }]
         }
         MdContent::Table {
             header,
             rows,
             alignments,
-        } => table_to_raw_lines(width, header, rows, alignments, nesting),
+        } => table_to_lines(width, header, rows, alignments, nesting, mapper),
     }
+}
+
+/// Apply mapper decorators to spans (emphasis, code, links, etc).
+/// This must happen before wrapping so decorator widths are included.
+fn apply_decorators<M: Mapper>(spans: Vec<Span>, mapper: &M) -> Vec<Span> {
+    let mut result: Vec<Span> = Vec::with_capacity(spans.len() * 2);
+    let mut prev_emphasis = false;
+    let mut prev_strong = false;
+    let mut prev_code = false;
+    let mut prev_strikethrough = false;
+
+    for mut span in spans {
+        let has_emphasis = span.modifiers.contains(Modifier::Emphasis);
+        let has_strong = span.modifiers.contains(Modifier::StrongEmphasis);
+        let has_code = span.modifiers.contains(Modifier::Code);
+        let has_strikethrough = span.modifiers.contains(Modifier::Strikethrough);
+        let is_newline = span.modifiers.contains(Modifier::NewLine);
+
+        // If this span starts a new line, trim trailing whitespace from previous span
+        // (This matches wrap.rs behavior but must happen before we insert decorators)
+        if is_newline {
+            if let Some(last) = result.last_mut() {
+                last.content.truncate(last.content.trim_end().len());
+            }
+        }
+
+        // Close decorators that ended (in reverse order of nesting)
+        if prev_code && !has_code {
+            let close = mapper.code_close();
+            if !close.is_empty() {
+                result.push(Span::new(close.to_owned(), Modifier::CodeWrapper));
+            }
+        }
+        if prev_strikethrough && !has_strikethrough {
+            let close = mapper.strikethrough_close();
+            if !close.is_empty() {
+                result.push(Span::new(close.to_owned(), Modifier::StrikethroughWrapper));
+            }
+        }
+        if prev_strong && !has_strong {
+            let close = mapper.strong_close();
+            if !close.is_empty() {
+                result.push(Span::new(close.to_owned(), Modifier::StrongEmphasisWrapper));
+            }
+        }
+        if prev_emphasis && !has_emphasis {
+            let close = mapper.emphasis_close();
+            if !close.is_empty() {
+                result.push(Span::new(close.to_owned(), Modifier::EmphasisWrapper));
+            }
+        }
+
+        // Track if we need to transfer NewLine to the first opening decorator
+        let mut newline_transferred = false;
+
+        // Open decorators that started
+        // If the content span has NewLine, transfer it to the first decorator we insert
+        if has_emphasis && !prev_emphasis {
+            let open = mapper.emphasis_open();
+            if !open.is_empty() {
+                let mods = if is_newline && !newline_transferred {
+                    newline_transferred = true;
+                    Modifier::EmphasisWrapper | Modifier::NewLine
+                } else {
+                    Modifier::EmphasisWrapper
+                };
+                result.push(Span::new(open.to_owned(), mods));
+            }
+        }
+        if has_strong && !prev_strong {
+            let open = mapper.strong_open();
+            if !open.is_empty() {
+                let mods = if is_newline && !newline_transferred {
+                    newline_transferred = true;
+                    Modifier::StrongEmphasisWrapper | Modifier::NewLine
+                } else {
+                    Modifier::StrongEmphasisWrapper
+                };
+                result.push(Span::new(open.to_owned(), mods));
+            }
+        }
+        if has_strikethrough && !prev_strikethrough {
+            let open = mapper.strikethrough_open();
+            if !open.is_empty() {
+                let mods = if is_newline && !newline_transferred {
+                    newline_transferred = true;
+                    Modifier::StrikethroughWrapper | Modifier::NewLine
+                } else {
+                    Modifier::StrikethroughWrapper
+                };
+                result.push(Span::new(open.to_owned(), mods));
+            }
+        }
+        if has_code && !prev_code {
+            let open = mapper.code_open();
+            if !open.is_empty() {
+                let mods = if is_newline && !newline_transferred {
+                    newline_transferred = true;
+                    Modifier::CodeWrapper | Modifier::NewLine
+                } else {
+                    Modifier::CodeWrapper
+                };
+                result.push(Span::new(open.to_owned(), mods));
+            }
+        }
+
+        // If we transferred NewLine to an opening decorator, remove it from the content span
+        if newline_transferred {
+            span.modifiers.remove(Modifier::NewLine);
+        }
+
+        // Transform link wrappers
+        if span.modifiers.contains(Modifier::LinkDescriptionWrapper) {
+            span.content = if span.content == "[" {
+                mapper.link_desc_open().to_owned()
+            } else {
+                mapper.link_desc_close().to_owned()
+            };
+        } else if span.modifiers.contains(Modifier::LinkURLWrapper) {
+            span.content = if span.content == "(" {
+                mapper.link_url_open().to_owned()
+            } else {
+                mapper.link_url_close().to_owned()
+            };
+        }
+
+        // Hide URL spans if configured (but not Image spans - they're extracted during wrapping)
+        let hide = mapper.hide_urls()
+            && span
+                .modifiers
+                .intersects(Modifier::LinkURL | Modifier::LinkURLWrapper)
+            && !span.modifiers.contains(Modifier::BareLink)
+            && !span.modifiers.contains(Modifier::Image);
+        if !hide {
+            result.push(span);
+        }
+
+        prev_emphasis = has_emphasis;
+        prev_strong = has_strong;
+        prev_code = has_code;
+        prev_strikethrough = has_strikethrough;
+    }
+
+    // Close any remaining open decorators at end
+    if prev_code {
+        let close = mapper.code_close();
+        if !close.is_empty() {
+            result.push(Span::new(close.to_owned(), Modifier::CodeWrapper));
+        }
+    }
+    if prev_strikethrough {
+        let close = mapper.strikethrough_close();
+        if !close.is_empty() {
+            result.push(Span::new(close.to_owned(), Modifier::StrikethroughWrapper));
+        }
+    }
+    if prev_strong {
+        let close = mapper.strong_close();
+        if !close.is_empty() {
+            result.push(Span::new(close.to_owned(), Modifier::StrongEmphasisWrapper));
+        }
+    }
+    if prev_emphasis {
+        let close = mapper.emphasis_close();
+        if !close.is_empty() {
+            result.push(Span::new(close.to_owned(), Modifier::EmphasisWrapper));
+        }
+    }
+
+    result
+}
+
+/// Build prefix spans from nesting containers.
+fn nesting_to_prefix_spans<M: Mapper>(nesting: &[MdLineContainer], mapper: &M) -> Vec<Span> {
+    let mut spans = Vec::new();
+    let last_list_idx = nesting
+        .iter()
+        .rposition(|c| matches!(c, MdLineContainer::ListItem { .. }));
+
+    for (i, container) in nesting.iter().enumerate() {
+        match container {
+            MdLineContainer::Blockquote => {
+                spans.push(Span::new(
+                    mapper.blockquote_bar().to_owned(),
+                    Modifier::BlockquoteBar,
+                ));
+            }
+            MdLineContainer::ListItem {
+                marker,
+                continuation,
+            } => {
+                if Some(i) == last_list_idx && !*continuation {
+                    let marker_text = match marker {
+                        ListMarker::Unordered(b) => mapper.unordered_bullet(*b).to_owned(),
+                        ListMarker::Ordered(n) => mapper.ordered_marker(*n),
+                        ListMarker::TaskChecked(b) => {
+                            format!("{}{}", mapper.unordered_bullet(*b), mapper.task_checked())
+                        }
+                        ListMarker::TaskUnchecked(b) => {
+                            format!("{}{}", mapper.unordered_bullet(*b), mapper.task_unchecked())
+                        }
+                    };
+                    spans.push(Span::new(marker_text, Modifier::ListMarker));
+                } else {
+                    // Indentation for outer/continuation items
+                    let indent_width = marker.width(mapper);
+                    spans.push(Span::new(" ".repeat(indent_width), Modifier::empty()));
+                }
+            }
+        }
+    }
+    spans
 }
 
 /// Convert MdContainer nesting to Container nesting.
@@ -497,10 +571,80 @@ fn convert_nesting(md_nesting: &[MdContainer], is_list_continuation: bool) -> Ve
     nesting
 }
 
-pub fn wrapped_lines_to_raw_lines(
+/// Convert a code block to output lines.
+fn code_block_to_lines<M: Mapper>(
+    width: u16,
+    language: &str,
+    code: &str,
+    nesting: Vec<MdLineContainer>,
+    mapper: &M,
+) -> Vec<Line> {
+    let code_lines: Vec<&str> = code.lines().collect();
+    let num_lines = code_lines.len();
+    if num_lines == 0 {
+        return vec![];
+    }
+
+    // Calculate prefix and available width
+    let prefix_spans = nesting_to_prefix_spans(&nesting, mapper);
+    let prefix_width: usize = prefix_spans.iter().map(|s| s.content.width()).sum();
+    let available_width = (width as usize).saturating_sub(prefix_width).max(1);
+
+    let mut result = Vec::new();
+
+    for line in code_lines {
+        let line_width = line.width();
+
+        if line_width > available_width {
+            // Wrap this line
+            let options = Options::new(available_width)
+                .break_words(true)
+                .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation);
+            let parts: Vec<_> = wrap(line, options).into_iter().collect();
+
+            for part in parts {
+                let content_width = part.width();
+                let padding = available_width.saturating_sub(content_width);
+
+                let mut spans = prefix_spans.clone();
+                spans.push(Span::new(part.into_owned(), Modifier::Code));
+                if padding > 0 {
+                    spans.push(Span::new(" ".repeat(padding), Modifier::Code));
+                }
+                result.push(Line {
+                    spans,
+                    kind: LineKind::CodeBlock {
+                        language: language.to_owned(),
+                    },
+                });
+            }
+        } else {
+            // Line fits, pad to fill width
+            let padding = available_width.saturating_sub(line_width);
+
+            let mut spans = prefix_spans.clone();
+            spans.push(Span::new(line.to_owned(), Modifier::Code));
+            if padding > 0 {
+                spans.push(Span::new(" ".repeat(padding), Modifier::Code));
+            }
+            result.push(Line {
+                spans,
+                kind: LineKind::CodeBlock {
+                    language: language.to_owned(),
+                },
+            });
+        }
+    }
+
+    result
+}
+
+/// Convert wrapped lines to output Lines with prefix spans.
+fn wrapped_to_lines<M: Mapper>(
     wrapped_lines: Vec<crate::wrap::WrappedLine>,
     nesting: Vec<MdLineContainer>,
-) -> Vec<RawLine> {
+    mapper: &M,
+) -> Vec<Line> {
     let mut lines = Vec::new();
 
     for (line_idx, wrapped_line) in wrapped_lines.into_iter().enumerate() {
@@ -512,8 +656,7 @@ pub fn wrapped_lines_to_raw_lines(
             continue;
         }
 
-        // For continuation lines (soft-wrapped), keep all containers but mark
-        // ListItems as continuation so they render as indentation
+        // For continuation lines (soft-wrapped), mark ListItems as continuation
         let line_nesting = if line_idx == 0 || wrapped_line.is_first {
             nesting.clone()
         } else {
@@ -531,25 +674,29 @@ pub fn wrapped_lines_to_raw_lines(
 
         // Create text line
         if !wrapped_line.spans.is_empty() {
-            lines.push(RawLine {
-                spans: wrapped_line.spans,
-                meta: LineMeta {
-                    kind: RawLineKind::Paragraph,
-                    nesting: line_nesting.clone(),
-                },
+            let mut spans = nesting_to_prefix_spans(&line_nesting, mapper);
+            spans.extend(wrapped_line.spans);
+            lines.push(Line {
+                spans,
+                kind: LineKind::Paragraph,
             });
         }
 
         // Create image lines
         for img in wrapped_line.images {
-            lines.push(RawLine {
-                spans: Vec::new(),
-                meta: LineMeta {
-                    kind: RawLineKind::Image {
-                        url: img.url,
-                        description: img.description,
-                    },
-                    nesting: line_nesting.clone(),
+            let spans = vec![
+                Span::new("![".to_owned(), Modifier::LinkDescriptionWrapper),
+                Span::new("Loading...".to_owned(), Modifier::LinkURL),
+                Span::new("]".to_owned(), Modifier::LinkDescriptionWrapper),
+                Span::new("(".to_owned(), Modifier::LinkURLWrapper),
+                Span::new(img.url.clone(), Modifier::LinkDescription),
+                Span::new(")".to_owned(), Modifier::LinkURLWrapper),
+            ];
+            lines.push(Line {
+                spans,
+                kind: LineKind::Image {
+                    url: img.url,
+                    description: img.description,
                 },
             });
         }
@@ -558,22 +705,19 @@ pub fn wrapped_lines_to_raw_lines(
     lines
 }
 
-pub fn table_to_raw_lines(
+/// Convert a table to output lines.
+fn table_to_lines<M: Mapper>(
     width: u16,
     header: &[Vec<Span>],
     rows: &[Vec<Vec<Span>>],
     alignments: &[TableAlignment],
     nesting: Vec<MdLineContainer>,
-) -> Vec<RawLine> {
+    mapper: &M,
+) -> Vec<Line> {
     let mut lines = Vec::new();
 
-    let prefix_width: usize = nesting
-        .iter()
-        .map(|c| match c {
-            MdLineContainer::Blockquote => 2,
-            MdLineContainer::ListItem { marker, .. } => marker.width(),
-        })
-        .sum();
+    let prefix_spans = nesting_to_prefix_spans(&nesting, mapper);
+    let prefix_width: usize = prefix_spans.iter().map(|s| s.content.width()).sum();
     let available_width = (width as usize).saturating_sub(prefix_width);
 
     let num_cols = header.len();
@@ -599,7 +743,7 @@ pub fn table_to_raw_lines(
 
     // Scale if too wide
     let table_width: usize = col_widths.iter().sum::<usize>() + num_cols + 1;
-    let col_widths = if table_width > available_width && available_width > num_cols + 1 {
+    let col_widths: Vec<usize> = if table_width > available_width && available_width > num_cols + 1 {
         let content_width = available_width - num_cols - 1;
         let total_content: usize = col_widths.iter().sum();
         col_widths
@@ -610,18 +754,48 @@ pub fn table_to_raw_lines(
         col_widths
     };
 
-    let column_info = TableColumnInfo {
-        widths: col_widths.clone(),
-        alignments: alignments.to_vec(),
+    // Helper to build border line
+    let build_border = |position: BorderPosition| -> Line {
+        let (left, mid, right) = match position {
+            BorderPosition::Top => (
+                mapper.table_top_left(),
+                mapper.table_top_junction(),
+                mapper.table_top_right(),
+            ),
+            BorderPosition::HeaderSeparator => (
+                mapper.table_left_junction(),
+                mapper.table_cross(),
+                mapper.table_right_junction(),
+            ),
+            BorderPosition::Bottom => (
+                mapper.table_bottom_left(),
+                mapper.table_bottom_junction(),
+                mapper.table_bottom_right(),
+            ),
+        };
+        let horizontal = mapper.table_horizontal();
+
+        let mut spans = prefix_spans.clone();
+        spans.push(Span::new(left.to_owned(), Modifier::TableBorder));
+        for (i, &col_w) in col_widths.iter().enumerate() {
+            spans.push(Span::new(horizontal.repeat(col_w), Modifier::TableBorder));
+            if i < num_cols - 1 {
+                spans.push(Span::new(mid.to_owned(), Modifier::TableBorder));
+            }
+        }
+        spans.push(Span::new(right.to_owned(), Modifier::TableBorder));
+
+        Line {
+            spans,
+            kind: LineKind::TableBorder,
+        }
     };
 
-    // Wrap cells to fit column widths and emit rows
-    let wrap_and_emit_row = |lines: &mut Vec<RawLine>,
-                             row: &[Vec<Span>],
-                             is_header: bool,
-                             column_info: &TableColumnInfo,
-                             nesting: &Vec<MdLineContainer>| {
-        // Wrap each cell's content to fit its column's inner width
+    // Helper to build row lines
+    let build_row_lines = |row: &[Vec<Span>], is_header: bool| -> Vec<Line> {
+        let vertical = mapper.table_vertical();
+
+        // Wrap each cell's content
         let wrapped_cells: Vec<Vec<Vec<Span>>> = row
             .iter()
             .enumerate()
@@ -637,73 +811,95 @@ pub fn table_to_raw_lines(
             })
             .collect();
 
-        // Find max lines in this row
         let max_lines = wrapped_cells.iter().map(|c| c.len()).max().unwrap_or(1);
+        let mut result = Vec::new();
 
-        // Emit one TableRow per wrapped line
         for line_idx in 0..max_lines {
-            let cells_for_line: Vec<Vec<Span>> = wrapped_cells
-                .iter()
-                .map(|cell_lines| cell_lines.get(line_idx).cloned().unwrap_or_default())
-                .collect();
+            let mut spans = prefix_spans.clone();
+            spans.push(Span::new(vertical.to_owned(), Modifier::TableBorder));
 
-            lines.push(RawLine {
-                spans: Vec::new(),
-                meta: LineMeta {
-                    kind: RawLineKind::TableRow {
-                        cells: cells_for_line,
-                        column_info: column_info.clone(),
-                        is_header,
-                    },
-                    nesting: nesting.clone(),
-                },
+            for (i, col_width) in col_widths.iter().enumerate() {
+                let alignment = alignments.get(i).copied().unwrap_or(TableAlignment::Left);
+                let cell_spans = wrapped_cells
+                    .get(i)
+                    .and_then(|c| c.get(line_idx))
+                    .map_or(&[][..], |v| v.as_slice());
+
+                let content_width: usize = cell_spans.iter().map(|s| s.content.width()).sum();
+                let inner_width = col_width.saturating_sub(2);
+                let padding_total = inner_width.saturating_sub(content_width);
+
+                let (left_pad, right_pad) = match alignment {
+                    TableAlignment::Center => (padding_total / 2, padding_total - padding_total / 2),
+                    TableAlignment::Right => (padding_total, 0),
+                    TableAlignment::Left => (0, padding_total),
+                };
+
+                // Left padding + space
+                spans.push(Span::new(
+                    format!(" {}", " ".repeat(left_pad)),
+                    Modifier::empty(),
+                ));
+
+                // Cell content (apply decorators)
+                for node in cell_spans {
+                    let mut mapped_node = node.clone();
+                    if mapped_node.modifiers.contains(Modifier::LinkDescriptionWrapper) {
+                        mapped_node.content = if mapped_node.content == "[" {
+                            mapper.link_desc_open().to_owned()
+                        } else {
+                            mapper.link_desc_close().to_owned()
+                        };
+                    } else if mapped_node.modifiers.contains(Modifier::LinkURLWrapper) {
+                        mapped_node.content = if mapped_node.content == "(" {
+                            mapper.link_url_open().to_owned()
+                        } else {
+                            mapper.link_url_close().to_owned()
+                        };
+                    }
+                    spans.push(mapped_node);
+                }
+
+                // Right padding + space
+                spans.push(Span::new(
+                    format!("{} ", " ".repeat(right_pad)),
+                    Modifier::empty(),
+                ));
+                spans.push(Span::new(vertical.to_owned(), Modifier::TableBorder));
+            }
+
+            // Fill missing columns
+            for i in row.len()..num_cols {
+                let col_width = col_widths.get(i).copied().unwrap_or(3);
+                spans.push(Span::new(" ".repeat(col_width), Modifier::empty()));
+                spans.push(Span::new(vertical.to_owned(), Modifier::TableBorder));
+            }
+
+            result.push(Line {
+                spans,
+                kind: LineKind::TableRow { is_header },
             });
         }
+
+        result
     };
 
     // Top border
-    lines.push(RawLine {
-        spans: Vec::new(),
-        meta: LineMeta {
-            kind: RawLineKind::TableBorder {
-                column_info: column_info.clone(),
-                position: BorderPosition::Top,
-            },
-            nesting: nesting.clone(),
-        },
-    });
+    lines.push(build_border(BorderPosition::Top));
 
-    // Header row (wrapped)
-    wrap_and_emit_row(&mut lines, header, true, &column_info, &nesting);
+    // Header row
+    lines.extend(build_row_lines(header, true));
 
     // Header separator
-    lines.push(RawLine {
-        spans: Vec::new(),
-        meta: LineMeta {
-            kind: RawLineKind::TableBorder {
-                column_info: column_info.clone(),
-                position: BorderPosition::HeaderSeparator,
-            },
-            nesting: nesting.clone(),
-        },
-    });
+    lines.push(build_border(BorderPosition::HeaderSeparator));
 
-    // Data rows (wrapped)
+    // Data rows
     for row in rows {
-        wrap_and_emit_row(&mut lines, row, false, &column_info, &nesting);
+        lines.extend(build_row_lines(row, false));
     }
 
     // Bottom border
-    lines.push(RawLine {
-        spans: Vec::new(),
-        meta: LineMeta {
-            kind: RawLineKind::TableBorder {
-                column_info,
-                position: BorderPosition::Bottom,
-            },
-            nesting,
-        },
-    });
+    lines.push(build_border(BorderPosition::Bottom));
 
     lines
 }
