@@ -39,6 +39,7 @@ use ratatui::{
 use mdfrier::Mapper as _;
 use ratatui_image::{Image, picker::ProtocolType, protocol::Protocol};
 use setup::{SetupResult, setup_graphics};
+use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     big_text::BigText,
@@ -400,7 +401,7 @@ fn extract_line_content(line: &Line, start: u16) -> String {
         if pos == start {
             return span.content.to_string();
         }
-        let span_width = unicode_width::UnicodeWidthStr::width(span.content.as_ref()) as u16;
+        let span_width = span.content.width() as u16;
         pos += span_width;
         if pos > start {
             // We passed the start position without finding an exact match
@@ -436,116 +437,133 @@ fn view(model: &Model, frame: &mut Frame) {
         _ => None,
     };
 
-    let mut y: i16 = 0 - (model.scroll as i16);
+    let mut y: i32 = 0 - (model.scroll as i32);
     for section in model.sections() {
-        if y >= 0 {
-            let y: u16 = y as u16;
-            match &section.content {
-                SectionContent::Lines(lines) => {
-                    let mut flat_index = 0;
-                    let mut line_y = y;
-                    for (line, extras) in lines.iter() {
-                        if line_y >= inner_area.height {
-                            break;
-                        }
-
-                        // Check if this line has a loaded image
-                        let image_extra = extras.iter().find_map(|e| {
-                            if let LineExtra::Image(_, proto) = e {
-                                Some(proto)
-                            } else {
-                                None
-                            }
-                        });
-
-                        let line_height = if let Some(proto) = image_extra {
-                            let img = Image::new(proto);
-                            let h = proto.area().height;
-                            render_widget(img, h, line_y, inner_area, frame);
-                            h
+        if y + (section.height as i32) < 0 {
+            y += section.height as i32;
+            continue;
+        }
+        match &section.content {
+            SectionContent::Lines(lines) => {
+                let mut flat_index = 0;
+                for (line, extras) in lines.iter() {
+                    // Check if this line has a loaded image
+                    let image = extras.iter().find_map(|extra| {
+                        if let LineExtra::Image(_, proto) = extra {
+                            Some(proto)
                         } else {
-                            let p = Paragraph::new(line.clone());
-                            render_widget(p, 1, line_y, inner_area, frame);
-                            1
-                        };
+                            None
+                        }
+                    });
+                    let line_height = if let Some(proto) = image {
+                        proto.area().height
+                    } else {
+                        1
+                    };
 
-                        // Highlight all links that share the same URL as the selected link
-                        if let Cursor::Links(CursorPointer { id, index }) = &model.cursor {
-                            if let Some(selected) = &selected_url {
-                                for (i, extra) in extras.iter().enumerate() {
-                                    if let LineExtra::Link(url, start, end) = extra {
-                                        if url.as_ptr() == selected.as_ptr() {
-                                            let x = frame_area.x + padding.left + *start;
-                                            let width = end - start;
-                                            let area = Rect::new(x, line_y, width, 1);
-                                            // Highlight with original content - source_content is only for grouping/opening
-                                            let display_text = extract_line_content(line, *start);
-                                            let link_overlay_widget = Paragraph::new(display_text)
-                                                .fg(Color::Indexed(15))
-                                                .bg(Color::Indexed(32));
-                                            frame.render_widget(link_overlay_widget, area);
+                    if y < 0 {
+                        y += line_height as i32;
+                        continue; // skip this line.
+                    }
 
-                                            // Position cursor on the actual selected link
-                                            if *id == section.id && *index == flat_index + i {
-                                                cursor_positioned = Some((x, line_y));
-                                            }
+                    // Positive Y
+                    let line_y = y as u16;
+                    if line_y >= inner_area.height - 1 {
+                        break;
+                    }
+
+                    if let Some(proto) = image {
+                        let img = Image::new(proto);
+                        render_lines(img, line_height, line_y, inner_area, frame);
+                    } else {
+                        let p = Paragraph::new(line.clone());
+                        render_lines(p, line_height, line_y, inner_area, frame);
+                    }
+
+                    // Highlight all links that share the same URL as the selected link
+                    if let Cursor::Links(CursorPointer { id, index }) = &model.cursor {
+                        if let Some(selected) = &selected_url {
+                            for (i, extra) in extras.iter().enumerate() {
+                                if let LineExtra::Link(url, start, end) = extra {
+                                    if url.as_ptr() == selected.as_ptr() {
+                                        let x = frame_area.x + padding.left + *start;
+                                        let width = end - start;
+                                        let area = Rect::new(x, line_y, width, 1);
+                                        // Highlight with original content - source_content is only for grouping/opening
+                                        let display_text = extract_line_content(line, *start);
+                                        let link_overlay_widget = Paragraph::new(display_text)
+                                            .fg(Color::Indexed(15))
+                                            .bg(Color::Indexed(32));
+                                        frame.render_widget(link_overlay_widget, area);
+
+                                        // Position cursor on the actual selected link
+                                        if *id == section.id && *index == flat_index + i {
+                                            cursor_positioned = Some((x, line_y));
                                         }
                                     }
                                 }
                             }
-                        } else if let Cursor::Search(_, pointer) = &model.cursor {
-                            for (i, extra) in extras.iter().enumerate() {
-                                if let LineExtra::SearchMatch(start, end, text) = extra {
-                                    let x = frame_area.x + padding.left + (*start as u16);
-                                    let width = *end as u16 - *start as u16;
-                                    let area = Rect::new(x, line_y, width, 1);
-                                    let mut link_overlay_widget = Paragraph::new(text.clone());
-                                    link_overlay_widget = if let Some(CursorPointer { id, index }) =
-                                        pointer
-                                        && section.id == *id
-                                        && flat_index + i == *index
-                                    {
-                                        link_overlay_widget.fg(Color::Black).bg(Color::Indexed(197))
-                                    } else {
-                                        link_overlay_widget.fg(Color::Black).bg(Color::Indexed(148))
-                                    };
-                                    frame.render_widget(link_overlay_widget, area);
-                                    cursor_positioned = Some((x, line_y));
-                                }
+                        }
+                    } else if let Cursor::Search(_, pointer) = &model.cursor {
+                        for (i, extra) in extras.iter().enumerate() {
+                            if let LineExtra::SearchMatch(start, end, text) = extra {
+                                let x = frame_area.x + padding.left + (*start as u16);
+                                let width = *end as u16 - *start as u16;
+                                let area = Rect::new(x, line_y, width, 1);
+                                let mut link_overlay_widget = Paragraph::new(text.clone());
+                                link_overlay_widget = if let Some(CursorPointer { id, index }) =
+                                    pointer
+                                    && section.id == *id
+                                    && flat_index + i == *index
+                                {
+                                    link_overlay_widget.fg(Color::Black).bg(Color::Indexed(197))
+                                } else {
+                                    link_overlay_widget.fg(Color::Black).bg(Color::Indexed(148))
+                                };
+                                frame.render_widget(link_overlay_widget, area);
+                                cursor_positioned = Some((x, line_y));
                             }
                         }
-                        flat_index += extras.len();
-                        line_y += line_height;
                     }
-                }
-                SectionContent::Image(_, proto) => {
-                    let img = Image::new(proto);
-                    render_widget(img, section.height, y, inner_area, frame);
-                }
-                SectionContent::BrokenImage(url, text) => {
-                    let spans = vec![
-                        Span::from(format!("![{text}](")).red(),
-                        Span::from(url.clone()).blue(),
-                        Span::from(")").red(),
-                    ];
-                    let text = Text::from(Line::from(spans));
-                    let height = text.height();
-                    let p = Paragraph::new(text);
-                    render_widget(p, height as u16, y, inner_area, frame);
-                }
-                SectionContent::Header(text, tier, proto) => {
-                    if let Some(proto) = proto {
-                        let img = Image::new(proto);
-                        render_widget(img, section.height, y, inner_area, frame);
-                    } else {
-                        let big_text = BigText::new(text, *tier);
-                        render_widget(big_text, 2, y, inner_area, frame);
-                    }
+                    flat_index += extras.len();
+                    y += line_height as i32;
                 }
             }
+            SectionContent::Image(_, proto) => {
+                if y < 0 {
+                    continue;
+                }
+                let img = Image::new(proto);
+                render_lines(img, section.height, y as u16, inner_area, frame);
+                y += proto.area().height as i32;
+            }
+            SectionContent::BrokenImage(url, text) => {
+                if y < 0 {
+                    continue;
+                }
+                let spans = vec![
+                    Span::from(format!("![{text}](")).red(),
+                    Span::from(url.clone()).blue(),
+                    Span::from(")").red(),
+                ];
+                let text = Text::from(Line::from(spans));
+                let height = text.height();
+                let p = Paragraph::new(text);
+                render_lines(p, height as u16, y as u16, inner_area, frame);
+                y += 1;
+            }
+            SectionContent::Header(text, tier, proto) => {
+                if let Some(proto) = proto {
+                    let img = Image::new(proto);
+                    render_lines(img, section.height, y as u16, inner_area, frame);
+                } else {
+                    let big_text = BigText::new(text, *tier);
+                    render_lines(big_text, 2, y as u16, inner_area, frame);
+                }
+                y += 2;
+            }
         }
-        y += section.height as i16;
-        if y >= inner_area.height as i16 - 1 {
+        if y >= inner_area.height as i32 - 1 {
             // Do not render into last line, nor beyond area.
             break;
         }
@@ -612,13 +630,11 @@ fn view(model: &Model, frame: &mut Frame) {
     }
 }
 
-fn render_widget<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, f: &mut Frame) {
-    if source_height < area.height - y {
-        let mut widget_area = area;
-        widget_area.y += y;
-        widget_area.height = widget_area.height.min(source_height);
-        f.render_widget(widget, widget_area);
-    }
+fn render_lines<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, f: &mut Frame) {
+    let mut widget_area = area;
+    widget_area.y += y;
+    widget_area.height = widget_area.height.min(source_height);
+    f.render_widget(widget, widget_area);
 }
 
 #[cfg(test)]
