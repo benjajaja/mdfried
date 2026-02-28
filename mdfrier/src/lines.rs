@@ -795,14 +795,15 @@ fn table_to_lines<M: Mapper>(
     let build_row_lines = |row: &[Vec<Span>], is_header: bool| -> Vec<Line> {
         let vertical = mapper.table_vertical();
 
-        // Wrap each cell's content
+        // Wrap each cell's content (apply decorators first, like paragraphs)
         let wrapped_cells: Vec<Vec<Vec<Span>>> = row
             .iter()
             .enumerate()
             .map(|(i, cell)| {
                 let col_width = col_widths.get(i).copied().unwrap_or(3);
                 let inner_width = col_width.saturating_sub(2).max(1) as u16;
-                let wrapped = wrap_md_spans_lines(inner_width, cell.clone());
+                let decorated = apply_decorators(cell.clone(), mapper);
+                let wrapped = wrap_md_spans_lines(inner_width, decorated);
                 if wrapped.is_empty() {
                     vec![Vec::new()]
                 } else {
@@ -841,24 +842,8 @@ fn table_to_lines<M: Mapper>(
                     Modifier::empty(),
                 ));
 
-                // Cell content (apply decorators)
-                for node in cell_spans {
-                    let mut mapped_node = node.clone();
-                    if mapped_node.modifiers.contains(Modifier::LinkDescriptionWrapper) {
-                        mapped_node.content = if mapped_node.content == "[" {
-                            mapper.link_desc_open().to_owned()
-                        } else {
-                            mapper.link_desc_close().to_owned()
-                        };
-                    } else if mapped_node.modifiers.contains(Modifier::LinkURLWrapper) {
-                        mapped_node.content = if mapped_node.content == "(" {
-                            mapper.link_url_open().to_owned()
-                        } else {
-                            mapper.link_url_close().to_owned()
-                        };
-                    }
-                    spans.push(mapped_node);
-                }
+                // Cell content (already decorated)
+                spans.extend(cell_spans.iter().cloned());
 
                 // Right padding + space
                 spans.push(Span::new(
