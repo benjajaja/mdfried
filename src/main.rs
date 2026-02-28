@@ -37,8 +37,9 @@ use ratatui::{
 };
 
 use mdfrier::Mapper as _;
-use ratatui_image::{Image, picker::ProtocolType};
+use ratatui_image::{Image, picker::ProtocolType, protocol::Protocol};
 use setup::{SetupResult, setup_graphics};
+use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     big_text::BigText,
@@ -49,7 +50,7 @@ use crate::{
     keybindings::PollResult,
     model::{DocumentId, InputQueue, Model},
     watch::watch,
-    worker::worker_thread,
+    worker::{ImageCache, worker_thread},
 };
 
 const OK_END: &str = " ok.";
@@ -223,7 +224,6 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let watch_event_tx = event_tx.clone();
 
     let config_max_image_height = config.max_image_height;
-    let can_render_headers = renderer.is_some();
     let cmd_thread = worker_thread(
         basepath,
         picker,
@@ -247,14 +247,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     terminal.clear()?;
 
     let terminal_size = terminal.size()?;
-    let model = Model::new(
-        path.cloned(),
-        cmd_tx,
-        event_rx,
-        terminal.size()?,
-        config,
-        can_render_headers,
-    );
+    let model = Model::new(path.cloned(), cmd_tx, event_rx, terminal.size()?, config);
     model.open(terminal_size, text)?;
 
     let debouncer = if let Some(path) = watchmode_path {
@@ -282,39 +275,39 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     Ok(())
 }
 
-#[derive(Debug)]
 enum Cmd {
-    Parse(DocumentId, u16, String),
-    UrlImage(DocumentId, usize, u16, String, String),
-    Header(DocumentId, usize, u16, u8, String),
+    Parse(DocumentId, u16, String, Option<ImageCache>),
+}
+
+impl std::fmt::Debug for Cmd {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Display::fmt(self, f)
+    }
 }
 
 impl Display for Cmd {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Cmd::Parse(reload_id, width, _) => {
-                write!(f, "Cmd::Parse({reload_id:?}, {width}, <text>)")
+            Cmd::Parse(reload_id, width, _, cache) => {
+                write!(
+                    f,
+                    "Cmd::Parse({reload_id:?}, {width}, <text>, cache={})",
+                    cache
+                        .as_ref()
+                        .map(|c| c.images.len() + c.headers.len())
+                        .unwrap_or(0)
+                )
             }
-            Cmd::UrlImage(document_id, source_id, width, url, _) => write!(
-                f,
-                "Cmd::UrlImage({document_id}, {source_id}, {width}, {url}, _, _)"
-            ),
-            Cmd::Header(document_id, source_id, width, tier, text) => write!(
-                f,
-                "Cmd::Header({document_id}, {source_id}, {width}, {tier}, {text})"
-            ),
         }
     }
 }
 
-#[derive(Debug, PartialEq)]
 pub enum Event {
     NewDocument(DocumentId),
     ParseDone(DocumentId, Option<SectionID>), // Only signals "parsing done", not "images ready"!
     Parsed(DocumentId, Section),
-    ParsedImage(DocumentId, SectionID, MarkdownImage),
-    ParseHeader(DocumentId, SectionID, u8, String),
-    Update(DocumentId, Vec<Section>),
+    ImageLoaded(DocumentId, SectionID, String, Protocol),
+    HeaderLoaded(DocumentId, SectionID, Vec<(String, u8, Protocol)>),
     FileChanged,
 }
 
@@ -334,20 +327,29 @@ impl Display for Event {
                 )
             }
 
-            Event::Update(document_id, updates) => {
-                write!(f, "Event::Update({document_id}, <{updates:?}>)",)
+            Event::ImageLoaded(document_id, section_id, url, _) => {
+                write!(f, "Event::ImageLoaded({document_id}, {section_id}, {url})")
             }
 
-            Event::ParsedImage(document_id, id, args) => {
-                write!(f, "Event::ParseImage({document_id}, {id}, {args})")
-            }
-
-            Event::ParseHeader(document_id, id, tier, text) => {
-                write!(f, "Event::ParseHeader({document_id}, {id}, {tier}, {text})")
+            Event::HeaderLoaded(document_id, section_id, rows) => {
+                write!(
+                    f,
+                    "Event::HeaderLoaded({document_id}, {section_id}, {})",
+                    rows.first()
+                        .map(|(text, _, _)| text.clone())
+                        .unwrap_or_default()
+                )
             }
 
             Event::FileChanged => write!(f, "Event::FileChanged"),
         }
+    }
+}
+
+impl std::fmt::Debug for Event {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Reuse Display impl
+        Display::fmt(self, f)
     }
 }
 
@@ -372,18 +374,17 @@ fn run(
     ui_logger: &LoggerHandle,
 ) -> Result<(), Error> {
     terminal.draw(|frame| view(&model, frame))?;
-    let screen_size = terminal.size()?;
-
     loop {
-        let (had_events, _) = model.process_events(screen_size.width)?;
+        let (had_events, _, had_reload) = model.process_events()?;
 
-        let had_input = match keybindings::poll(had_events, &mut model)? {
+        let (had_input, skip_render) = match keybindings::poll(had_events, &mut model)? {
             PollResult::Quit => return Ok(()),
-            PollResult::None => false,
-            PollResult::HadInput => true,
+            PollResult::None => (false, false),
+            PollResult::HadInput => (true, false),
+            PollResult::SkipRender => (true, true),
         };
 
-        if had_events || had_input {
+        if (had_events || had_input) && !skip_render && !had_reload {
             if let Some(ref mut snapshot) = model.log_snapshot {
                 ui_logger.update_snapshot(snapshot)?;
             }
@@ -400,7 +401,7 @@ fn extract_line_content(line: &Line, start: u16) -> String {
         if pos == start {
             return span.content.to_string();
         }
-        let span_width = unicode_width::UnicodeWidthStr::width(span.content.as_ref()) as u16;
+        let span_width = span.content.width() as u16;
         pos += span_width;
         if pos > start {
             // We passed the start position without finding an exact match
@@ -436,15 +437,48 @@ fn view(model: &Model, frame: &mut Frame) {
         _ => None,
     };
 
-    let mut y: i16 = 0 - (model.scroll as i16);
+    let mut y: i32 = 0 - (model.scroll as i32);
     for section in model.sections() {
-        if y >= 0 {
-            let y: u16 = y as u16;
-            match &section.content {
-                SectionContent::Line(line, extras) => {
-                    let p = Paragraph::new(line.clone());
+        if y + (section.height as i32) < 0 {
+            y += section.height as i32;
+            continue;
+        }
+        match &section.content {
+            SectionContent::Lines(lines) => {
+                let mut flat_index = 0;
+                for (line, extras) in lines.iter() {
+                    // Check if this line has a loaded image
+                    let image = extras.iter().find_map(|extra| {
+                        if let LineExtra::Image(_, proto) = extra {
+                            Some(proto)
+                        } else {
+                            None
+                        }
+                    });
+                    let line_height = if let Some(proto) = image {
+                        proto.area().height
+                    } else {
+                        1
+                    };
 
-                    render_widget(p, section.height, y, inner_area, frame);
+                    if y < 0 {
+                        y += line_height as i32;
+                        continue; // skip this line.
+                    }
+
+                    // Positive Y
+                    let line_y = y as u16;
+                    if line_y >= inner_area.height - 1 {
+                        break;
+                    }
+
+                    if let Some(proto) = image {
+                        let img = Image::new(proto);
+                        render_lines(img, line_height, line_y, inner_area, frame);
+                    } else {
+                        let p = Paragraph::new(line.clone());
+                        render_lines(p, line_height, line_y, inner_area, frame);
+                    }
 
                     // Highlight all links that share the same URL as the selected link
                     if let Cursor::Links(CursorPointer { id, index }) = &model.cursor {
@@ -454,7 +488,7 @@ fn view(model: &Model, frame: &mut Frame) {
                                     if url.as_ptr() == selected.as_ptr() {
                                         let x = frame_area.x + padding.left + *start;
                                         let width = end - start;
-                                        let area = Rect::new(x, y, width, 1);
+                                        let area = Rect::new(x, line_y, width, 1);
                                         // Highlight with original content - source_content is only for grouping/opening
                                         let display_text = extract_line_content(line, *start);
                                         let link_overlay_widget = Paragraph::new(display_text)
@@ -463,8 +497,8 @@ fn view(model: &Model, frame: &mut Frame) {
                                         frame.render_widget(link_overlay_widget, area);
 
                                         // Position cursor on the actual selected link
-                                        if *id == section.id && *index == i {
-                                            cursor_positioned = Some((x, y));
+                                        if *id == section.id && *index == flat_index + i {
+                                            cursor_positioned = Some((x, line_y));
                                         }
                                     }
                                 }
@@ -475,46 +509,61 @@ fn view(model: &Model, frame: &mut Frame) {
                             if let LineExtra::SearchMatch(start, end, text) = extra {
                                 let x = frame_area.x + padding.left + (*start as u16);
                                 let width = *end as u16 - *start as u16;
-                                let area = Rect::new(x, y, width, 1);
+                                let area = Rect::new(x, line_y, width, 1);
                                 let mut link_overlay_widget = Paragraph::new(text.clone());
                                 link_overlay_widget = if let Some(CursorPointer { id, index }) =
                                     pointer
                                     && section.id == *id
-                                    && i == *index
+                                    && flat_index + i == *index
                                 {
                                     link_overlay_widget.fg(Color::Black).bg(Color::Indexed(197))
                                 } else {
                                     link_overlay_widget.fg(Color::Black).bg(Color::Indexed(148))
                                 };
                                 frame.render_widget(link_overlay_widget, area);
-                                cursor_positioned = Some((x, y));
+                                cursor_positioned = Some((x, line_y));
                             }
                         }
                     }
-                }
-                SectionContent::Image(_, proto) => {
-                    let img = Image::new(proto);
-                    render_widget(img, section.height, y, inner_area, frame);
-                }
-                SectionContent::BrokenImage(url, text) => {
-                    let spans = vec![
-                        Span::from(format!("![{text}](")).red(),
-                        Span::from(url.clone()).blue(),
-                        Span::from(")").red(),
-                    ];
-                    let text = Text::from(Line::from(spans));
-                    let height = text.height();
-                    let p = Paragraph::new(text);
-                    render_widget(p, height as u16, y, inner_area, frame);
-                }
-                SectionContent::Header(text, tier) => {
-                    let big_text = BigText::new(text, *tier);
-                    render_widget(big_text, 2, y, inner_area, frame);
+                    flat_index += extras.len();
+                    y += line_height as i32;
                 }
             }
+            SectionContent::Image(_, proto) => {
+                if y < 0 {
+                    continue;
+                }
+                let img = Image::new(proto);
+                render_lines(img, section.height, y as u16, inner_area, frame);
+                y += proto.area().height as i32;
+            }
+            SectionContent::BrokenImage(url, text) => {
+                if y < 0 {
+                    continue;
+                }
+                let spans = vec![
+                    Span::from(format!("![{text}](")).red(),
+                    Span::from(url.clone()).blue(),
+                    Span::from(")").red(),
+                ];
+                let text = Text::from(Line::from(spans));
+                let height = text.height();
+                let p = Paragraph::new(text);
+                render_lines(p, height as u16, y as u16, inner_area, frame);
+                y += 1;
+            }
+            SectionContent::Header(text, tier, proto) => {
+                if let Some(proto) = proto {
+                    let img = Image::new(proto);
+                    render_lines(img, section.height, y as u16, inner_area, frame);
+                } else {
+                    let big_text = BigText::new(text, *tier);
+                    render_lines(big_text, 2, y as u16, inner_area, frame);
+                }
+                y += 2;
+            }
         }
-        y += section.height as i16;
-        if y >= inner_area.height as i16 - 1 {
+        if y >= inner_area.height as i32 - 1 {
             // Do not render into last line, nor beyond area.
             break;
         }
@@ -581,13 +630,11 @@ fn view(model: &Model, frame: &mut Frame) {
     }
 }
 
-fn render_widget<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, f: &mut Frame) {
-    if source_height < area.height - y {
-        let mut widget_area = area;
-        widget_area.y += y;
-        widget_area.height = widget_area.height.min(source_height);
-        f.render_widget(widget, widget_area);
-    }
+fn render_lines<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, f: &mut Frame) {
+    let mut widget_area = area;
+    widget_area.y += y;
+    widget_area.height = widget_area.height.min(source_height);
+    f.render_widget(widget, widget_area);
 }
 
 #[cfg(test)]
@@ -634,7 +681,7 @@ mod tests {
 
         let screen_size = (80, 20).into();
 
-        let model = Model::new(None, cmd_tx, event_rx, screen_size, config, false);
+        let model = Model::new(None, cmd_tx, event_rx, screen_size, config);
         (model, worker, screen_size)
     }
 
@@ -645,20 +692,25 @@ mod tests {
     }
 
     // Poll until parsed and no pending images.
-    fn poll_parsed(model: &mut Model, screen_size: &Size) {
+    fn poll_parsed(model: &mut Model) {
+        let mut fuse = 1_000_000;
         loop {
-            let (_, parse_done) = model.process_events(screen_size.width).unwrap();
+            let (_, parse_done, _) = model.process_events().unwrap();
             if parse_done {
                 break;
+            }
+            fuse -= 1;
+            if fuse == 0 {
+                panic!("fuse exhausted");
             }
         }
         log::debug!("poll_parsed completed");
     }
 
     // Poll until parsed and no pending images.
-    fn poll_done(model: &mut Model, screen_size: &Size) {
-        while model.pending_image_count > 0 {
-            model.process_events(screen_size.width).unwrap();
+    fn poll_done(model: &mut Model) {
+        while model.has_pending_images() {
+            model.process_events().unwrap();
         }
         log::debug!("poll_done completed");
     }
@@ -688,11 +740,11 @@ Goodbye."#,
                 ),
             )
             .unwrap();
-        poll_parsed(&mut model, &screen_size);
+        poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("first parse image previews", terminal.backend());
         // Must load an image.
-        poll_done(&mut model, &screen_size);
+        poll_done(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("first parse done", terminal.backend());
 
@@ -721,8 +773,8 @@ Goodbye."#,
                 ),
             )
             .unwrap();
-        poll_parsed(&mut model, &screen_size);
-        poll_done(&mut model, &screen_size);
+        poll_parsed(&mut model);
+        poll_done(&mut model);
 
         model
             .reparse(
@@ -735,7 +787,7 @@ Goodbye."#,
                 ),
             )
             .unwrap();
-        poll_parsed(&mut model, &screen_size);
+        poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("reload move image up", terminal.backend());
 
@@ -750,7 +802,7 @@ Goodbye."#,
                 ),
             )
             .unwrap();
-        poll_parsed(&mut model, &screen_size);
+        poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("reload move image down", terminal.backend());
 
@@ -779,8 +831,8 @@ Goodbye."#,
                 ),
             )
             .unwrap();
-        poll_parsed(&mut model, &screen_size);
-        poll_done(&mut model, &screen_size);
+        poll_parsed(&mut model);
+        poll_done(&mut model);
 
         model
             .reparse(
@@ -794,11 +846,11 @@ Goodbye."#,
                 ),
             )
             .unwrap();
-        poll_parsed(&mut model, &screen_size);
+        poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("reload add image preview", terminal.backend());
         // Must load an image.
-        poll_done(&mut model, &screen_size);
+        poll_done(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("reload add image done", terminal.backend());
         teardown(model, worker);
@@ -825,8 +877,8 @@ Goodbye."#,
                 ),
             )
             .unwrap();
-        poll_parsed(&mut model, &screen_size);
-        poll_done(&mut model, &screen_size);
+        poll_parsed(&mut model);
+        poll_done(&mut model);
 
         model
             .reparse(
@@ -839,11 +891,11 @@ Goodbye.
                 ),
             )
             .unwrap();
-        poll_parsed(&mut model, &screen_size);
+        poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("duplicate image preview", terminal.backend());
         // Must load an image.
-        poll_done(&mut model, &screen_size);
+        poll_done(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("duplicate image done", terminal.backend());
         teardown(model, worker);

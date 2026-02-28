@@ -23,12 +23,11 @@ use reqwest::{
 use tokio::sync::RwLock;
 use unicode_width::UnicodeWidthStr as _;
 
-use crate::{Error, cursor::CursorPointer, setup::FontRenderer};
+use crate::{Error, cursor::CursorPointer, setup::FontRenderer, worker::ImageCache};
 
 #[derive(Default)]
 pub struct Document {
     sections: Vec<Section>,
-    updated_images: Vec<(u16, String, Protocol)>,
 }
 
 impl Document {
@@ -65,12 +64,7 @@ impl Document {
         }
 
         if let Some((start, end)) = range {
-            let splice = self.sections.splice(start..end, updates);
-            for splice in splice {
-                if let SectionContent::Image(url, proto) = splice.content {
-                    self.updated_images.push((splice.height, url, proto));
-                }
-            }
+            self.sections.splice(start..end, updates);
         } else if let Some(last) = self.sections.last()
             && last.id < first_id
         {
@@ -83,44 +77,113 @@ impl Document {
         }
     }
 
-    pub fn replace(&mut self, id: SectionID, url: &str) -> Option<Section> {
-        for section in &mut self.sections {
-            if section.id < id {
-                continue;
-            }
-            if let SectionContent::Image(existing_url, _) = &section.content
-                && *existing_url == url
-            {
-                let removed_image = std::mem::replace(
-                    section,
-                    Section {
-                        id: section.id,
-                        height: 1,
-                        content: SectionContent::Line(
-                            Line::from(format!("![Replacing...]({url})")),
-                            Vec::new(),
-                        ),
-                    },
-                );
-                log::debug!("search & replaced #{}: {}", section.id, section.content);
-                return Some(removed_image);
-            }
-        }
-        self.updated_images
+    /// Update a specific image line within a section with loaded image data.
+    pub fn update_image(&mut self, section_id: SectionID, url: &str, proto: Protocol) {
+        let Some(section) = self.sections.iter_mut().find(|s| s.id == section_id) else {
+            log::error!("update_image: section #{section_id} not found");
+            return;
+        };
+
+        let SectionContent::Lines(lines) = &mut section.content else {
+            log::error!("update_image: section #{section_id} is not Lines");
+            return;
+        };
+
+        // Find the line containing this image URL (skip lines that already have an image)
+        let Some((_line, extras)) = lines.iter_mut().find(|(line, extras)| {
+            let text = line.to_string();
+            text.starts_with("![")
+                && text.contains(url)
+                && !extras.iter().any(|e| matches!(e, LineExtra::Image(_, _)))
+        }) else {
+            log::error!("update_image: no line with url {url} in section #{section_id}");
+            return;
+        };
+
+        // Add the image protocol to extras
+        extras.push(LineExtra::Image(url.to_owned(), proto));
+
+        // Recalculate section height
+        let height: u16 = lines
             .iter()
-            .position(|(_, stored_url, _)| stored_url == url)
-            .map(|i| {
-                let (height, url, proto) = self.updated_images.remove(i);
+            .map(|(_, extras)| {
+                extras
+                    .iter()
+                    .find_map(|e| {
+                        if let LineExtra::Image(_, proto) = e {
+                            Some(proto.area().height)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or(1)
+            })
+            .sum();
+        section.height = height;
+    }
+
+    pub fn update_header(&mut self, section_id: SectionID, rows: Vec<(String, u8, Protocol)>) {
+        if rows.is_empty() {
+            log::error!("update_header: empty rows for section #{section_id}");
+            return;
+        }
+
+        let new_sections: Vec<Section> = rows
+            .into_iter()
+            .map(|(text, tier, proto)| {
+                log::debug!("update_header: {text}");
+                let height = proto.area().height;
                 Section {
-                    id: 0, // will be overwritten by caller
+                    id: section_id,
                     height,
-                    content: SectionContent::Image(url, proto),
+                    content: SectionContent::Header(text, tier, Some(proto)),
                 }
             })
+            .collect();
+
+        self.update(new_sections);
+    }
+
+    /// Extract all image protocols from the document for caching before reparse.
+    /// Returns Vec<(url, protocol)>. Protocols are moved out, lines revert to height 1.
+    pub fn take_image_protocols(&mut self) -> ImageCache {
+        let mut cache = ImageCache::default();
+        for section in &mut self.sections {
+            match &mut section.content {
+                SectionContent::Lines(lines) => {
+                    for (_, extras) in lines.iter_mut() {
+                        // Find and remove LineExtra::Image
+                        if let Some(idx) = extras
+                            .iter()
+                            .position(|e| matches!(e, LineExtra::Image(_, _)))
+                        {
+                            let LineExtra::Image(url, proto) = extras.remove(idx) else {
+                                unreachable!()
+                            };
+
+                            cache.images.insert(url, proto);
+                        }
+                    }
+                    // Recalculate section height (all lines now height 1)
+                    section.height = lines.len() as u16;
+                }
+                SectionContent::Header(text, tier, proto) => {
+                    if let Some(proto) = proto.take() {
+                        let key = (text.clone(), *tier);
+                        if let Some(existing) = cache.headers.get_mut(&key) {
+                            existing.push(proto);
+                        } else {
+                            cache.headers.insert(key, vec![proto]);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        cache
     }
 
     pub fn trim(&mut self, last_section_id: Option<usize>) {
-        self.updated_images.clear();
         let Some(last_section_id) = last_section_id else {
             log::warn!("Document::trim without last_section_id, nothing parsed");
             return;
@@ -158,16 +221,19 @@ impl Document {
         scroll: u16,
     ) -> Option<CursorPointer> {
         let locate = move |section: &Section| -> Option<CursorPointer> {
-            if let SectionContent::Line(_, extras) = &section.content
-                && let Some(i) = extras.iter().position(|extra| target.matches(extra))
-            {
-                Some(CursorPointer {
-                    id: section.id,
-                    index: i,
-                })
-            } else {
-                None
+            if let SectionContent::Lines(lines) = &section.content {
+                let mut flat_index = 0;
+                for (_, extras) in lines {
+                    if let Some(i) = extras.iter().position(|extra| target.matches(extra)) {
+                        return Some(CursorPointer {
+                            id: section.id,
+                            index: flat_index + i,
+                        });
+                    }
+                    flat_index += extras.len();
+                }
             }
+            None
         };
 
         let mut first = None;
@@ -247,30 +313,46 @@ impl Document {
     > {
         match mode {
             FindMode::Next => {
-                if let SectionContent::Line(_, extras) = &section.content {
+                if let SectionContent::Lines(lines) = &section.content {
                     let id = section.id;
-                    Either::Left(Either::Left(
-                        extras
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, extra)| target.matches(extra))
-                            .map(move |(index, _)| CursorPointer { id, index }),
-                    ))
+                    let mut flat_index = 0;
+                    let flattened: Vec<_> = lines
+                        .iter()
+                        .flat_map(|(_, extras)| {
+                            let start = flat_index;
+                            flat_index += extras.len();
+                            extras
+                                .iter()
+                                .enumerate()
+                                .map(move |(i, extra)| (start + i, extra))
+                        })
+                        .filter(|(_, extra)| target.matches(extra))
+                        .map(move |(index, _)| CursorPointer { id, index })
+                        .collect();
+                    Either::Left(Either::Left(flattened.into_iter()))
                 } else {
                     Either::Right(std::iter::empty())
                 }
             }
             FindMode::Prev => {
-                if let SectionContent::Line(_, extras) = &section.content {
+                if let SectionContent::Lines(lines) = &section.content {
                     let id = section.id;
-                    Either::Left(Either::Right(
-                        extras
-                            .iter()
-                            .enumerate()
-                            .rev()
-                            .filter(|(_, extra)| target.matches(extra))
-                            .map(move |(index, _)| CursorPointer { id, index }),
-                    ))
+                    let mut flat_index = 0;
+                    let mut flattened: Vec<_> = lines
+                        .iter()
+                        .flat_map(|(_, extras)| {
+                            let start = flat_index;
+                            flat_index += extras.len();
+                            extras
+                                .iter()
+                                .enumerate()
+                                .map(move |(i, extra)| (start + i, extra))
+                        })
+                        .filter(|(_, extra)| target.matches(extra))
+                        .map(move |(index, _)| CursorPointer { id, index })
+                        .collect();
+                    flattened.reverse();
+                    Either::Left(Either::Right(flattened.into_iter()))
                 } else {
                     Either::Right(std::iter::empty())
                 }
@@ -284,14 +366,33 @@ impl Document {
             if section.id != pointer.id {
                 continue;
             }
-            let SectionContent::Line(_, extras) = &section.content else {
+            let SectionContent::Lines(lines) = &section.content else {
                 continue;
             };
-            if let Some(extra) = extras.get(pointer.index) {
-                return Some(extra);
+            let mut remaining = pointer.index;
+            for (_, extras) in lines {
+                if remaining < extras.len() {
+                    return Some(&extras[remaining]);
+                }
+                remaining -= extras.len();
             }
         }
         None
+    }
+
+    #[cfg(test)]
+    pub fn has_pending_images(&self) -> bool {
+        self.sections.iter().any(|section| {
+            if let SectionContent::Lines(lines) = &section.content {
+                lines.iter().any(|(line, extras)| {
+                    // Line is a pending image if it starts with "![" and has no LineExtra::Image
+                    line.to_string().starts_with("![")
+                        && !extras.iter().any(|e| matches!(e, LineExtra::Image(_, _)))
+                })
+            } else {
+                false
+            }
+        })
     }
 }
 
@@ -330,7 +431,7 @@ impl FindTarget {
 
 pub type SectionID = usize;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Section {
     pub id: SectionID,
     pub height: u16,
@@ -340,20 +441,22 @@ pub struct Section {
 pub enum SectionContent {
     Image(String, Protocol),
     BrokenImage(String, String),
-    Header(String, u8),
-    Line(Line<'static>, Vec<LineExtra>),
+    Header(String, u8, Option<Protocol>),
+    Lines(Vec<(Line<'static>, Vec<LineExtra>)>),
 }
 
 impl SectionContent {
     pub fn add_search(&mut self, re: Option<&Regex>) {
-        if let SectionContent::Line(line, extras) = self {
-            let line_string = line.to_string();
-            extras.retain(|extra| !matches!(extra, LineExtra::SearchMatch(_, _, _)));
-            if let Some(re) = re {
-                extras.extend(
-                    re.find_iter(&line_string)
-                        .map(SectionContent::regex_to_searchmatch(&line_string)),
-                );
+        if let SectionContent::Lines(lines) = self {
+            for (line, extras) in lines {
+                let line_string = line.to_string();
+                extras.retain(|extra| !matches!(extra, LineExtra::SearchMatch(_, _, _)));
+                if let Some(re) = re {
+                    extras.extend(
+                        re.find_iter(&line_string)
+                            .map(SectionContent::regex_to_searchmatch(&line_string)),
+                    );
+                }
             }
         }
         // TODO: search in headers
@@ -370,13 +473,18 @@ impl SectionContent {
     }
 }
 
+#[cfg(test)]
 impl PartialEq for SectionContent {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Image(l0, l1), Self::Image(r0, r1)) => l0 == r0 && l1.type_id() == r1.type_id(),
+            (Self::Image(..), _) | (_, Self::Image(..)) => {
+                panic!("PartialEq not supported for SectionContent::Image")
+            }
             (Self::BrokenImage(l0, l1), Self::BrokenImage(r0, r1)) => l0 == r0 && l1 == r1,
-            (Self::Line(l0, l1), Self::Line(r0, r1)) => l0 == r0 && l1 == r1,
-            (Self::Header(l0, l1), Self::Header(r0, r1)) => l0 == r0 && l1 == r1,
+            (Self::Lines(l), Self::Lines(r)) => l == r,
+            (Self::Header(l0, l1, l2), Self::Header(r0, r1, r2)) => {
+                l0 == r0 && l1 == r1 && l2.is_some() == r2.is_some()
+            }
             _ => false,
         }
     }
@@ -389,15 +497,17 @@ impl Debug for SectionContent {
             Self::BrokenImage(url, _) => f
                 .debug_tuple(format!("BrokenImage({url})").as_str())
                 .finish(),
-            Self::Line(line, extra) => {
+            Self::Lines(lines) => {
                 let mut tuple = f.debug_tuple("Line");
-                let mut tuple = tuple.field(line);
-                if !extra.is_empty() {
-                    tuple = tuple.field(extra);
+                for (line, extra) in lines {
+                    let mut tuple = tuple.field(line);
+                    if !extra.is_empty() {
+                        tuple = tuple.field(extra);
+                    }
                 }
                 tuple.finish()
             }
-            Self::Header(text, tier) => f.debug_tuple("Header").field(text).field(tier).finish(),
+            Self::Header(text, tier, _) => f.debug_tuple("Header").field(text).field(tier).finish(),
         }
     }
 }
@@ -407,8 +517,8 @@ impl Display for SectionContent {
         match self {
             Self::Image(url, protocol) => write!(f, "Image({url}, {:?})", protocol.type_id()),
             Self::BrokenImage(url, _) => write!(f, "BrokenImage({url})"),
-            Self::Line(line, extra) => write!(f, "Line({}, {})", line, extra.len()),
-            Self::Header(text, tier) => write!(f, "Header({text}, {tier})"),
+            Self::Lines(lines) => write!(f, "Line({lines:?})"),
+            Self::Header(text, tier, _) => write!(f, "Header({text}, {tier})"),
         }
     }
 }
@@ -433,18 +543,58 @@ impl Display for Section {
         match &self.content {
             SectionContent::Image(_, _) => write!(f, "<image>"),
             SectionContent::BrokenImage(_, _) => write!(f, "<broken-image>"),
-            SectionContent::Line(line, _) => Display::fmt(&line, f),
-            SectionContent::Header(text, tier) => {
+            SectionContent::Lines(lines) => {
+                for (i, (line, _)) in lines.iter().enumerate() {
+                    if i > 0 {
+                        writeln!(f)?;
+                    }
+                    write!(f, "{}", line)?;
+                }
+                Ok(())
+            }
+            SectionContent::Header(text, tier, _) => {
                 write!(f, "{} {}", "#".repeat(*tier as usize), text)
             }
         }
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
 pub enum LineExtra {
+    Image(String, Protocol),
     Link(SourceContent, u16, u16),
     SearchMatch(usize, usize, String),
+}
+
+impl Debug for LineExtra {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LineExtra::Image(url, protocol) => write!(f, "Image({url}, {:?})", protocol.type_id()),
+            LineExtra::Link(url, start, end) => {
+                write!(f, "Link({:?}, {}, {})", url, start, end)
+            }
+            LineExtra::SearchMatch(start, end, text) => {
+                write!(f, "SearchMatch({}, {}, {:?})", start, end, text)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+impl PartialEq for LineExtra {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (LineExtra::Image(..), _) | (_, LineExtra::Image(..)) => {
+                panic!("PartialEq not supported for LineExtra::Image")
+            }
+            (LineExtra::Link(l0, l1, l2), LineExtra::Link(r0, r1, r2)) => {
+                l0 == r0 && l1 == r1 && l2 == r2
+            }
+            (LineExtra::SearchMatch(l0, l1, l2), LineExtra::SearchMatch(r0, r1, r2)) => {
+                l0 == r0 && l1 == r1 && l2 == r2
+            }
+            _ => false,
+        }
+    }
 }
 
 /// Layout/shape and render `text` into a list of [`DynamicImage`] with a given terminal width.
@@ -454,7 +604,7 @@ pub fn header_images(
     text: String,
     tier: u8,
     deep_fry_meme: bool,
-) -> Result<Vec<(String, DynamicImage)>, Error> {
+) -> Result<Vec<(String, u8, DynamicImage)>, Error> {
     const HEADER_ROW_COUNT: u16 = 2;
     let (font_width, font_height) = font_renderer.font_size;
 
@@ -497,7 +647,7 @@ pub fn header_images(
         let img: RgbaImage =
             RgbaImage::from_pixel(img_width, img_height, Rgba::<u8>::from(RGBA_BG));
         let dyn_img = DynamicImage::ImageRgba8(img);
-        dyn_imgs.push((layout_run.text.into(), dyn_img));
+        dyn_imgs.push((layout_run.text.into(), tier, dyn_img));
     }
 
     let fg = Color::rgba(255, 255, 255, 255);
@@ -528,7 +678,7 @@ pub fn header_images(
                 return;
             }
 
-            let dyn_img = &mut dyn_imgs[index].1;
+            let dyn_img = &mut dyn_imgs[index].2;
 
             // Adjust picked image's Y coord offset.
             let y_offset: u32 = index as u32 * img_height;
@@ -545,12 +695,11 @@ const HEADER_ROW_COUNT: u16 = 2;
 pub fn header_sections(
     picker: &Picker,
     width: u16,
-    id: SectionID,
-    dyn_imgs: Vec<(String, DynamicImage)>,
+    dyn_imgs: Vec<(String, u8, DynamicImage)>,
     deep_fry_meme: bool,
-) -> Result<Vec<Section>, Error> {
-    let mut sections = vec![];
-    for (text, mut dyn_img) in dyn_imgs {
+) -> Result<Vec<(String, u8, Protocol)>, Error> {
+    let mut protos = vec![];
+    for (text, tier, mut dyn_img) in dyn_imgs {
         if deep_fry_meme {
             dyn_img = deep_fry(dyn_img);
         }
@@ -559,14 +708,9 @@ pub fn header_sections(
             Rect::new(0, 0, width, HEADER_ROW_COUNT),
             Resize::Fit(None),
         )?;
-        sections.push(Section {
-            id,
-            height: HEADER_ROW_COUNT,
-            content: SectionContent::Image(text, proto),
-        });
+        protos.push((text, tier, proto));
     }
-
-    Ok(sections)
+    Ok(protos)
 }
 
 #[expect(clippy::too_many_arguments)]
@@ -705,41 +849,44 @@ mod tests {
         ws.push(Section {
             id: 0,
             height: 2,
-            content: SectionContent::Line(Line::from("line #0"), Vec::new()),
+            content: SectionContent::Lines(vec![(Line::from("line #0"), Vec::new())]),
         });
         ws.push(Section {
             id: 1,
             height: 2,
-            content: SectionContent::Line(Line::from("headerline1 headerline2"), Vec::new()),
+            content: SectionContent::Lines(vec![(
+                Line::from("headerline1 headerline2"),
+                Vec::new(),
+            )]),
         });
         ws.push(Section {
             id: 2,
             height: 2,
-            content: SectionContent::Line(Line::from("line #2"), Vec::new()),
+            content: SectionContent::Lines(vec![(Line::from("line #2"), Vec::new())]),
         });
 
         ws.update(vec![
             Section {
                 id: 1,
                 height: 2,
-                content: SectionContent::Header(String::from("headerline1"), 1),
+                content: SectionContent::Header(String::from("headerline1"), 1, None),
             },
             Section {
                 id: 1,
                 height: 2,
-                content: SectionContent::Header(String::from("headerline2"), 1),
+                content: SectionContent::Header(String::from("headerline2"), 1, None),
             },
         ]);
         assert_eq!(ws.sections.len(), 4);
         assert_eq!(0, ws.sections[0].id,);
         assert_eq!(1, ws.sections[1].id,);
         assert_eq!(
-            SectionContent::Header(String::from("headerline1"), 1),
+            SectionContent::Header(String::from("headerline1"), 1, None),
             ws.sections[1].content
         );
         assert_eq!(1, ws.sections[2].id,);
         assert_eq!(
-            SectionContent::Header(String::from("headerline2"), 1),
+            SectionContent::Header(String::from("headerline2"), 1, None),
             ws.sections[2].content
         );
         assert_eq!(2, ws.sections[3].id,);
@@ -748,24 +895,24 @@ mod tests {
             Section {
                 id: 1,
                 height: 2,
-                content: SectionContent::Header(String::from("headerline3"), 1),
+                content: SectionContent::Header(String::from("headerline3"), 1, None),
             },
             Section {
                 id: 1,
                 height: 2,
-                content: SectionContent::Header(String::from("headerline4"), 1),
+                content: SectionContent::Header(String::from("headerline4"), 1, None),
             },
         ]);
         assert_eq!(ws.sections.len(), 4);
         assert_eq!(0, ws.sections[0].id,);
         assert_eq!(1, ws.sections[1].id,);
         assert_eq!(
-            SectionContent::Header(String::from("headerline3"), 1),
+            SectionContent::Header(String::from("headerline3"), 1, None),
             ws.sections[1].content
         );
         assert_eq!(1, ws.sections[2].id,);
         assert_eq!(
-            SectionContent::Header(String::from("headerline4"), 1),
+            SectionContent::Header(String::from("headerline4"), 1, None),
             ws.sections[2].content
         );
         assert_eq!(2, ws.sections[3].id,);
@@ -777,27 +924,27 @@ mod tests {
         ws.push(Section {
             id: 1,
             height: 2,
-            content: SectionContent::Header(String::from("one"), 1),
+            content: SectionContent::Header(String::from("one"), 1, None),
         });
         ws.push(Section {
             id: 2,
             height: 1,
-            content: SectionContent::Line(Line::from("line"), Vec::new()),
+            content: SectionContent::Lines(vec![(Line::from("line"), Vec::new())]),
         });
         ws.push(Section {
             id: 3,
             height: 1,
-            content: SectionContent::Line(Line::from("line"), Vec::new()),
+            content: SectionContent::Lines(vec![(Line::from("line"), Vec::new())]),
         });
         ws.push(Section {
             id: 4,
             height: 2,
-            content: SectionContent::Header(String::from("one"), 1),
+            content: SectionContent::Header(String::from("one"), 1, None),
         });
         ws.push(Section {
             id: 5,
             height: 1,
-            content: SectionContent::Line(Line::from("line"), Vec::new()),
+            content: SectionContent::Lines(vec![(Line::from("line"), Vec::new())]),
         });
         assert_eq!(ws.get_y(1), 0);
         assert_eq!(ws.get_y(2), 2);
@@ -809,11 +956,14 @@ mod tests {
     #[test]
     fn add_search_offset() {
         let line = Line::from(vec![Span::from("▐").magenta(), Span::from(" hi")]);
-        let mut wsd = SectionContent::Line(line, Vec::new());
+        let mut wsd = SectionContent::Lines(vec![(line, Vec::new())]);
         wsd.add_search(Regex::new("hi").ok().as_ref());
-        let SectionContent::Line(_, extra) = wsd else {
+        let SectionContent::Lines(lines) = wsd else {
             panic!("Line");
         };
-        assert_eq!(extra[0], LineExtra::SearchMatch(2, 4, String::from("hi")));
+        assert_eq!(
+            lines[0].1[0],
+            LineExtra::SearchMatch(2, 4, String::from("hi"))
+        );
     }
 }
