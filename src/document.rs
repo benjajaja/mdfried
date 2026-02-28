@@ -440,7 +440,6 @@ pub struct Section {
 
 pub enum SectionContent {
     Image(String, Protocol),
-    BrokenImage(String, String),
     Header(String, u8, Option<Protocol>),
     Lines(Vec<(Line<'static>, Vec<LineExtra>)>),
 }
@@ -480,7 +479,6 @@ impl PartialEq for SectionContent {
             (Self::Image(..), _) | (_, Self::Image(..)) => {
                 panic!("PartialEq not supported for SectionContent::Image")
             }
-            (Self::BrokenImage(l0, l1), Self::BrokenImage(r0, r1)) => l0 == r0 && l1 == r1,
             (Self::Lines(l), Self::Lines(r)) => l == r,
             (Self::Header(l0, l1, l2), Self::Header(r0, r1, r2)) => {
                 l0 == r0 && l1 == r1 && l2.is_some() == r2.is_some()
@@ -494,9 +492,6 @@ impl Debug for SectionContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Image(url, _) => f.debug_tuple(format!("Image({url})").as_str()).finish(),
-            Self::BrokenImage(url, _) => f
-                .debug_tuple(format!("BrokenImage({url})").as_str())
-                .finish(),
             Self::Lines(lines) => {
                 let mut tuple = f.debug_tuple("Line");
                 for (line, extra) in lines {
@@ -516,7 +511,6 @@ impl Display for SectionContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Image(url, protocol) => write!(f, "Image({url}, {:?})", protocol.type_id()),
-            Self::BrokenImage(url, _) => write!(f, "BrokenImage({url})"),
             Self::Lines(lines) => write!(f, "Line({lines:?})"),
             Self::Header(text, tier, _) => write!(f, "Header({text}, {tier})"),
         }
@@ -524,14 +518,6 @@ impl Display for SectionContent {
 }
 
 impl Section {
-    pub fn image_unknown(id: SectionID, url: String, text: String) -> Self {
-        Section {
-            id,
-            height: 1,
-            content: SectionContent::BrokenImage(url, text),
-        }
-    }
-
     pub fn add_search(&mut self, re: Option<&Regex>) {
         self.content.add_search(re);
     }
@@ -542,7 +528,6 @@ impl Display for Section {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.content {
             SectionContent::Image(_, _) => write!(f, "<image>"),
-            SectionContent::BrokenImage(_, _) => write!(f, "<broken-image>"),
             SectionContent::Lines(lines) => {
                 for (i, (line, _)) in lines.iter().enumerate() {
                     if i > 0 {

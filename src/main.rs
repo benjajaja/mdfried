@@ -32,7 +32,7 @@ use ratatui::{
     layout::Rect,
     prelude::CrosstermBackend,
     style::{Color, Stylize as _},
-    text::{Line, Span, Text},
+    text::{Line, Span},
     widgets::{Block, Paragraph, Widget},
 };
 
@@ -536,21 +536,6 @@ fn view(model: &Model, frame: &mut Frame) {
                 let img = Image::new(proto);
                 render_lines(img, section.height, y as u16, inner_area, frame);
                 y += proto.area().height as i32;
-            }
-            SectionContent::BrokenImage(url, text) => {
-                if y < 0 {
-                    continue;
-                }
-                let spans = vec![
-                    Span::from(format!("![{text}](")).red(),
-                    Span::from(url.clone()).blue(),
-                    Span::from(")").red(),
-                ];
-                let text = Text::from(Line::from(spans));
-                let height = text.height();
-                let p = Paragraph::new(text);
-                render_lines(p, height as u16, y as u16, inner_area, frame);
-                y += 1;
             }
             SectionContent::Header(text, tier, proto) => {
                 if let Some(proto) = proto {
