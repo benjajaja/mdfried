@@ -743,7 +743,8 @@ fn table_to_lines<M: Mapper>(
 
     // Scale if too wide
     let table_width: usize = col_widths.iter().sum::<usize>() + num_cols + 1;
-    let col_widths: Vec<usize> = if table_width > available_width && available_width > num_cols + 1 {
+    let col_widths: Vec<usize> = if table_width > available_width && available_width > num_cols + 1
+    {
         let content_width = available_width - num_cols - 1;
         let total_content: usize = col_widths.iter().sum();
         col_widths
@@ -831,7 +832,9 @@ fn table_to_lines<M: Mapper>(
                 let padding_total = inner_width.saturating_sub(content_width);
 
                 let (left_pad, right_pad) = match alignment {
-                    TableAlignment::Center => (padding_total / 2, padding_total - padding_total / 2),
+                    TableAlignment::Center => {
+                        (padding_total / 2, padding_total - padding_total / 2)
+                    }
                     TableAlignment::Right => (padding_total, 0),
                     TableAlignment::Left => (0, padding_total),
                 };
