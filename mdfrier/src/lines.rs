@@ -6,7 +6,9 @@ use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     Line, LineKind, Mapper,
-    markdown::{MdContainer, MdContent, MdIterator, MdSection, Modifier, Span, TableAlignment},
+    markdown::{
+        ListMarker, MdContainer, MdContent, MdIterator, MdSection, Modifier, Span, TableAlignment,
+    },
     wrap::{wrap_md_spans, wrap_md_spans_lines},
 };
 
@@ -24,56 +26,16 @@ pub(crate) enum MdLineContainer {
     },
 }
 
-/// Type of list marker.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum ListMarker {
-    Unordered(BulletStyle),
-    Ordered(u32),
-    TaskUnchecked(BulletStyle),
-    TaskChecked(BulletStyle),
-}
-
-/// Bullet style for unordered lists.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum BulletStyle {
-    Dash,
-    Star, // a.k.a Asterisk, *
-    Plus,
-}
-
-impl BulletStyle {
-    /// Get the character representation.
-    pub fn char(&self) -> char {
-        match self {
-            BulletStyle::Dash => '-',
-            BulletStyle::Star => '*',
-            BulletStyle::Plus => '+',
+/// Calculate marker width using mapper's symbols.
+fn marker_width<M: Mapper>(marker: &ListMarker, mapper: &M) -> usize {
+    match marker {
+        ListMarker::Unordered(b) => mapper.unordered_bullet(*b).width(),
+        ListMarker::Ordered(n) => mapper.ordered_marker(*n).width(),
+        ListMarker::TaskChecked(b) => {
+            mapper.unordered_bullet(*b).width() + mapper.task_checked().width()
         }
-    }
-
-    /// Parse from a character.
-    pub fn from_char(c: char) -> Option<Self> {
-        match c {
-            '-' => Some(BulletStyle::Dash),
-            '*' => Some(BulletStyle::Star),
-            '+' => Some(BulletStyle::Plus),
-            _ => None,
-        }
-    }
-}
-
-impl ListMarker {
-    /// Calculate marker width using mapper's symbols.
-    pub fn width<M: Mapper>(&self, mapper: &M) -> usize {
-        match self {
-            ListMarker::Unordered(b) => mapper.unordered_bullet(*b).width(),
-            ListMarker::Ordered(n) => mapper.ordered_marker(*n).width(),
-            ListMarker::TaskChecked(b) => {
-                mapper.unordered_bullet(*b).width() + mapper.task_checked().width()
-            }
-            ListMarker::TaskUnchecked(b) => {
-                mapper.unordered_bullet(*b).width() + mapper.task_unchecked().width()
-            }
+        ListMarker::TaskUnchecked(b) => {
+            mapper.unordered_bullet(*b).width() + mapper.task_unchecked().width()
         }
     }
 }
@@ -187,14 +149,18 @@ impl<'a, M: Mapper> LineIterator<'a, M> {
         let same_list_context = same_top_level_list || same_nested_context;
 
         // Check if we're exiting to a new top-level list (not part of previous ancestry)
+        // Compare by position: the first List in current nesting should match the first in prev
         let exiting_to_new_top_level =
             nesting_change && curr_list_depth == 1 && prev_list_depth > 1 && {
-                let curr_list = section
+                let curr_first_list = section
                     .nesting
                     .iter()
                     .find(|c| matches!(c, MdContainer::List(_)));
-                let was_in_prev = curr_list.is_none_or(|cl| self.prev_nesting.contains(cl));
-                !was_in_prev
+                let prev_first_list = self
+                    .prev_nesting
+                    .iter()
+                    .find(|c| matches!(c, MdContainer::List(_)));
+                curr_first_list != prev_first_list
             };
 
         // Allow blank lines before continuation paragraphs or between different top-level lists,
@@ -264,7 +230,7 @@ fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> V
                 .iter()
                 .map(|c| match c {
                     MdLineContainer::Blockquote => mapper.blockquote_bar().width(),
-                    MdLineContainer::ListItem { marker, .. } => marker.width(mapper),
+                    MdLineContainer::ListItem { marker, .. } => marker_width(marker, mapper),
                 })
                 .sum();
             let wrapped_lines = wrap_md_spans(width, decorated_spans, prefix_width);
@@ -507,7 +473,7 @@ fn nesting_to_prefix_spans<M: Mapper>(nesting: &[MdLineContainer], mapper: &M) -
                     spans.push(Span::new(marker_text, Modifier::ListMarker));
                 } else {
                     // Indentation for outer/continuation items
-                    let indent_width = marker.width(mapper);
+                    let indent_width = marker_width(marker, mapper);
                     spans.push(Span::new(" ".repeat(indent_width), Modifier::empty()));
                 }
             }
@@ -516,59 +482,28 @@ fn nesting_to_prefix_spans<M: Mapper>(nesting: &[MdLineContainer], mapper: &M) -
     spans
 }
 
-/// Convert MdContainer nesting to Container nesting.
+/// Convert MdContainer nesting to MdLineContainer nesting.
 fn convert_nesting(md_nesting: &[MdContainer], is_list_continuation: bool) -> Vec<MdLineContainer> {
-    let mut nesting = Vec::new();
-
     // Find the index of the last ListItem to mark it as continuation if needed
     let last_list_item_idx = md_nesting
         .iter()
         .rposition(|c| matches!(c, MdContainer::ListItem(_)));
 
-    for (idx, c) in md_nesting.iter().enumerate() {
-        match c {
-            MdContainer::Blockquote(_) => {
-                nesting.push(MdLineContainer::Blockquote);
-            }
+    md_nesting
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, c)| match c {
+            MdContainer::Blockquote(_) => Some(MdLineContainer::Blockquote),
             MdContainer::ListItem(marker) => {
-                let first_char = marker.original.chars().next().unwrap_or('-');
-                let bullet = BulletStyle::from_char(first_char).unwrap_or(BulletStyle::Dash);
-
-                let list_marker = if let Some(checked) = marker.task {
-                    if checked {
-                        ListMarker::TaskChecked(bullet)
-                    } else {
-                        ListMarker::TaskUnchecked(bullet)
-                    }
-                } else if first_char.is_ascii_digit() {
-                    let num: u32 = marker
-                        .original
-                        .chars()
-                        .take_while(|c| c.is_ascii_digit())
-                        .fold(0_u32, |acc, c| {
-                            acc.saturating_mul(10)
-                                .saturating_add(c.to_digit(10).unwrap_or(0))
-                        });
-                    ListMarker::Ordered(if num == 0 { 1 } else { num })
-                } else {
-                    ListMarker::Unordered(bullet)
-                };
-
-                // Only the innermost list item can be a continuation
                 let continuation = is_list_continuation && last_list_item_idx == Some(idx);
-
-                nesting.push(MdLineContainer::ListItem {
-                    marker: list_marker,
+                Some(MdLineContainer::ListItem {
+                    marker: marker.clone(),
                     continuation,
-                });
+                })
             }
-            MdContainer::List(_) => {
-                // List containers don't produce visual nesting
-            }
-        }
-    }
-
-    nesting
+            MdContainer::List(_) => None, // List containers don't produce visual nesting
+        })
+        .collect()
 }
 
 /// Convert a code block to output lines.

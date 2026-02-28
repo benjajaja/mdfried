@@ -100,8 +100,9 @@ pub mod ratatui;
 
 use tree_sitter::Parser;
 
-pub use lines::{BulletStyle, LineIterator};
+pub use lines::LineIterator;
 pub use mapper::{DefaultMapper, Mapper, StyledMapper};
+pub use markdown::BulletStyle;
 pub use markdown::{Modifier, SourceContent, Span};
 
 use crate::markdown::MdIterator;
