@@ -241,10 +241,9 @@ impl<'a> MdIterator<'a> {
                 if cell_text.is_empty() {
                     cells.push(Vec::new());
                 } else if let Some(tree) = self.inline_parser.parse(cell_text, None) {
-                    let (mdspans, _) =
-                        inline_node_to_spans(tree.root_node(), cell_text, Modifier::default(), 0);
-                    let mdspans = detect_bare_urls(mdspans);
-                    cells.push(mdspans);
+                    let mut p = MdParagraph::empty();
+                    p.recurse(tree.root_node(), cell_text, Modifier::default(), 0);
+                    cells.push(detect_bare_urls(p.spans));
                 } else {
                     cells.push(vec![Span::new(cell_text.to_owned(), Modifier::default())]);
                 }
@@ -601,7 +600,7 @@ impl MdParagraph {
     }
 
     #[expect(clippy::string_slice)]
-    fn recurse(
+    pub(crate) fn recurse(
         &mut self,
         node: Node<'_>,
         source: &str,
@@ -815,124 +814,6 @@ fn is_blockquote_marker_only(s: &str) -> bool {
     // A proper blockquote marker has "> " pattern, not just ">" or ">>"
     // A standalone ">" is likely part of angle bracket URL syntax, not a blockquote marker
     has_space
-}
-
-/// Convert an inline node to Spans, recursively.
-///
-/// Returns list of spans. The second item of the tuple is just used internally to lift
-/// [`SourceContent`] URLs into the link descriptions too. This allows mapper/themes to hide the
-/// URL part entirely.
-#[expect(clippy::string_slice)]
-fn inline_node_to_spans(
-    node: Node,
-    source: &str,
-    extra: Modifier,
-    _depth: usize,
-) -> (Vec<Span>, Option<SourceContent>) {
-    let kind = node.kind();
-
-    if kind.contains("delimiter") {
-        return (vec![], None);
-    }
-
-    let current_extra = match kind {
-        "emphasis" => Modifier::Emphasis,
-        "strong_emphasis" => Modifier::StrongEmphasis,
-        "strikethrough" => Modifier::Strikethrough,
-        "code_span" => {
-            // Strip the backtick delimiters from code span content
-            let content = &source[node.byte_range()];
-            let stripped = content.trim_start_matches('`').trim_end_matches('`').trim(); // Also trim inner whitespace that some code spans have
-            return (
-                vec![Span::new(stripped.to_owned(), extra.union(Modifier::Code))],
-                None,
-            );
-        }
-        "hard_line_break" | "soft_break" => {
-            // GFM hard line break (two trailing spaces + newline) or soft break
-            return (
-                vec![Span::new(String::new(), extra.union(Modifier::NewLine))],
-                None,
-            );
-        }
-        "[" | "]" => Modifier::LinkDescriptionWrapper,
-        "(" | ")" => Modifier::LinkURLWrapper,
-        "link_text" => Modifier::LinkDescription,
-        "inline_link" => Modifier::Link,
-        "image" => Modifier::Image,
-        "link_destination" => {
-            let url = source[node.byte_range()].to_owned();
-            let source_content = SourceContent::from(url.as_ref());
-            return (
-                vec![Span::link(
-                    url,
-                    extra.union(Modifier::LinkURL),
-                    Some(source_content.clone()),
-                )],
-                Some(source_content),
-            );
-        }
-        _ => Modifier::default(),
-    };
-    let extra = extra.union(current_extra);
-
-    let (extra, newline_offset) = if source.as_bytes()[node.start_byte()] == b'\n' {
-        (extra.union(Modifier::NewLine), 1)
-    } else {
-        (extra, 0)
-    };
-
-    if node.child_count() == 0 {
-        return (
-            vec![Span::new(
-                source[newline_offset + node.start_byte()..node.end_byte()].to_owned(),
-                extra,
-            )],
-            None,
-        );
-    }
-
-    let mut spans = Vec::new();
-    let mut pos = node.start_byte() + newline_offset;
-
-    for child in node.children(&mut node.walk()) {
-        if is_punctuation(child.kind(), current_extra) {
-            continue;
-        }
-        let mut ended_with_newline = false;
-        if child.start_byte() > pos {
-            spans.push(Span::new(source[pos..child.start_byte()].to_owned(), extra));
-            if source.as_bytes()[child.start_byte() - 1] == b'\n' {
-                ended_with_newline = true;
-            }
-        }
-        let extra = if ended_with_newline {
-            extra.union(Modifier::NewLine)
-        } else {
-            extra
-        };
-
-        let (child_spans, source_content) = inline_node_to_spans(child, source, extra, _depth + 1);
-        if let Some(source_content) = source_content {
-            // This is why we return Option<SourceContent>, *only* LinkURL spans return
-            // Some(SourceContent). That is, if there was some other SourceContent on some spans,
-            // it should NOT be returned (without changing this block).
-            if let Some(desc) = spans
-                .iter_mut()
-                .find(|span| span.modifiers.contains(Modifier::LinkDescription))
-            {
-                desc.source_content = Some(source_content);
-            }
-        }
-        spans.extend(child_spans);
-        pos = child.end_byte();
-    }
-
-    if pos < node.end_byte() {
-        spans.push(Span::new(source[pos..node.end_byte()].to_owned(), extra));
-    }
-
-    (spans, None)
 }
 
 #[inline]
