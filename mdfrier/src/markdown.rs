@@ -7,9 +7,6 @@ use std::sync::LazyLock;
 use tree_sitter::{Node, Parser, Tree, TreeCursor};
 use unicode_width::UnicodeWidthStr;
 
-/// Default list marker when none can be determined.
-const DEFAULT_LIST_MARKER: &str = "-";
-
 pub(crate) struct MdIterator<'a> {
     source: &'a str,
     // Invariant: cursor is dropped before tree
@@ -282,10 +279,7 @@ impl<'a> MdIterator<'a> {
                         return Some(MdContainer::List(self.extract_list_marker(child)));
                     }
                 }
-                Some(MdContainer::List(ListMarker::new(
-                    DEFAULT_LIST_MARKER.into(),
-                    0,
-                )))
+                Some(MdContainer::List(ListMarker::Unordered(BulletStyle::Dash)))
             }
             "list_item" => Some(MdContainer::ListItem(self.extract_list_marker(node))),
             "block_quote" => Some(MdContainer::Blockquote(BlockquoteMarker)),
@@ -295,8 +289,7 @@ impl<'a> MdIterator<'a> {
 
     #[expect(clippy::string_slice)]
     fn extract_list_marker(&self, list_item: Node<'a>) -> ListMarker {
-        let mut marker_text: Cow<'_, str> = Cow::Borrowed(DEFAULT_LIST_MARKER);
-        let mut indent = 0;
+        let mut first_char = '-';
         let mut task: Option<bool> = None;
 
         for child in list_item.children(&mut list_item.walk()) {
@@ -306,8 +299,8 @@ impl<'a> MdIterator<'a> {
                 | "list_marker_star"
                 | "list_marker_dot"
                 | "list_marker_parenthesis" => {
-                    marker_text = Cow::Owned(self.source[child.byte_range()].trim().to_owned());
-                    indent = child.start_position().column;
+                    let marker_text = self.source[child.byte_range()].trim();
+                    first_char = marker_text.chars().next().unwrap_or('-');
                 }
                 "task_list_marker_checked" => {
                     task = Some(true);
@@ -318,7 +311,25 @@ impl<'a> MdIterator<'a> {
                 _ => {}
             }
         }
-        ListMarker::with_task(marker_text.into_owned(), indent, task)
+
+        let bullet = BulletStyle::from_char(first_char).unwrap_or(BulletStyle::Dash);
+
+        match task {
+            Some(true) => ListMarker::TaskChecked(bullet),
+            Some(false) => ListMarker::TaskUnchecked(bullet),
+            None if first_char.is_ascii_digit() => {
+                // Parse ordered list number
+                let num: u32 = self.source[list_item.byte_range()]
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit())
+                    .fold(0_u32, |acc, c| {
+                        acc.saturating_mul(10)
+                            .saturating_add(c.to_digit(10).unwrap_or(0))
+                    });
+                ListMarker::Ordered(if num == 0 { 1 } else { num })
+            }
+            None => ListMarker::Unordered(bullet),
+        }
     }
 
     fn parse_paragraph(&mut self, node: &Node<'_>) -> Option<MdContent> {
@@ -512,6 +523,35 @@ pub(crate) enum MdContainer {
     List(ListMarker),
     ListItem(ListMarker),
     Blockquote(BlockquoteMarker),
+}
+
+/// Type of list marker.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ListMarker {
+    Unordered(BulletStyle),
+    Ordered(u32),
+    TaskUnchecked(BulletStyle),
+    TaskChecked(BulletStyle),
+}
+
+/// Bullet style for unordered lists.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BulletStyle {
+    Dash,
+    Star,
+    Plus,
+}
+
+impl BulletStyle {
+    /// Parse from a character.
+    pub fn from_char(c: char) -> Option<Self> {
+        match c {
+            '-' => Some(BulletStyle::Dash),
+            '*' => Some(BulletStyle::Star),
+            '+' => Some(BulletStyle::Plus),
+            _ => None,
+        }
+    }
 }
 
 /// Column alignment for tables.
@@ -731,32 +771,6 @@ impl From<&str> for MdParagraph {
         Self {
             backing: owned.clone(),
             spans: vec![Span::new(owned, Modifier::default())],
-        }
-    }
-}
-
-/// Marker style for list items.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ListMarker {
-    pub original: String,
-    pub indent: usize,
-    pub task: Option<bool>,
-}
-
-impl ListMarker {
-    pub fn new(original: String, indent: usize) -> Self {
-        Self {
-            original,
-            indent,
-            task: None,
-        }
-    }
-
-    pub fn with_task(original: String, indent: usize, task: Option<bool>) -> Self {
-        Self {
-            original,
-            indent,
-            task,
         }
     }
 }

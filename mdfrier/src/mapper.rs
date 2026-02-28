@@ -4,7 +4,7 @@
 //! before wrapping. This affects the visual width of elements and must be applied
 //! before line wrapping occurs.
 
-use crate::lines::BulletStyle;
+use crate::markdown::BulletStyle;
 
 /// Trait for mapping markdown content to decorated output.
 ///
