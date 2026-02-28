@@ -7,7 +7,6 @@
 //!
 //! For example, text search could benefit from running in the worker, but it's not clear how the
 //! text should then actually be shared.
-pub mod markdown;
 pub mod sections;
 
 use std::{
@@ -32,10 +31,7 @@ use crate::{
     error::Error,
     model::DocumentId,
     setup::FontRenderer,
-    worker::{
-        markdown::{SectionEvent, section_to_events},
-        sections::SectionIterator,
-    },
+    worker::sections::{SectionEvent, SectionIterator},
 };
 
 #[expect(clippy::too_many_arguments)]
@@ -70,25 +66,17 @@ pub fn worker_thread(
                     Cmd::Parse(document_id, width, text, image_cache) => {
                         log::info!("Parse {document_id}");
 
-                        let mut post_parse_events = Vec::new();
-
                         event_tx.send(Event::NewDocument(document_id))?;
 
-                        let mut section_id: Option<usize> = None;
                         let lines = parser.parse(width, &text, &theme)?;
-                        for section in SectionIterator::new(lines) {
-                            let (sections, section_events) = section_to_events(
-                                &mut section_id,
-                                width,
-                                has_text_size_protocol,
-                                &theme,
-                                section,
-                            );
-                            for section in sections {
-                                event_tx.send(Event::Parsed(document_id, section))?;
-                            }
-                            post_parse_events.extend(section_events);
+                        let mut section_iter =
+                            SectionIterator::new(lines, &theme, width, has_text_size_protocol);
+                        let mut post_parse_events = Vec::new();
+                        for (section, events) in &mut section_iter {
+                            event_tx.send(Event::Parsed(document_id, section))?;
+                            post_parse_events.extend(events);
                         }
+                        let section_id = section_iter.last_section_id();
 
                         // Send cached images synchronously before ParseDone
                         let mut image_cache = image_cache.unwrap_or_default();
