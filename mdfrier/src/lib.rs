@@ -2,17 +2,13 @@
 
 //! mdfrier - Deep fry markdown for [mdfried](https://crates.io/crates/mdfried).
 //!
-//! This crate parses markdown with tree-sitter-md into wrapped lines for a fixed width styled
-//! output.
+//! This crate's goal is to render markdown as close to the source text as possible, while also
+//! wrapping and also allowing for mapping to a custom style.
 //!
-//! This isn't as straightforward as wrapping the source and then highlighting syntax, because the
-//! wrapping relies on markdown context. The process is:
-//!
-//! 1. Parse into raw lines with nodes
-//! 2. Map the node's markdown symbols (optionally, because we want to strip e.g. `*` when
-//!    highlighting with color later)
-//! 3. Wrap the lines of nodes to a maximum width
-//! 4. ???
+//! 1. Parse into raw lines with nodes.
+//! 2. Map (or strip) the node's markdown decorator symbols but preserve some internal marker.
+//! 3. Wrap the lines of nodes to a maximum width.
+//! 4. Apply styles such as emphasis or color.
 //!
 //! At step 4, the users of this library will typically convert the wrapped lines of nodes with
 //! their style information to whatever the target is: ANSI escape sequences, or whatever some
@@ -33,18 +29,23 @@
 //!
 //! The styles should be applied when iterating over the [`Line`]'s [`Span`]s.
 //! ```
-//! use mdfrier::{MdFrier, Line, Span, Mapper, DefaultMapper, StyledMapper};
+//! use mdfrier::{MdFrier, Line, Span, Mapper, Modifier, DefaultMapper, StyledMapper};
 //!
 //! let mut frier = MdFrier::new().unwrap();
 //!
 //! // StyledMapper removes decorators (for use with colors/bold/italic styling)
 //! let text: String = frier.parse(80, "*emphasis* and **strong**", &StyledMapper).unwrap()
 //!     .flat_map(|l: Line| l.spans.into_iter().map(|s: Span|
-//!         // We should really add colors from `s.modifiers` here!
-//!         s.content
+//!         if s.modifiers.contains(Modifier::Emphasis) {
+//!             format!("\033[31m{}\033[0m", s.content)
+//!         } else if s.modifiers.contains(Modifier::StrongEmphasis) {
+//!             format!("\033[33m{}\033[0m", s.content)
+//!         } else {
+//!             s.content
+//!         }
 //!     ))
 //!     .collect();
-//! assert_eq!(text, "emphasis and strong");
+//! assert_eq!(text, "\033[31memphasis\033[0m and \033[33mstrong\033[0m");
 //! ```
 //!
 //! A custom mapper should implement the [`Mapper`] trait. For example, here we replace some
@@ -74,7 +75,8 @@
 //! assert_eq!(output, "Hello ♥world♥!\n\n➤ Quote\n\n✦Bold✦\n");
 //! ```
 //!
-//! A [`DefaultMapper`] exists, which could be used only style, preserving the markdown content.
+//! A [`DefaultMapper`] exists, which *could* be used to only style, preserving the markdown
+//! content. It's used only for unit tests.
 //! Note that it would be much more efficient to use the
 //! [`tree-sitter-md`](https://crates.io/crates/tree-sitter-md) crate directly instead,
 //! since it operates with byte-ranges of the original text. Think editor syntax highlighting.
