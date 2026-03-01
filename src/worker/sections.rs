@@ -151,6 +151,12 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
             }
         }
 
+        // Check if a header follows (need to preserve one blank line for spacing)
+        let needs_trailing_blank = self
+            .inner
+            .peek()
+            .is_some_and(|l| matches!(l.kind, LineKind::Header(_)));
+
         // Trim trailing blank lines
         while lines
             .last()
@@ -162,6 +168,14 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
         // Skip if section ended up empty after trimming
         if lines.is_empty() {
             return;
+        }
+
+        // Re-add one blank line if needed for spacing before header
+        if needs_trailing_blank {
+            lines.push(Line {
+                kind: LineKind::Blank,
+                spans: Vec::new(),
+            });
         }
 
         let rendered_lines: Vec<_> = lines
