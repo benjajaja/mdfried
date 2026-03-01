@@ -720,6 +720,9 @@ This is a *test* markdown document.
 Another line of same paragraph.
 ![image](./assets/NixOS.png)
 
+# Another header
+Some text
+
 # Last bit
 Goodbye."#,
                 ),
