@@ -10,20 +10,19 @@ use std::{
 use mdfrier::SourceContent;
 use ratatui::{
     layout::{Rect, Size},
-    style::Stylize as _,
-    text::{Line, Span},
     widgets::Padding,
 };
 use regex::RegexBuilder;
 
+use crate::Event;
 use crate::{
     Cmd,
     config::{Config, PaddingConfig, Theme},
     cursor::{Cursor, CursorPointer},
     document::{Document, FindMode, FindTarget, LineExtra, Section, SectionContent},
     error::Error,
+    worker::ImageCache,
 };
-use crate::{Event, MarkdownImage};
 
 pub struct Model {
     pub scroll: u16,
@@ -37,9 +36,6 @@ pub struct Model {
     config: Config,
     cmd_tx: Sender<Cmd>,
     event_rx: Receiver<Event>,
-    can_render_headers: bool,
-    #[cfg(test)]
-    pub pending_image_count: usize,
 }
 
 // The temporary keypress input queue for operations like search or movement-count prefix.
@@ -85,7 +81,6 @@ impl Model {
         event_rx: Receiver<Event>,
         screen_size: Size,
         config: Config,
-        can_render_headers: bool,
     ) -> Model {
         Model {
             original_file_path,
@@ -97,12 +92,14 @@ impl Model {
             document: Document::default(),
             cmd_tx,
             event_rx,
-            can_render_headers,
             log_snapshot: None,
             document_id: DocumentId::default(),
-            #[cfg(test)]
-            pending_image_count: 0,
         }
+    }
+
+    #[cfg(test)]
+    pub fn has_pending_images(&self) -> bool {
+        self.document.has_pending_images()
     }
 
     pub fn reload(&mut self, screen_size: Size) -> Result<(), Error> {
@@ -115,12 +112,18 @@ impl Model {
     }
 
     pub fn open(&self, screen_size: Size, text: String) -> Result<(), Error> {
-        self.parse(self.document_id.open(), screen_size, text)
+        self.parse(self.document_id.open(), screen_size, text, None)
     }
 
-    pub fn reparse(&self, screen_size: Size, text: String) -> Result<(), Error> {
+    pub fn reparse(&mut self, screen_size: Size, text: String) -> Result<(), Error> {
         log::info!("reparse");
-        self.parse(self.document_id.reload(), screen_size, text)
+        let image_cache = self.document.take_image_protocols();
+        let cache = if image_cache.is_empty() {
+            None
+        } else {
+            Some(image_cache)
+        };
+        self.parse(self.document_id.reload(), screen_size, text, cache)
     }
 
     fn parse(
@@ -128,6 +131,7 @@ impl Model {
         next_document_id: DocumentId,
         screen_size: Size,
         mut text: String,
+        image_cache: Option<ImageCache>,
     ) -> Result<(), Error> {
         let inner_width = self.inner_width(screen_size.width);
         if !text.ends_with('\n') {
@@ -136,7 +140,7 @@ impl Model {
             text.push('\n');
         }
         self.cmd_tx
-            .send(Cmd::Parse(next_document_id, inner_width, text))?;
+            .send(Cmd::Parse(next_document_id, inner_width, text, image_cache))?;
         Ok(())
     }
 
@@ -164,10 +168,10 @@ impl Model {
         self.document.iter().map(|s| s.height).sum()
     }
 
-    pub fn process_events(&mut self, screen_width: u16) -> Result<(bool, bool), Error> {
-        let inner_width = self.inner_width(screen_width);
+    pub fn process_events(&mut self) -> Result<(bool, bool, bool), Error> {
         let mut had_events = false;
         let mut had_done = false;
+        let mut had_reload = false;
         while let Ok(event) = self.event_rx.try_recv() {
             had_events = true;
 
@@ -207,117 +211,28 @@ impl Model {
                         self.document.update(vec![section]);
                     }
                 }
-                Event::Update(document_id, updates) => {
+                Event::ImageLoaded(document_id, section_id, url, proto) => {
                     if !self.document_id.is_same_document(&document_id) {
                         log::debug!("stale event, ignoring");
                         continue;
                     }
-                    #[cfg(test)]
-                    for section in &updates {
-                        if let SectionContent::Image(_, _) = section.content {
-                            log::debug!("Update #{}: {:?}", section.id, section.content);
-                            self.pending_image_count -= 1;
-                        }
-                    }
-                    self.document.update(updates);
+                    self.document.update_image(section_id, &url, proto);
                 }
-                Event::ParsedImage(
-                    document_id,
-                    id,
-                    MarkdownImage {
-                        destination: link_destination,
-                        description: image_description,
-                    },
-                ) => {
+                Event::HeaderLoaded(document_id, section_id, rows) => {
                     if !self.document_id.is_same_document(&document_id) {
                         log::debug!("stale event, ignoring");
                         continue;
                     }
-
-                    if let Some(mut existing_image) = self.document.replace(id, &link_destination) {
-                        log::debug!("replacing from existing image ({link_destination})");
-                        existing_image.id = id;
-                        self.document.update(vec![existing_image]);
-                    } else {
-                        if self.document_id.is_first_load() {
-                            log::debug!(
-                                "existing image not found, push placeholder and process image ({link_destination})"
-                            );
-                            self.document.push(Section {
-                                id,
-                                height: 1,
-                                content: SectionContent::Line(
-                                    Line::from(format!("![Loading...]({link_destination})")),
-                                    Vec::new(),
-                                ),
-                            });
-                        } else {
-                            log::debug!(
-                                "existing image not found, update placeholder and process image ({link_destination})"
-                            );
-                            self.document.update(vec![Section {
-                                id,
-                                height: 1,
-                                content: SectionContent::Line(
-                                    Line::from(format!("![Loading...]({link_destination})")),
-                                    Vec::new(),
-                                ),
-                            }]);
-                        }
-                        #[cfg(test)]
-                        {
-                            log::debug!("UrlImage");
-                            self.pending_image_count += 1;
-                        }
-                        self.cmd_tx.send(Cmd::UrlImage(
-                            document_id,
-                            id,
-                            inner_width,
-                            link_destination,
-                            image_description,
-                        ))?;
-                    }
-                }
-                Event::ParseHeader(document_id, id, tier, text) => {
-                    if !self.document_id.is_same_document(&document_id) {
-                        log::debug!("stale event, ignoring");
-                        continue;
-                    }
-                    let line = Line::from(vec![
-                        #[expect(clippy::string_add)]
-                        Span::from("#".repeat(tier as usize) + " ").light_blue(),
-                        Span::from(text.clone()),
-                    ]);
-                    if self.document_id.is_first_load() {
-                        self.document.push(Section {
-                            id,
-                            height: 2,
-                            content: SectionContent::Line(line, Vec::new()),
-                        });
-                    } else {
-                        self.document.update(vec![Section {
-                            id,
-                            height: 2,
-                            content: SectionContent::Line(line, Vec::new()),
-                        }]);
-                    }
-                    #[cfg(test)]
-                    {
-                        log::debug!("ParseHeader");
-                        self.pending_image_count += 1;
-                    }
-                    if self.can_render_headers {
-                        self.cmd_tx
-                            .send(Cmd::Header(document_id, id, inner_width, tier, text))?;
-                    }
+                    self.document.update_header(section_id, rows);
                 }
                 Event::FileChanged => {
                     log::info!("reload: FileChanged");
                     self.reload(self.screen_size)?;
+                    had_reload = true;
                 }
             }
         }
-        Ok((had_events, had_done))
+        Ok((had_events, had_done, had_reload))
     }
 
     fn reload_search(&mut self) {
@@ -372,13 +287,20 @@ impl Model {
     fn url_at_pointer(&self, pointer: &CursorPointer) -> Option<SourceContent> {
         self.document.iter().find_map(|section| {
             if section.id == pointer.id {
-                let SectionContent::Line(_, extras) = &section.content else {
+                let SectionContent::Lines(lines) = &section.content else {
                     return None;
                 };
-                let LineExtra::Link(url, _, _) = extras.get(pointer.index)? else {
-                    return None;
-                };
-                Some(url.clone())
+                let mut remaining = pointer.index;
+                for (_, extras) in lines {
+                    if remaining < extras.len() {
+                        let LineExtra::Link(url, _, _) = &extras[remaining] else {
+                            return None;
+                        };
+                        return Some(url.clone());
+                    }
+                    remaining -= extras.len();
+                }
+                None
             } else {
                 None
             }
@@ -584,8 +506,6 @@ mod tests {
             event_rx,
             log_snapshot: None,
             document_id: DocumentId::default(),
-            pending_image_count: 0,
-            can_render_headers: true,
         }
     }
 
@@ -621,21 +541,21 @@ mod tests {
         model.document.push(Section {
             id: 1,
             height: 1,
-            content: SectionContent::Line(
+            content: SectionContent::Lines(vec![(
                 Line::from("http://a.com http://b.com"),
                 vec![
                     LineExtra::Link(link_a.clone(), 0, 11),
                     LineExtra::Link(link_b.clone(), 12, 21),
                 ],
-            ),
+            )]),
         });
         model.document.push(Section {
             id: 2,
             height: 1,
-            content: SectionContent::Line(
+            content: SectionContent::Lines(vec![(
                 Line::from("http://c.com"),
                 vec![LineExtra::Link(link_c.clone(), 0, 11)],
-            ),
+            )]),
         });
 
         model.cursor_next(1);
@@ -659,10 +579,10 @@ mod tests {
             model.document.push(Section {
                 id: i,
                 height: 1,
-                content: SectionContent::Line(
+                content: SectionContent::Lines(vec![(
                     Line::from(url.clone()),
                     vec![LineExtra::Link(link, 0, 11)],
-                ),
+                )]),
             });
         }
 
@@ -678,16 +598,16 @@ mod tests {
         model.document.push(Section {
             id: 1,
             height: 1,
-            content: SectionContent::Line(
+            content: SectionContent::Lines(vec![(
                 Line::from("http://a.com"),
                 vec![LineExtra::Link(link.clone(), 0, 11)],
-            ),
+            )]),
         });
         for i in 2..5 {
             model.document.push(Section {
                 id: i,
                 height: 1,
-                content: SectionContent::Line(Line::from("text"), vec![]),
+                content: SectionContent::Lines(vec![(Line::from("text"), vec![])]),
             });
         }
 
@@ -705,21 +625,21 @@ mod tests {
         model.document.push(Section {
             id: 1,
             height: 1,
-            content: SectionContent::Line(
+            content: SectionContent::Lines(vec![(
                 Line::from("http://a.com http://b.com"),
                 vec![
                     LineExtra::Link(link_a.clone(), 0, 11),
                     LineExtra::Link(link_b.clone(), 12, 21),
                 ],
-            ),
+            )]),
         });
         model.document.push(Section {
             id: 2,
             height: 1,
-            content: SectionContent::Line(
+            content: SectionContent::Lines(vec![(
                 Line::from("http://c.com"),
                 vec![LineExtra::Link(link_c.clone(), 0, 11)],
-            ),
+            )]),
         });
 
         model.cursor_next(1);
@@ -741,21 +661,21 @@ mod tests {
         model.document.push(Section {
             id: 1,
             height: 1,
-            content: SectionContent::Line(
+            content: SectionContent::Lines(vec![(
                 Line::from("http://a.com http://b.com"),
                 vec![
                     LineExtra::Link(link_a.clone(), 0, 11),
                     LineExtra::Link(link_b.clone(), 12, 21),
                 ],
-            ),
+            )]),
         });
         model.document.push(Section {
             id: 2,
             height: 1,
-            content: SectionContent::Line(
+            content: SectionContent::Lines(vec![(
                 Line::from("http://c.com"),
                 vec![LineExtra::Link(link_c.clone(), 0, 11)],
-            ),
+            )]),
         });
 
         model.cursor_prev(1);
@@ -775,7 +695,10 @@ mod tests {
             model.document.push(Section {
                 id: i,
                 height: 1,
-                content: SectionContent::Line(Line::from(format!("line {}", i + 1)), Vec::new()),
+                content: SectionContent::Lines(vec![(
+                    Line::from(format!("line {}", i + 1)),
+                    Vec::new(),
+                )]),
             });
         }
 
@@ -798,7 +721,10 @@ mod tests {
             model.document.push(Section {
                 id: i,
                 height: 1,
-                content: SectionContent::Line(Line::from(format!("line {}", i + 1)), Vec::new()),
+                content: SectionContent::Lines(vec![(
+                    Line::from(format!("line {}", i + 1)),
+                    Vec::new(),
+                )]),
             });
         }
 
@@ -815,17 +741,20 @@ mod tests {
             model.document.push(Section {
                 id: i,
                 height: 1,
-                content: SectionContent::Line(Line::from(format!("line {}", i + 1)), Vec::new()),
+                content: SectionContent::Lines(vec![(
+                    Line::from(format!("line {}", i + 1)),
+                    Vec::new(),
+                )]),
             });
         }
         let link = SourceContent::from("http://a.com");
         model.document.push(Section {
             id: 30,
             height: 1,
-            content: SectionContent::Line(
+            content: SectionContent::Lines(vec![(
                 Line::from("http://a.com"),
                 vec![LineExtra::Link(link.clone(), 0, 11)],
-            ),
+            )]),
         });
 
         model.cursor_next(1);
@@ -844,10 +773,10 @@ mod tests {
             }
         }
         let last_rendered = last_rendered.unwrap();
-        let SectionContent::Line(_, extra) = &last_rendered.content else {
+        let SectionContent::Lines(lines) = &last_rendered.content else {
             panic!("expected Line");
         };
-        let LineExtra::Link(url, _, _) = &extra[0] else {
+        let LineExtra::Link(url, _, _) = &lines[0].1[0] else {
             panic!("expected Link");
         };
         assert_eq!("http://a.com", url.as_ref());
@@ -863,10 +792,10 @@ mod tests {
             model.document.push(Section {
                 id: i,
                 height: 1,
-                content: SectionContent::Line(
+                content: SectionContent::Lines(vec![(
                     Line::from(url),
                     vec![LineExtra::Link(link.clone(), 0, 11)],
-                ),
+                )]),
             });
             links.push(link);
         }
