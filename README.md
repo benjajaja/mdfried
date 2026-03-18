@@ -1,3 +1,35 @@
+
+<div align="right">
+  <details>
+    <summary >🌐 Language</summary>
+    <div>
+      <div align="center">
+        <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=en">English</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=zh-CN">简体中文</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=zh-TW">繁體中文</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=ja">日本語</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=ko">한국어</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=hi">हिन्दी</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=th">ไทย</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=fr">Français</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=de">Deutsch</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=es">Español</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=it">Italiano</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=ru">Русский</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=pt">Português</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=nl">Nederlands</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=pl">Polski</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=ar">العربية</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=fa">فارسی</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=tr">Türkçe</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=vi">Tiếng Việt</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=id">Bahasa Indonesia</a>
+        | <a href="https://openaitx.github.io/view.html?user=benjajaja&project=mdfried&lang=as">অসমীয়া</
+      </div>
+    </div>
+  </details>
+</div>
+
 # mdfried
 
 `mdfried` is a markdown viewer for the terminal that renders headers as **Bigger Text** than the
