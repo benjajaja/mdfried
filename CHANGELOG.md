@@ -6,6 +6,8 @@
 
 ## [0.18.3] - 2026-04-02
 
+## [0.18.3] - 2026-04-02
+
 ### Fixed
 - Skip font rendering for headers if Halfblocks
 - Remove BgColor from sixels
