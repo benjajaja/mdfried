@@ -51,7 +51,7 @@ impl From<usize> for ConfigResolution {
 #[expect(clippy::too_many_lines)]
 pub fn interactive_resolve_config(error: &Error) -> Result<ConfigResolution, Error> {
     println!("{error}");
-    ratatui::crossterm::terminal::enable_raw_mode()?;
+    crossterm::terminal::enable_raw_mode()?;
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::with_options(
         backend,

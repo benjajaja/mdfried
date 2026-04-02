@@ -107,7 +107,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         .into_hooks();
     eyre_hook.install()?;
     std::panic::set_hook(Box::new(move |panic_info| {
-        if let Err(err) = ratatui::crossterm::terminal::disable_raw_mode() {
+        if let Err(err) = crossterm::terminal::disable_raw_mode() {
             eprintln!("Unable to disable raw mode: {:?}", err);
         }
         let msg = format!("{}", panic_hook.panic_report(panic_info));
@@ -236,12 +236,12 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         config_max_image_height,
     );
 
-    ratatui::crossterm::terminal::enable_raw_mode()?;
+    crossterm::terminal::enable_raw_mode()?;
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
     let enable_mouse_capture = config.enable_mouse_capture;
     if enable_mouse_capture {
-        ratatui::crossterm::execute!(io::stderr(), EnableMouseCapture)?;
+        crossterm::execute!(io::stderr(), EnableMouseCapture)?;
     }
     let watch_debounce_milliseconds = config.watch_debounce_milliseconds;
     terminal.clear()?;
@@ -272,9 +272,9 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     terminal.set_cursor_position((0, terminal_size.height - 1))?;
 
     if enable_mouse_capture {
-        ratatui::crossterm::execute!(io::stderr(), DisableMouseCapture)?;
+        crossterm::execute!(io::stderr(), DisableMouseCapture)?;
     }
-    ratatui::crossterm::terminal::disable_raw_mode()?;
+    crossterm::terminal::disable_raw_mode()?;
 
     if let Err(e) = cmd_thread.join() {
         eprintln!("Thread error: {e:?}");

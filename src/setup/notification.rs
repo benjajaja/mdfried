@@ -10,7 +10,7 @@ use ratatui::{
 
 use crate::error::Error;
 pub fn interactive_notification(message: &'static str) -> Result<(), Error> {
-    ratatui::crossterm::terminal::enable_raw_mode()?;
+    crossterm::terminal::enable_raw_mode()?;
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::with_options(
         backend,

@@ -49,7 +49,7 @@ pub fn interactive_font_picker(picker: &mut Picker) -> Result<Option<String>, Er
 
     println!("{} system fonts detected.", lowercase_fonts.len());
 
-    ratatui::crossterm::terminal::enable_raw_mode()?;
+    crossterm::terminal::enable_raw_mode()?;
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::with_options(
         backend,
