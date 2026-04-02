@@ -530,20 +530,22 @@ fn view(model: &Model, frame: &mut Frame) {
                 }
             }
             SectionContent::Image(_, proto) => {
-                if y < 0 {
-                    continue;
+                if y >= 0 {
+                    let img = Image::new(proto);
+                    render_lines(img, section.height, y as u16, inner_area, frame);
                 }
-                let img = Image::new(proto);
-                render_lines(img, section.height, y as u16, inner_area, frame);
                 y += proto.area().height as i32;
             }
             SectionContent::Header(text, tier, proto) => {
-                if let Some(proto) = proto {
-                    let img = Image::new(proto);
-                    render_lines(img, section.height, y as u16, inner_area, frame);
-                } else {
-                    let big_text = BigText::new(text, *tier);
-                    render_lines(big_text, 2, y as u16, inner_area, frame);
+                // Only render headers if fully in view
+                if y >= 0 && (y as u16) < inner_area.bottom() - 2 {
+                    if let Some(proto) = proto {
+                        let img = Image::new(proto);
+                        render_lines(img, section.height, y as u16, inner_area, frame);
+                    } else {
+                        let big_text = BigText::new(text, *tier);
+                        render_lines(big_text, 2, y as u16, inner_area, frame);
+                    }
                 }
                 y += 2;
             }
