@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+- Skip font rendering for headers if Halfblocks
+- Remove BgColor from sixels
+- Attempt to fix broken piping on macOS
+
 ## [0.18.2] - 2026-01-24
 
 ### Fixed
