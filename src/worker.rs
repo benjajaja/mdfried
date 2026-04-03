@@ -31,7 +31,7 @@ use crate::{
     error::Error,
     model::DocumentId,
     setup::FontRenderer,
-    worker::sections::{SectionEvent, SectionIterator},
+    worker::sections::{HeaderConfig, SectionEvent, SectionIterator},
 };
 
 #[expect(clippy::too_many_arguments)]
@@ -54,6 +54,11 @@ pub fn worker_thread(
         runtime.block_on(async {
             let basepath = basepath.clone();
             let client = Arc::new(RwLock::new(Client::new()));
+            let header_config = match (has_text_size_protocol, renderer.is_some()) {
+                (true, _) => HeaderConfig::TextSizeProtocol,
+                (_, true) => HeaderConfig::Image,
+                _ => HeaderConfig::Line,
+            };
             // Specifically not a tokio Mutex, because we use it in spawn_blocking.
             let thread_renderer =
                 renderer.map(|renderer| Arc::new(std::sync::Mutex::new(renderer)));
@@ -70,7 +75,7 @@ pub fn worker_thread(
 
                         let lines = parser.parse(width, &text, &theme)?;
                         let mut section_iter =
-                            SectionIterator::new(lines, &theme, width, has_text_size_protocol);
+                            SectionIterator::new(lines, &theme, width, header_config.clone());
                         let mut post_parse_events = Vec::new();
                         for (section, events) in &mut section_iter {
                             event_tx.send(Event::Parsed(document_id, section))?;
