@@ -5,7 +5,7 @@ use textwrap::{Options, wrap};
 use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
-    Line, LineKind, Mapper,
+    Line, LineKind, Mapper, MarkdownLink,
     markdown::{
         ListMarker, MdContainer, MdContent, MdIterator, MdSection, Modifier, Span, TableAlignment,
     },
@@ -237,7 +237,10 @@ fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> V
             wrapped_to_lines(wrapped_lines, nesting, mapper)
         }
         MdContent::Header { tier, text } => {
-            if true || mapper.has_text_size_protocol() {
+            if mapper.has_text_size_protocol() {
+                // We only pre-wrap headers for text-size-protocol. When rendering image, the
+                // wrapping is taken care of the image renderer, as the font size is not known
+                // here.
                 let spans = vec![Span::from(text.clone())];
                 let (n, d) = match tier {
                     1 => (7, 7),
@@ -640,18 +643,18 @@ fn wrapped_to_lines<M: Mapper>(
         for img in wrapped_line.images {
             let spans = vec![
                 Span::new("![".to_owned(), Modifier::LinkDescriptionWrapper),
-                Span::new("Loading...".to_owned(), Modifier::LinkURL),
+                Span::new(img.description.clone(), Modifier::LinkDescription),
                 Span::new("]".to_owned(), Modifier::LinkDescriptionWrapper),
                 Span::new("(".to_owned(), Modifier::LinkURLWrapper),
-                Span::new(img.url.clone(), Modifier::LinkDescription),
+                Span::new(img.url.clone(), Modifier::LinkURL),
                 Span::new(")".to_owned(), Modifier::LinkURLWrapper),
             ];
             lines.push(Line {
                 spans,
-                kind: LineKind::Image {
+                kind: LineKind::Image(MarkdownLink {
                     url: img.url,
                     description: img.description,
-                },
+                }),
             });
         }
     }

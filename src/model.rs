@@ -211,12 +211,12 @@ impl Model {
                         self.document.update(vec![section]);
                     }
                 }
-                Event::ImageLoaded(document_id, section_id, url, proto) => {
+                Event::ImageLoaded(document_id, section_id, link, proto) => {
                     if !self.document_id.is_same_document(&document_id) {
                         log::debug!("stale event, ignoring");
                         continue;
                     }
-                    self.document.update_image(section_id, &url, proto);
+                    self.document.update_image(section_id, link, proto);
                 }
                 Event::HeaderLoaded(document_id, section_id, rows) => {
                     if !self.document_id.is_same_document(&document_id) {

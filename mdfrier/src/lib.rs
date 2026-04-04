@@ -142,9 +142,21 @@ pub enum LineKind {
     /// Table border/separator.
     TableBorder,
     /// Image reference.
-    Image { url: String, description: String },
+    Image(MarkdownLink),
     /// Blank line.
     Blank,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MarkdownLink {
+    pub url: String,
+    pub description: String,
+}
+
+impl std::fmt::Display for MarkdownLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}]({})", self.description, self.url)
+    }
 }
 
 /// Failed to parse markdown.

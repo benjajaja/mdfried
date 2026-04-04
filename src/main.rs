@@ -36,7 +36,7 @@ use ratatui::{
     widgets::{Block, Paragraph, Widget},
 };
 
-use mdfrier::Mapper as _;
+use mdfrier::{Mapper as _, MarkdownLink};
 use ratatui_image::{Image, picker::ProtocolType, protocol::Protocol};
 use setup::{SetupResult, setup_graphics};
 use unicode_width::UnicodeWidthStr as _;
@@ -307,7 +307,7 @@ pub enum Event {
     NewDocument(DocumentId),
     ParseDone(DocumentId, Option<SectionID>), // Only signals "parsing done", not "images ready"!
     Parsed(DocumentId, Section),
-    ImageLoaded(DocumentId, SectionID, String, Protocol),
+    ImageLoaded(DocumentId, SectionID, MarkdownLink, Protocol),
     HeaderLoaded(DocumentId, SectionID, Vec<(String, u8, Protocol)>),
     FileChanged,
 }
@@ -351,21 +351,6 @@ impl std::fmt::Debug for Event {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // Reuse Display impl
         Display::fmt(self, f)
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct MarkdownImage {
-    pub destination: String,
-    pub description: String,
-}
-impl Display for MarkdownImage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "ParseImageArgs{{ {}, {} }}",
-            self.destination, self.description
-        )
     }
 }
 
@@ -538,7 +523,7 @@ fn view(model: &Model, frame: &mut Frame) {
                 y += proto.area().height as i32;
             }
             SectionContent::ImagePlaceholder(_, lines) => {
-                for (line, extras) in lines.iter() {
+                for (line, _extras) in lines.iter() {
                     if y < 0 {
                         y += 1;
                         continue; // skip this line.
@@ -902,9 +887,9 @@ Goodbye."#,
                 screen_size,
                 String::from(
                     r#"# Hello
-![image](./assets/NixOS.png)
+![image A](./assets/NixOS.png)
 Goodbye.
-![image](./assets/NixOS.png)"#,
+![image B](./assets/NixOS.png)"#,
                 ),
             )
             .unwrap();

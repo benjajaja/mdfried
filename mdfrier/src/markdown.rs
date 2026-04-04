@@ -669,6 +669,7 @@ impl MdParagraph {
             "hard_line_break" | "soft_break" => {
                 // GFM hard line break (two trailing spaces + newline) or soft break
                 self.spans
+                    // TODO Modifier::Code seems incorrect here
                     .push(Span::new(String::new(), extra.union(Modifier::Code)));
                 return None;
             }
@@ -677,6 +678,7 @@ impl MdParagraph {
             "link_text" => Modifier::LinkDescription,
             "inline_link" => Modifier::Link,
             "image" => Modifier::Image,
+            "image_description" => Modifier::LinkDescription,
             "link_destination" => {
                 let url = source[node.byte_range()].to_owned();
                 let source_content = SourceContent::from(url.as_ref());
@@ -735,16 +737,13 @@ impl MdParagraph {
                 // This is why we return Option<SourceContent>, *only* LinkURL spans return
                 // Some(SourceContent). That is, if there was some other SourceContent on some spans,
                 // it should NOT be returned (without changing this block).
-                if let Some(desc) = self
-                    .spans
-                    .iter_mut()
-                    .rev()
-                    .find(|span| span.modifiers.contains(Modifier::LinkDescription))
-                {
+                if let Some(desc) = self.spans.iter_mut().rev().find(|span| {
+                    span.modifiers.contains(Modifier::LinkDescription)
+                        && !span.modifiers.contains(Modifier::Image)
+                }) {
                     desc.source_content = Some(source_content);
                 }
             }
-            // spans.extend(child_spans);
             pos = child.end_byte();
         }
 
@@ -1105,5 +1104,38 @@ mod tests {
         assert_eq!(result[3].content, ")");
         assert!(result[3].modifiers.contains(Modifier::LinkURLWrapper));
         assert_eq!(result[4].content, ">");
+    }
+
+    #[test]
+    fn image_contained() {
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
+        let source = "![text](url)\n";
+        let tree = parser.parse(source, None).unwrap();
+        let first = MdIterator::new(tree, &mut inline_parser, source)
+            .next()
+            .unwrap();
+        let MdContent::Paragraph(MdParagraph { spans, .. }) = first.content else {
+            panic!("exptected paragraph");
+        };
+        assert_eq!(spans[0], Span::new("![".to_owned(), Modifier::Image));
+        assert_eq!(
+            spans[1],
+            Span {
+                content: "text".to_owned(),
+                modifiers: Modifier::Image | Modifier::LinkDescription,
+                source_content: None,
+            }
+        );
+        assert_eq!(spans[2], Span::new("](".to_owned(), Modifier::Image));
+        assert_eq!(
+            spans[3],
+            Span {
+                content: "url".to_owned(),
+                modifiers: Modifier::Image | Modifier::LinkURL,
+                source_content: Some(SourceContent::from("url")),
+            }
+        );
+        assert_eq!(spans[4], Span::new(")".to_owned(), Modifier::Image));
     }
 }

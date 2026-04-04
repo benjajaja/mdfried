@@ -9,16 +9,15 @@
 use std::iter::Peekable;
 
 use mdfrier::ratatui::{Tag, render_line};
-use mdfrier::{Line, LineKind};
+use mdfrier::{Line, LineKind, MarkdownLink};
 use ratatui::text::Span;
 
-use crate::MarkdownImage;
 use crate::config::Theme;
 use crate::document::{LineExtra, Section, SectionContent, SectionID};
 
 /// Events produced during section iteration that need post-processing.
 pub enum SectionEvent {
-    Image(SectionID, MarkdownImage),
+    Image(SectionID, MarkdownLink),
     Header(SectionID, String, u8),
 }
 
@@ -26,17 +25,15 @@ pub enum SectionEvent {
 pub struct SectionIterator<'a, I: Iterator<Item = Line>> {
     inner: Peekable<I>,
     theme: &'a Theme,
-    width: u16,
     section_id: usize,
 }
 
 impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
     /// Create a new section iterator from a line iterator.
-    pub fn new(inner: I, theme: &'a Theme, width: u16) -> Self {
+    pub fn new(inner: I, theme: &'a Theme) -> Self {
         SectionIterator {
             inner: inner.peekable(),
             theme,
-            width,
             section_id: 0,
         }
     }
@@ -75,7 +72,7 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
             };
         }
         let mut lines = vec![self.render_line(first)];
-        if let Some(first) = lines.iter_mut().nth(0) {
+        if let Some(first) = lines.get_mut(0) {
             first.0.spans.insert(0, Span::from(" "));
             first
                 .0
@@ -90,7 +87,7 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
     }
 
     /// Process image lines into a section.
-    fn process_image(&mut self, first: Line, url: String, description: String) -> Section {
+    fn process_image(&mut self, first: Line, link: MarkdownLink) -> Section {
         let id = self.next_section_id();
         let mut lines = vec![self.render_line(first)];
 
@@ -105,7 +102,7 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
         Section {
             id,
             height: lines.len() as u16,
-            content: SectionContent::ImagePlaceholder(url, lines),
+            content: SectionContent::ImagePlaceholder(link, lines),
         }
     }
 
@@ -182,8 +179,8 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<'_, I> {
                 LineKind::Header(tier) => return Some(self.process_header(first, tier)),
 
                 // Images are always their own section
-                LineKind::Image { url, description } => {
-                    return Some(self.process_image(first, url, description));
+                LineKind::Image(link) => {
+                    return Some(self.process_image(first, link));
                 }
 
                 // Skip blank lines at the start of a section
@@ -235,7 +232,7 @@ mod tests {
         let mut frier = MdFrier::new().unwrap();
         let theme = Theme::default();
         let lines = frier.parse(80, text, &theme).unwrap();
-        SectionIterator::new(lines, &theme, 80).collect()
+        SectionIterator::new(lines, &theme).collect()
     }
 
     #[test]
@@ -290,10 +287,12 @@ mod tests {
     #[expect(clippy::unwrap_used)]
     fn header_wrapping_tier_1() {
         let mut frier = MdFrier::new().unwrap();
-        let mut theme = Theme::default();
-        theme.has_text_size_protocol = Some(true);
+        let theme = Theme {
+            has_text_size_protocol: Some(true),
+            ..Default::default()
+        };
         let lines = frier.parse(10, "# 1234567890", &theme).unwrap();
-        let sections: Vec<Section> = SectionIterator::new(lines, &theme, 10).collect();
+        let sections: Vec<Section> = SectionIterator::new(lines, &theme).collect();
 
         assert_eq!(sections.len(), 2);
 

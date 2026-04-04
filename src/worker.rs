@@ -25,7 +25,7 @@ use reqwest::Client;
 use tokio::{runtime::Builder, sync::RwLock};
 
 use crate::{
-    Cmd, Event, MarkdownImage, Protocol,
+    Cmd, Event, Protocol,
     config::Theme,
     document::{SectionContent, header_images, header_sections, image_section},
     error::Error,
@@ -68,8 +68,7 @@ pub fn worker_thread(
                         event_tx.send(Event::NewDocument(document_id))?;
 
                         let lines = parser.parse(width, &text, &theme)?;
-                        let mut section_iter =
-                            SectionIterator::new(lines, &theme, width);
+                        let mut section_iter = SectionIterator::new(lines, &theme);
                         let mut post_parse_events = Vec::new();
                         for section in &mut section_iter {
                             match &section.content {
@@ -79,16 +78,13 @@ pub fn worker_thread(
                                 SectionContent::Image(_, _) => {
                                     unreachable!("SectionIterator produced Image");
                                 }
-                                SectionContent::ImagePlaceholder(url, _) => {
+                                SectionContent::ImagePlaceholder(link, _) => {
                                     let section_id = section.id;
-                                    let url = url.clone();
+                                    let link = link.clone();
                                     event_tx.send(Event::Parsed(document_id, section))?;
                                     post_parse_events.push(SectionEvent::Image(
                                         section_id,
-                                        MarkdownImage {
-                                            destination: url,
-                                            description: String::new(), // TODO: fix
-                                        },
+                                            link,
                                     ));
                                 },
                                 SectionContent::Header(_, _, _) => {
@@ -120,14 +116,14 @@ pub fn worker_thread(
                             match &event {
                                 SectionEvent::Image(
                                     section_id,
-                                    MarkdownImage { destination, .. },
+                                    link,
                                 ) => {
-                                    if let Some(proto) = image_cache.images.remove(destination) {
-                                        log::debug!("image cache hit: {destination}");
+                                    if let Some(proto) = image_cache.images.remove(&link.url) {
+                                        log::debug!("image cache hit: {}", link.url);
                                         event_tx.send(Event::ImageLoaded(
                                             document_id,
                                             *section_id,
-                                            destination.clone(),
+                                            link.clone(),
                                             proto,
                                         ))?;
                                     } else {
@@ -195,13 +191,7 @@ fn process_post_parse_events(
     tokio::spawn(async move {
         for event in post_parse_events {
             match event {
-                SectionEvent::Image(
-                    section_id,
-                    MarkdownImage {
-                        destination,
-                        description,
-                    },
-                ) => {
+                SectionEvent::Image(section_id, url) => {
                     // Load fresh image
                     match image_section(
                         &picker,
@@ -210,16 +200,21 @@ fn process_post_parse_events(
                         &basepath,
                         client.clone(),
                         section_id,
-                        &destination,
+                        url,
                         deep_fry,
                     )
                     .await
                     {
                         Ok(section) => {
-                            let SectionContent::Image(url, proto) = section.content else {
+                            let SectionContent::Image(link, proto) = section.content else {
                                 unreachable!("image_section should return SectionContent::Image");
                             };
-                            task_tx.send(Event::ImageLoaded(document_id, section_id, url, proto))?
+                            task_tx.send(Event::ImageLoaded(
+                                document_id,
+                                section_id,
+                                link,
+                                proto,
+                            ))?
                         }
                         Err(Error::UnknownImage(_id, link)) => {
                             log::error!("image_section UnknownImage: {link}");

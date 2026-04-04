@@ -11,7 +11,7 @@ use itertools::Either;
 
 use cosmic_text::{Attrs, Buffer, Color, Family, Metrics, Shaping};
 use image::{DynamicImage, GenericImage as _, ImageFormat, ImageReader, Rgba, RgbaImage, imageops};
-use mdfrier::SourceContent;
+use mdfrier::{MarkdownLink, SourceContent};
 use ratatui::{layout::Rect, text::Line};
 
 use ratatui_image::{Resize, picker::Picker, protocol::Protocol};
@@ -78,7 +78,7 @@ impl Document {
     }
 
     /// Update a specific image line within a section with loaded image data.
-    pub fn update_image(&mut self, section_id: SectionID, url: &str, proto: Protocol) {
+    pub fn update_image(&mut self, section_id: SectionID, link: MarkdownLink, proto: Protocol) {
         let Some(section) = self.sections.iter_mut().find(|s| s.id == section_id) else {
             log::error!("update_image: section #{section_id} not found");
             return;
@@ -87,7 +87,7 @@ impl Document {
         *section = Section {
             id: section_id,
             height: proto.area().height,
-            content: SectionContent::Image(url.to_owned(), proto),
+            content: SectionContent::Image(link, proto),
         };
     }
 
@@ -121,13 +121,13 @@ impl Document {
             match &mut section.content {
                 SectionContent::Image(url, _) => {
                     let url = url.clone();
-                    let SectionContent::Image(url, proto) = std::mem::replace(
+                    let SectionContent::Image(link, proto) = std::mem::replace(
                         &mut section.content,
                         SectionContent::ImagePlaceholder(url, vec![]),
                     ) else {
                         unreachable!();
                     };
-                    cache.images.insert(url.clone(), proto);
+                    cache.images.insert(link.url.clone(), proto);
                     section.height = 1;
                 }
                 SectionContent::Header(text, tier, proto) => {
@@ -353,13 +353,9 @@ impl Document {
 
     #[cfg(test)]
     pub fn has_pending_images(&self) -> bool {
-        self.sections.iter().any(|section| {
-            if let SectionContent::ImagePlaceholder(..) = &section.content {
-                true
-            } else {
-                false
-            }
-        })
+        self.sections
+            .iter()
+            .any(|section| matches!(&section.content, SectionContent::ImagePlaceholder(..)))
     }
 }
 
@@ -406,8 +402,8 @@ pub struct Section {
 }
 
 pub enum SectionContent {
-    Image(String, Protocol),
-    ImagePlaceholder(String, Vec<(Line<'static>, Vec<LineExtra>)>),
+    Image(MarkdownLink, Protocol),
+    ImagePlaceholder(MarkdownLink, Vec<(Line<'static>, Vec<LineExtra>)>),
     Header(String, u8, Option<Protocol>),
     HeaderPlaceholder(String, u8, Vec<(Line<'static>, Vec<LineExtra>)>),
     Lines(Vec<(Line<'static>, Vec<LineExtra>)>),
@@ -460,9 +456,9 @@ impl PartialEq for SectionContent {
 impl Debug for SectionContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Image(url, _) => f.debug_tuple(format!("Image({url})").as_str()).finish(),
+            Self::Image(url, _) => f.debug_tuple(format!("Image({url:?})").as_str()).finish(),
             Self::ImagePlaceholder(url, _) => f
-                .debug_tuple(format!("ImagePlaceholder({url})").as_str())
+                .debug_tuple(format!("ImagePlaceholder({url:?})").as_str())
                 .finish(),
             Self::Lines(lines) => {
                 let mut tuple = f.debug_tuple("Line");
@@ -493,10 +489,10 @@ impl Display for SectionContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Image(url, protocol) => {
-                write!(f, "Image({url}, {:?})", protocol.type_id())
+                write!(f, "Image({url:?}, {:?})", protocol.type_id())
             }
             Self::ImagePlaceholder(url, _) => {
-                write!(f, "ImagePlaceholder({url})")
+                write!(f, "ImagePlaceholder({url:?})")
             }
             Self::Lines(lines) => write!(f, "Line({lines:?})"),
             Self::Header(text, tier, _) => write!(f, "Header({text}, {tier})"),
@@ -704,13 +700,14 @@ pub async fn image_section(
     basepath: &Option<PathBuf>,
     client: Arc<RwLock<Client>>,
     id: SectionID,
-    url: &str,
+    link: MarkdownLink,
     deep_fry_meme: bool,
 ) -> Result<Section, Error> {
     enum ImageSource {
         Bytes(Vec<u8>, ImageFormat),
         Path(String),
     }
+    let url = &link.url;
     let image_source = if url.starts_with("https://") || url.starts_with("http://") {
         let mut headers = HeaderMap::new();
         headers.insert(ACCEPT, HeaderValue::from_static("image/png,image/jpg")); // or "image/jpeg"
@@ -747,7 +744,6 @@ pub async fn image_section(
 
     // Now do all the blocking stuff
     let picker = picker.clone();
-    let url = String::from(url);
     let section = tokio::task::spawn_blocking(move || {
         let mut dyn_img = match image_source {
             ImageSource::Bytes(bytes, format) => {
@@ -772,7 +768,7 @@ pub async fn image_section(
         Ok::<Section, Error>(Section {
             id,
             height,
-            content: SectionContent::Image(url, proto),
+            content: SectionContent::Image(link, proto),
         })
     })
     .await??;
