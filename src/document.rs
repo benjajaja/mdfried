@@ -84,42 +84,11 @@ impl Document {
             return;
         };
 
-        let SectionContent::Lines(lines) = &mut section.content else {
-            log::error!("update_image: section #{section_id} is not Lines");
-            return;
+        *section = Section {
+            id: section_id,
+            height: proto.area().height,
+            content: SectionContent::Image(url.to_owned(), proto),
         };
-
-        // Find the line containing this image URL (skip lines that already have an image)
-        let Some((_line, extras)) = lines.iter_mut().find(|(line, extras)| {
-            let text = line.to_string();
-            text.starts_with("![")
-                && text.contains(url)
-                && !extras.iter().any(|e| matches!(e, LineExtra::Image(_, _)))
-        }) else {
-            log::error!("update_image: no line with url {url} in section #{section_id}");
-            return;
-        };
-
-        // Add the image protocol to extras
-        extras.push(LineExtra::Image(url.to_owned(), proto));
-
-        // Recalculate section height
-        let height: u16 = lines
-            .iter()
-            .map(|(_, extras)| {
-                extras
-                    .iter()
-                    .find_map(|e| {
-                        if let LineExtra::Image(_, proto) = e {
-                            Some(proto.area().height)
-                        } else {
-                            None
-                        }
-                    })
-                    .unwrap_or(1)
-            })
-            .sum();
-        section.height = height;
     }
 
     pub fn update_header(&mut self, section_id: SectionID, rows: Vec<(String, u8, Protocol)>) {
@@ -150,26 +119,28 @@ impl Document {
         let mut cache = ImageCache::default();
         for section in &mut self.sections {
             match &mut section.content {
-                SectionContent::Lines(lines) => {
-                    for (_, extras) in lines.iter_mut() {
-                        // Find and remove LineExtra::Image
-                        if let Some(idx) = extras
-                            .iter()
-                            .position(|e| matches!(e, LineExtra::Image(_, _)))
-                        {
-                            let LineExtra::Image(url, proto) = extras.remove(idx) else {
-                                unreachable!()
-                            };
-
-                            cache.images.insert(url, proto);
-                        }
-                    }
-                    // Recalculate section height (all lines now height 1)
-                    section.height = lines.len() as u16;
+                SectionContent::Image(url, _) => {
+                    let url = url.clone();
+                    let SectionContent::Image(url, proto) = std::mem::replace(
+                        &mut section.content,
+                        SectionContent::ImagePlaceholder(url, vec![]),
+                    ) else {
+                        unreachable!();
+                    };
+                    cache.images.insert(url.clone(), proto);
+                    section.height = 1;
                 }
                 SectionContent::Header(text, tier, proto) => {
-                    if let Some(proto) = proto.take() {
-                        let key = (text.clone(), *tier);
+                    if proto.is_some() {
+                        let text = text.clone();
+                        let tier = *tier;
+                        let SectionContent::Header(text, tier, Some(proto)) = std::mem::replace(
+                            &mut section.content,
+                            SectionContent::HeaderPlaceholder(text, tier, vec![]),
+                        ) else {
+                            unreachable!();
+                        };
+                        let key = (text, tier);
                         if let Some(existing) = cache.headers.get_mut(&key) {
                             existing.push(proto);
                         } else {
@@ -383,12 +354,8 @@ impl Document {
     #[cfg(test)]
     pub fn has_pending_images(&self) -> bool {
         self.sections.iter().any(|section| {
-            if let SectionContent::Lines(lines) = &section.content {
-                lines.iter().any(|(line, extras)| {
-                    // Line is a pending image if it starts with "![" and has no LineExtra::Image
-                    line.to_string().starts_with("![")
-                        && !extras.iter().any(|e| matches!(e, LineExtra::Image(_, _)))
-                })
+            if let SectionContent::ImagePlaceholder(..) = &section.content {
+                true
             } else {
                 false
             }
@@ -440,7 +407,9 @@ pub struct Section {
 
 pub enum SectionContent {
     Image(String, Protocol),
+    ImagePlaceholder(String, Vec<(Line<'static>, Vec<LineExtra>)>),
     Header(String, u8, Option<Protocol>),
+    HeaderPlaceholder(String, u8, Vec<(Line<'static>, Vec<LineExtra>)>),
     Lines(Vec<(Line<'static>, Vec<LineExtra>)>),
 }
 
@@ -492,6 +461,9 @@ impl Debug for SectionContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Image(url, _) => f.debug_tuple(format!("Image({url})").as_str()).finish(),
+            Self::ImagePlaceholder(url, _) => f
+                .debug_tuple(format!("ImagePlaceholder({url})").as_str())
+                .finish(),
             Self::Lines(lines) => {
                 let mut tuple = f.debug_tuple("Line");
                 for (line, extra) in lines {
@@ -503,6 +475,16 @@ impl Debug for SectionContent {
                 tuple.finish()
             }
             Self::Header(text, tier, _) => f.debug_tuple("Header").field(text).field(tier).finish(),
+            Self::HeaderPlaceholder(_, _, lines) => {
+                let mut tuple = f.debug_tuple("HeaderPlaceholder");
+                for (line, extra) in lines {
+                    let mut tuple = tuple.field(line);
+                    if !extra.is_empty() {
+                        tuple = tuple.field(extra);
+                    }
+                }
+                tuple.finish()
+            }
         }
     }
 }
@@ -510,9 +492,15 @@ impl Debug for SectionContent {
 impl Display for SectionContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Image(url, protocol) => write!(f, "Image({url}, {:?})", protocol.type_id()),
+            Self::Image(url, protocol) => {
+                write!(f, "Image({url}, {:?})", protocol.type_id())
+            }
+            Self::ImagePlaceholder(url, _) => {
+                write!(f, "ImagePlaceholder({url})")
+            }
             Self::Lines(lines) => write!(f, "Line({lines:?})"),
             Self::Header(text, tier, _) => write!(f, "Header({text}, {tier})"),
+            Self::HeaderPlaceholder(_, _, lines) => write!(f, "HeaderPlaceholder({lines:?})"),
         }
     }
 }
@@ -528,6 +516,7 @@ impl Display for Section {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.content {
             SectionContent::Image(_, _) => write!(f, "<image>"),
+            SectionContent::ImagePlaceholder(_, _) => write!(f, "<image-placeholder>"),
             SectionContent::Lines(lines) => {
                 for (i, (line, _)) in lines.iter().enumerate() {
                     if i > 0 {
@@ -539,6 +528,15 @@ impl Display for Section {
             }
             SectionContent::Header(text, tier, _) => {
                 write!(f, "{} {}", "#".repeat(*tier as usize), text)
+            }
+            SectionContent::HeaderPlaceholder(_, _, lines) => {
+                for (i, (line, _)) in lines.iter().enumerate() {
+                    if i > 0 {
+                        writeln!(f)?;
+                    }
+                    write!(f, "{}", line)?;
+                }
+                Ok(())
             }
         }
     }

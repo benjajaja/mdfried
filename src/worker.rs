@@ -31,7 +31,7 @@ use crate::{
     error::Error,
     model::DocumentId,
     setup::FontRenderer,
-    worker::sections::{HeaderConfig, SectionEvent, SectionIterator},
+    worker::sections::{SectionEvent, SectionIterator},
 };
 
 #[expect(clippy::too_many_arguments)]
@@ -40,7 +40,6 @@ pub fn worker_thread(
     picker: Picker,
     renderer: Option<Box<FontRenderer>>,
     theme: Theme,
-    has_text_size_protocol: bool,
     deep_fry: bool,
     cmd_rx: Receiver<Cmd>,
     event_tx: Sender<Event>,
@@ -54,11 +53,6 @@ pub fn worker_thread(
         runtime.block_on(async {
             let basepath = basepath.clone();
             let client = Arc::new(RwLock::new(Client::new()));
-            let header_config = match (has_text_size_protocol, renderer.is_some()) {
-                (true, _) => HeaderConfig::TextSizeProtocol,
-                (_, true) => HeaderConfig::Image,
-                _ => HeaderConfig::Line,
-            };
             // Specifically not a tokio Mutex, because we use it in spawn_blocking.
             let thread_renderer =
                 renderer.map(|renderer| Arc::new(std::sync::Mutex::new(renderer)));
@@ -75,11 +69,47 @@ pub fn worker_thread(
 
                         let lines = parser.parse(width, &text, &theme)?;
                         let mut section_iter =
-                            SectionIterator::new(lines, &theme, width, header_config.clone());
+                            SectionIterator::new(lines, &theme, width);
                         let mut post_parse_events = Vec::new();
-                        for (section, events) in &mut section_iter {
-                            event_tx.send(Event::Parsed(document_id, section))?;
-                            post_parse_events.extend(events);
+                        for section in &mut section_iter {
+                            match &section.content {
+                                SectionContent::Lines(_) => {
+                                    event_tx.send(Event::Parsed(document_id, section))?;
+                                }
+                                SectionContent::Image(_, _) => {
+                                    unreachable!("SectionIterator produced Image");
+                                }
+                                SectionContent::ImagePlaceholder(url, _) => {
+                                    let section_id = section.id;
+                                    let url = url.clone();
+                                    event_tx.send(Event::Parsed(document_id, section))?;
+                                    post_parse_events.push(SectionEvent::Image(
+                                        section_id,
+                                        MarkdownImage {
+                                            destination: url,
+                                            description: String::new(), // TODO: fix
+                                        },
+                                    ));
+                                },
+                                SectionContent::Header(_, _, _) => {
+                                    if !theme.has_text_size_protocol.unwrap_or_default() {
+                                        unreachable!("SectionIterator produced Header without text-size-protocol");
+                                    }
+                                    event_tx.send(Event::Parsed(document_id, section))?;
+                                }
+                                SectionContent::HeaderPlaceholder(text,tier,_) => {
+                                    if theme.has_text_size_protocol.unwrap_or_default() {
+                                        unreachable!("SectionIterator produced HeaderPlaceholder with text-size-protocol");
+                                    }
+                                    let section_id = section.id;
+                                    let text = text.clone();
+                                    let tier = *tier;
+                                    event_tx.send(Event::Parsed(document_id, section))?;
+                                    if thread_renderer.is_some() {
+                                        post_parse_events.push(SectionEvent::Header(section_id, text, tier));
+                                    }
+                                }
+                            }
                         }
                         let section_id = section_iter.last_section_id();
 
@@ -165,7 +195,13 @@ fn process_post_parse_events(
     tokio::spawn(async move {
         for event in post_parse_events {
             match event {
-                SectionEvent::Image(section_id, MarkdownImage { destination, .. }) => {
+                SectionEvent::Image(
+                    section_id,
+                    MarkdownImage {
+                        destination,
+                        description,
+                    },
+                ) => {
                     // Load fresh image
                     match image_section(
                         &picker,

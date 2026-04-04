@@ -6,15 +6,13 @@
 //! - Image lines become their own section
 //! - All other lines are aggregated into text sections
 
-use std::collections::VecDeque;
 use std::iter::Peekable;
 
 use mdfrier::ratatui::{Tag, render_line};
 use mdfrier::{Line, LineKind};
-use textwrap::{Options, wrap};
+use ratatui::text::Span;
 
 use crate::MarkdownImage;
-use crate::big_text::BigText;
 use crate::config::Theme;
 use crate::document::{LineExtra, Section, SectionContent, SectionID};
 
@@ -24,34 +22,22 @@ pub enum SectionEvent {
     Header(SectionID, String, u8),
 }
 
-#[derive(Clone)]
-pub enum HeaderConfig {
-    Line,
-    TextSizeProtocol,
-    Image,
-}
-
 /// Iterator that groups lines into sections and renders them.
 pub struct SectionIterator<'a, I: Iterator<Item = Line>> {
     inner: Peekable<I>,
     theme: &'a Theme,
     width: u16,
-    header_config: HeaderConfig,
     section_id: usize,
-    /// Buffer for sections when a single input produces multiple outputs (e.g., wrapped headers)
-    pending: VecDeque<(Section, Vec<SectionEvent>)>,
 }
 
 impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
     /// Create a new section iterator from a line iterator.
-    pub fn new(inner: I, theme: &'a Theme, width: u16, header_config: HeaderConfig) -> Self {
+    pub fn new(inner: I, theme: &'a Theme, width: u16) -> Self {
         SectionIterator {
             inner: inner.peekable(),
             theme,
             width,
-            header_config,
             section_id: 0,
-            pending: VecDeque::new(),
         }
     }
 
@@ -64,7 +50,7 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
         }
     }
 
-    fn next_section_id(&mut self) -> SectionID {
+    pub fn next_section_id(&mut self) -> SectionID {
         let id = self.section_id;
         self.section_id += 1;
         id
@@ -78,58 +64,33 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
     }
 
     /// Process header lines into sections.
-    fn process_header(
-        &mut self,
-        first: Line,
-        tier: u8,
-    ) -> (Section, Vec<Section>, Option<SectionEvent>) {
+    fn process_header(&mut self, first: Line, tier: u8) -> Section {
         let text: String = first.spans.iter().map(|s| s.content.as_str()).collect();
-
-        match self.header_config {
-            HeaderConfig::TextSizeProtocol => {
-                // Wrap header text for big text rendering
-                let (n, d) = BigText::size_ratio(tier);
-                let scaled_width = self.width as usize / 2 * usize::from(d) / usize::from(n);
-                let options = Options::new(scaled_width)
-                    .break_words(true)
-                    .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation);
-                let mut sections = Vec::new();
-                for part in wrap(&text, options) {
-                    let id = self.next_section_id();
-                    sections.push(Section {
-                        id,
-                        height: 2,
-                        content: SectionContent::Header(part.to_string(), tier, None),
-                    });
-                }
-                let head = sections.remove(0);
-                (head, sections, None)
-            }
-            HeaderConfig::Image => {
-                let id = self.next_section_id();
-                (
-                    Section {
-                        id,
-                        height: 2,
-                        content: SectionContent::Header(text.clone(), tier, None),
-                    },
-                    Vec::new(),
-                    Some(SectionEvent::Header(id, text, tier)),
-                )
-            }
-            HeaderConfig::Line => {
-                todo!("HeaderConfig::Line");
-            }
+        let id = self.next_section_id();
+        if self.theme.has_text_size_protocol.unwrap_or_default() {
+            return Section {
+                id,
+                height: 2,
+                content: SectionContent::Header(text.clone(), tier, None),
+            };
+        }
+        let mut lines = vec![self.render_line(first)];
+        if let Some(first) = lines.iter_mut().nth(0) {
+            first.0.spans.insert(0, Span::from(" "));
+            first
+                .0
+                .spans
+                .insert(0, Span::from("#".repeat(tier as usize)));
+        }
+        Section {
+            id,
+            height: 2,
+            content: SectionContent::HeaderPlaceholder(text.clone(), tier, lines),
         }
     }
 
     /// Process image lines into a section.
-    fn process_image(
-        &mut self,
-        first: Line,
-        url: String,
-        description: String,
-    ) -> (Section, SectionEvent) {
+    fn process_image(&mut self, first: Line, url: String, description: String) -> Section {
         let id = self.next_section_id();
         let mut lines = vec![self.render_line(first)];
 
@@ -141,20 +102,11 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
             }
         }
 
-        (
-            Section {
-                id,
-                height: lines.len() as u16,
-                content: SectionContent::Lines(lines),
-            },
-            SectionEvent::Image(
-                id,
-                MarkdownImage {
-                    destination: url,
-                    description,
-                },
-            ),
-        )
+        Section {
+            id,
+            height: lines.len() as u16,
+            content: SectionContent::ImagePlaceholder(url, lines),
+        }
     }
 
     /// Process text lines (paragraphs, code blocks, tables, etc.) into a section.
@@ -216,14 +168,10 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
 }
 
 impl<I: Iterator<Item = Line>> Iterator for SectionIterator<'_, I> {
-    type Item = (Section, Vec<SectionEvent>);
+    type Item = Section;
 
     fn next(&mut self) -> Option<Self::Item> {
         // Return buffered section if available
-        if let Some(item) = self.pending.pop_front() {
-            return Some(item);
-        }
-
         loop {
             let first = self.inner.next()?;
 
@@ -231,18 +179,11 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<'_, I> {
             let kind = first.kind.clone();
             match kind {
                 // Headers are always their own section
-                LineKind::Header(tier) => {
-                    let (first, wrapped, event) = self.process_header(first, tier);
-                    for remainder in wrapped {
-                        self.pending.push_back((remainder, vec![]));
-                    }
-                    return Some((first, event.map(|e| vec![e]).unwrap_or_default()));
-                }
+                LineKind::Header(tier) => return Some(self.process_header(first, tier)),
 
                 // Images are always their own section
                 LineKind::Image { url, description } => {
-                    let (section, event) = self.process_image(first, url, description);
-                    return Some((section, vec![event]));
+                    return Some(self.process_image(first, url, description));
                 }
 
                 // Skip blank lines at the start of a section
@@ -253,7 +194,7 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<'_, I> {
                 // All other line types get aggregated into text sections
                 _ => {
                     if let Some(section) = self.process_text(first) {
-                        return Some((section, vec![]));
+                        return Some(section);
                     }
                     // Section was empty after trimming, continue to next
                 }
@@ -294,9 +235,7 @@ mod tests {
         let mut frier = MdFrier::new().unwrap();
         let theme = Theme::default();
         let lines = frier.parse(80, text, &theme).unwrap();
-        SectionIterator::new(lines, &theme, 80, HeaderConfig::Image)
-            .map(|(section, _)| section)
-            .collect()
+        SectionIterator::new(lines, &theme, 80).collect()
     }
 
     #[test]
@@ -305,7 +244,7 @@ mod tests {
         assert_eq!(sections.len(), 2);
         assert!(matches!(
             sections[0].content,
-            SectionContent::Header(_, 1, _)
+            SectionContent::HeaderPlaceholder(_, 1, _)
         ));
         assert!(matches!(sections[1].content, SectionContent::Lines(_)));
     }
@@ -322,7 +261,10 @@ mod tests {
         let sections = parse_sections("Before\n\n![alt](http://example.com/img.png)\n\nAfter");
         assert_eq!(sections.len(), 3);
         assert!(matches!(sections[0].content, SectionContent::Lines(_)));
-        assert!(matches!(sections[1].content, SectionContent::Lines(_))); // Image placeholder
+        assert!(matches!(
+            sections[1].content,
+            SectionContent::ImagePlaceholder(_, _)
+        ));
         assert!(matches!(sections[2].content, SectionContent::Lines(_)));
     }
 
@@ -332,15 +274,15 @@ mod tests {
         assert_eq!(sections.len(), 3);
         assert!(matches!(
             sections[0].content,
-            SectionContent::Header(_, 1, _)
+            SectionContent::HeaderPlaceholder(_, 1, _)
         ));
         assert!(matches!(
             sections[1].content,
-            SectionContent::Header(_, 2, _)
+            SectionContent::HeaderPlaceholder(_, 2, _)
         ));
         assert!(matches!(
             sections[2].content,
-            SectionContent::Header(_, 3, _)
+            SectionContent::HeaderPlaceholder(_, 3, _)
         ));
     }
 
@@ -348,12 +290,10 @@ mod tests {
     #[expect(clippy::unwrap_used)]
     fn header_wrapping_tier_1() {
         let mut frier = MdFrier::new().unwrap();
-        let theme = Theme::default();
+        let mut theme = Theme::default();
+        theme.has_text_size_protocol = Some(true);
         let lines = frier.parse(10, "# 1234567890", &theme).unwrap();
-        let sections: Vec<Section> =
-            SectionIterator::new(lines, &theme, 10, HeaderConfig::TextSizeProtocol)
-                .map(|(section, _)| section)
-                .collect();
+        let sections: Vec<Section> = SectionIterator::new(lines, &theme, 10).collect();
 
         assert_eq!(sections.len(), 2);
 

@@ -203,6 +203,13 @@ pub trait Mapper {
     fn hide_urls(&self) -> bool {
         false
     }
+
+    /// Internal "has text-size-protocol" marker
+    ///
+    /// If true, then header width is adjusted proportionally to the header tier for wrapping.
+    fn has_text_size_protocol(&self) -> bool {
+        false
+    }
 }
 
 /// Default mapper preserving markdown decorators.

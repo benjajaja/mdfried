@@ -224,12 +224,13 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let watch_event_tx = event_tx.clone();
 
     let config_max_image_height = config.max_image_height;
+    let mut worker_theme = config.theme.clone();
+    worker_theme.has_text_size_protocol = Some(has_text_size_protocol);
     let cmd_thread = worker_thread(
         basepath,
         picker,
         renderer,
-        config.theme.clone(),
-        has_text_size_protocol,
+        worker_theme,
         deep_fry,
         cmd_rx,
         event_tx,
@@ -536,6 +537,17 @@ fn view(model: &Model, frame: &mut Frame) {
                 }
                 y += proto.area().height as i32;
             }
+            SectionContent::ImagePlaceholder(_, lines) => {
+                for (line, extras) in lines.iter() {
+                    if y < 0 {
+                        y += 1;
+                        continue; // skip this line.
+                    }
+                    let p = Paragraph::new(line.clone());
+                    render_lines(p, 1, y as u16, inner_area, frame);
+                    y += 1;
+                }
+            }
             SectionContent::Header(text, tier, proto) => {
                 // Only render headers if fully in view
                 if y >= 0 && (y as u16) < inner_area.bottom() - 2 {
@@ -548,6 +560,18 @@ fn view(model: &Model, frame: &mut Frame) {
                     }
                 }
                 y += 2;
+            }
+            SectionContent::HeaderPlaceholder(_, _, lines) => {
+                for (line, _) in lines.iter() {
+                    if y < 0 {
+                        y += 1;
+                        continue; // skip this line.
+                    }
+                    let p = Paragraph::new(line.clone());
+                    render_lines(p, 1, y as u16, inner_area, frame);
+                    y += 1;
+                }
+                y += 1;
             }
         }
         if y >= inner_area.height as i32 - 1 {
@@ -654,12 +678,13 @@ mod tests {
 
         let picker = Picker::halfblocks();
         assert_eq!(picker.protocol_type(), ProtocolType::Halfblocks);
+        let mut worker_theme = config.theme.clone();
+        worker_theme.has_text_size_protocol = Some(true);
         let worker = worker_thread(
             None,
             picker,
             None,
-            config.theme.clone(),
-            true,
+            worker_theme,
             false,
             cmd_rx,
             event_tx,
@@ -679,6 +704,7 @@ mod tests {
     }
 
     // Poll until parsed and no pending images.
+    #[track_caller]
     fn poll_parsed(model: &mut Model) {
         let mut fuse = 1_000_000;
         loop {
@@ -695,7 +721,7 @@ mod tests {
     }
 
     // Poll until parsed and no pending images.
-    fn poll_done(model: &mut Model) {
+    fn poll_images_done(model: &mut Model) {
         while model.has_pending_images() {
             model.process_events().unwrap();
         }
@@ -734,7 +760,7 @@ Goodbye."#,
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("first parse image previews", terminal.backend());
         // Must load an image.
-        poll_done(&mut model);
+        poll_images_done(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("first parse done", terminal.backend());
 
@@ -764,7 +790,7 @@ Goodbye."#,
             )
             .unwrap();
         poll_parsed(&mut model);
-        poll_done(&mut model);
+        poll_images_done(&mut model);
 
         model
             .reparse(
@@ -778,6 +804,7 @@ Goodbye."#,
             )
             .unwrap();
         poll_parsed(&mut model);
+        log::debug!("poll_parsed before failing done");
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("reload move image up", terminal.backend());
 
@@ -822,7 +849,7 @@ Goodbye."#,
             )
             .unwrap();
         poll_parsed(&mut model);
-        poll_done(&mut model);
+        poll_images_done(&mut model);
 
         model
             .reparse(
@@ -840,7 +867,7 @@ Goodbye."#,
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("reload add image preview", terminal.backend());
         // Must load an image.
-        poll_done(&mut model);
+        poll_images_done(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("reload add image done", terminal.backend());
         teardown(model, worker);
@@ -868,7 +895,7 @@ Goodbye."#,
             )
             .unwrap();
         poll_parsed(&mut model);
-        poll_done(&mut model);
+        poll_images_done(&mut model);
 
         model
             .reparse(
@@ -885,7 +912,7 @@ Goodbye.
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("duplicate image preview", terminal.backend());
         // Must load an image.
-        poll_done(&mut model);
+        poll_images_done(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
         assert_snapshot!("duplicate image done", terminal.backend());
         teardown(model, worker);

@@ -237,12 +237,31 @@ fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> V
             wrapped_to_lines(wrapped_lines, nesting, mapper)
         }
         MdContent::Header { tier, text } => {
-            let mut spans = nesting_to_prefix_spans(&nesting, mapper);
-            spans.push(Span::from(text.clone()));
-            vec![Line {
-                spans,
-                kind: LineKind::Header(*tier),
-            }]
+            if true || mapper.has_text_size_protocol() {
+                let spans = vec![Span::from(text.clone())];
+                let (n, d) = match tier {
+                    1 => (7, 7),
+                    2 => (5, 6),
+                    3 => (3, 4),
+                    4 => (2, 3),
+                    5 => (3, 5),
+                    _ => (1, 3),
+                };
+                let scaled_width = width / 2 * d / n;
+                let wrapped = wrap_md_spans(scaled_width, spans, 0);
+                wrapped
+                    .into_iter()
+                    .map(|line| Line {
+                        spans: line.spans,
+                        kind: LineKind::Header(*tier),
+                    })
+                    .collect()
+            } else {
+                vec![Line {
+                    spans: vec![Span::from(text.clone())],
+                    kind: LineKind::Header(*tier),
+                }]
+            }
         }
         MdContent::CodeBlock { language, code } => {
             code_block_to_lines(width, language, code, nesting, mapper)
