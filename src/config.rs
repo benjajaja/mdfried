@@ -73,6 +73,7 @@ pub struct Theme {
 
     // Other options
     pub hide_urls: Option<bool>,
+    pub has_text_size_protocol: Option<bool>,
 }
 
 // Delegate to StyledMapper for defaults
@@ -184,6 +185,9 @@ impl mdfrier::Mapper for Theme {
     }
     fn hide_urls(&self) -> bool {
         self.hide_urls.unwrap_or(true)
+    }
+    fn has_text_size_protocol(&self) -> bool {
+        self.has_text_size_protocol.unwrap_or_default()
     }
 }
 

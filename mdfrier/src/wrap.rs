@@ -49,22 +49,30 @@ pub(crate) fn wrap_md_spans(
             let is_first = line_idx == 0 || is_source_newline;
 
             // Extract images from spans
-            let images: Vec<ImageRef> = mdspans
-                .iter()
-                .filter_map(|s| {
-                    if s.modifiers.contains(Modifier::LinkURL)
-                        && s.modifiers.contains(Modifier::Image)
-                        && let Some(source_content) = &s.source_content
-                    {
-                        Some(ImageRef {
-                            url: source_content.as_ref().to_owned(),
-                            description: String::new(),
-                        })
-                    } else {
-                        None
+            let mut images: Vec<ImageRef> = Vec::new();
+            for (i, s) in mdspans.iter().enumerate() {
+                if s.modifiers.contains(Modifier::LinkURL)
+                    && s.modifiers.contains(Modifier::Image)
+                    && let Some(source_content) = &s.source_content
+                {
+                    // Track back to get description if any.
+                    // TODO: something's wrong about this!
+                    let mut description = String::from("Loading...");
+                    for j in 0..3 {
+                        if i > j
+                            && let Some(desc_span) = mdspans.get(i - j)
+                            && desc_span.modifiers.contains(Modifier::LinkDescription)
+                            && desc_span.modifiers.contains(Modifier::Image)
+                        {
+                            description = desc_span.content.clone();
+                        }
                     }
-                })
-                .collect();
+                    images.push(ImageRef {
+                        url: source_content.as_ref().to_owned(),
+                        description,
+                    });
+                }
+            }
 
             // Filter out image URL spans from content
             let spans: Vec<Span> = mdspans

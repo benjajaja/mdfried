@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use crate::{
-    Line as MdLine, LineKind, Span,
+    Line as MdLine, LineKind, MarkdownLink, Span,
     mapper::Mapper,
     markdown::{Modifier as MdModifier, SourceContent},
 };
@@ -268,8 +268,8 @@ impl Theme for DefaultTheme {}
 /// Semantic tags that describe line content for application use.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Tag {
-    /// Image reference (url, description).
-    Image(String, String),
+    /// Image reference.
+    Image(MarkdownLink),
     /// Link reference (span index in rendered Line, url).
     Link(usize, SourceContent),
     /// Header with tier (1-6).
@@ -330,7 +330,11 @@ pub fn render_line<T: Theme>(md_line: MdLine, theme: &T) -> (Line<'static>, Vec<
             if let Some(link) = source_content {
                 tags.push(Tag::Link(line_spans.len(), link));
             } else {
-                log::error!("node has LinkURL but no source_content");
+                log::warn!("node has LinkURL but no source_content");
+                tags.push(Tag::Link(
+                    line_spans.len(),
+                    SourceContent::from(node.content.as_ref()),
+                ));
             }
         }
 
@@ -359,7 +363,7 @@ pub fn render_line<T: Theme>(md_line: MdLine, theme: &T) -> (Line<'static>, Vec<
         LineKind::HorizontalRule => tags.push(Tag::HorizontalRule),
         LineKind::TableRow { .. } => tags.push(Tag::TableRow),
         LineKind::TableBorder => tags.push(Tag::TableBorder),
-        LineKind::Image { url, description } => tags.push(Tag::Image(url, description)),
+        LineKind::Image(link) => tags.push(Tag::Image(link)),
         LineKind::Blank => tags.push(Tag::Blank),
     }
 

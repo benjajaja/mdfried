@@ -4,7 +4,7 @@
 //! before wrapping. This affects the visual width of elements and must be applied
 //! before line wrapping occurs.
 
-use crate::lines::BulletStyle;
+use crate::markdown::BulletStyle;
 
 /// Trait for mapping markdown content to decorated output.
 ///
@@ -201,6 +201,13 @@ pub trait Mapper {
     /// Except bare links, can make something like `[click me](http://example.com)` into just
     /// `[click me]`.
     fn hide_urls(&self) -> bool {
+        false
+    }
+
+    /// Internal "has text-size-protocol" marker
+    ///
+    /// If true, then header width is adjusted proportionally to the header tier for wrapping.
+    fn has_text_size_protocol(&self) -> bool {
         false
     }
 }
