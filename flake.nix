@@ -37,6 +37,7 @@
             (lib.fileset.maybeMissing ./assets)
             (lib.fileset.maybeMissing ./src/snapshots)
             (lib.fileset.maybeMissing ./src/worker/snapshots)
+            (lib.fileset.maybeMissing ./mdfrier/src/snapshots)
           ];
         };
 
