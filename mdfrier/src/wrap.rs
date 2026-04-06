@@ -67,6 +67,7 @@ pub(crate) fn wrap_md_spans(
                             description = desc_span.content.clone();
                         }
                     }
+                    debug_assert_ne!(&description, "Loading...", "The `Loading...` description should have been replaced by the actual image description");
                     images.push(ImageRef {
                         url: source_content.as_ref().to_owned(),
                         description,

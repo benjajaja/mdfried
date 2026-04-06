@@ -694,43 +694,27 @@ impl MdParagraph {
         };
         let extra = extra.union(current_extra);
 
-        let (extra, newline_offset) = if source.as_bytes()[node.start_byte()] == b'\n' {
-            (extra.union(Modifier::NewLine), 1)
-        } else {
-            (extra, 0)
-        };
-
         if node.child_count() == 0 {
             self.backing
-                .push_str(&source[newline_offset + node.start_byte()..node.end_byte()]);
+                .push_str(&source[node.start_byte()..node.end_byte()]);
             self.spans.push(Span::new(
-                source[newline_offset + node.start_byte()..node.end_byte()].to_owned(),
+                source[node.start_byte()..node.end_byte()].to_owned(),
                 extra,
             ));
             return None;
         }
 
-        // let mut spans = Vec::new();
-        let mut pos = node.start_byte() + newline_offset;
+        let mut pos = node.start_byte();
 
         for child in node.children(&mut node.walk()) {
             if is_punctuation(child.kind(), current_extra) {
                 continue;
             }
-            let mut ended_with_newline = false;
             if child.start_byte() > pos {
                 // TODO: is this right?
                 self.spans
                     .push(Span::new(source[pos..child.start_byte()].to_owned(), extra));
-                if source.as_bytes()[child.start_byte() - 1] == b'\n' {
-                    ended_with_newline = true;
-                }
             }
-            let extra = if ended_with_newline {
-                extra.union(Modifier::NewLine)
-            } else {
-                extra
-            };
 
             let source_content = self.recurse(child, source, extra, _depth + 1);
             if let Some(source_content) = source_content {
@@ -927,7 +911,14 @@ fn detect_bare_urls(mdspans: Vec<Span>) -> Vec<Span> {
 
 fn split_newlines(mdspans: Vec<Span>) -> Vec<Span> {
     let mut result = Vec::with_capacity(mdspans.len());
-    for mdspan in mdspans {
+    // If a span ends with `\n` it does not get split, but we must set NewLine on the next.
+    // An `\n` at the end of a paragraph is meaningless here.
+    let mut trailing_newline = false;
+    for mut mdspan in mdspans {
+        if trailing_newline {
+            mdspan.modifiers = mdspan.modifiers.union(Modifier::NewLine);
+            trailing_newline = false;
+        }
         // Preserve empty spans that have NewLine flag (from hard_line_break)
         if mdspan.content.is_empty() && mdspan.modifiers.contains(Modifier::NewLine) {
             result.push(mdspan);
@@ -944,8 +935,10 @@ fn split_newlines(mdspans: Vec<Span>) -> Vec<Span> {
         for part in mdspan.content.split('\n') {
             if part.is_empty() {
                 first = false;
+                trailing_newline = true;
                 continue;
             }
+            trailing_newline = false;
             result.push(Span {
                 content: part.to_owned(),
                 modifiers: if first {
