@@ -57,33 +57,29 @@ pub(crate) fn wrap_md_spans(
                 {
                     // Track back to get description if any.
                     // TODO: something's wrong about this!
-                    let mut description = String::from("Loading...");
+                    let mut description = None;
                     for j in 0..3 {
                         if i > j
                             && let Some(desc_span) = mdspans.get(i - j)
                             && desc_span.modifiers.contains(Modifier::LinkDescription)
                             && desc_span.modifiers.contains(Modifier::Image)
                         {
-                            description = desc_span.content.clone();
+                            description = Some(desc_span.content.clone());
                         }
                     }
-                    debug_assert_ne!(&description, "Loading...", "The `Loading...` description should have been replaced by the actual image description");
+                    if description.is_none() {
+                        log::warn!("image description node not found (really absent?)");
+                    }
                     images.push(ImageRef {
                         url: source_content.as_ref().to_owned(),
-                        description,
+                        description: description.unwrap_or_default(),
                     });
                 }
             }
 
-            // Filter out image URL spans from content
-            let spans: Vec<Span> = mdspans
-                .into_iter()
-                .filter(|s| !s.modifiers.contains(Modifier::Image))
-                .collect();
-
             WrappedLine {
                 is_first,
-                spans,
+                spans: mdspans,
                 images,
             }
         })

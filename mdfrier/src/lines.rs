@@ -629,8 +629,12 @@ fn wrapped_to_lines<M: Mapper>(
                 .collect()
         };
 
+        let is_only_image = wrapped_line
+            .spans
+            .iter()
+            .all(|span| span.modifiers.contains(Modifier::Image));
         // Create text line
-        if !wrapped_line.spans.is_empty() {
+        if !is_only_image && !wrapped_line.spans.is_empty() {
             let mut spans = nesting_to_prefix_spans(&line_nesting, mapper);
             spans.extend(wrapped_line.spans);
             lines.push(Line {
@@ -643,7 +647,11 @@ fn wrapped_to_lines<M: Mapper>(
         for img in wrapped_line.images {
             let spans = vec![
                 Span::new("![".to_owned(), Modifier::LinkDescriptionWrapper),
-                Span::new(img.description.clone(), Modifier::LinkDescription),
+                if is_only_image {
+                    Span::new(img.description.clone(), Modifier::LinkDescription)
+                } else {
+                    Span::new("Loading...".to_owned(), Modifier::LinkDescription)
+                },
                 Span::new("]".to_owned(), Modifier::LinkDescriptionWrapper),
                 Span::new("(".to_owned(), Modifier::LinkURLWrapper),
                 Span::new(img.url.clone(), Modifier::LinkURL),

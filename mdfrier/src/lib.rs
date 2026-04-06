@@ -576,4 +576,17 @@ Quote break.
             ]
         );
     }
+
+    #[test]
+    fn inline_image_surrounding_text() {
+        let input = r#"This a paragraph.
+Here we have an "inline" image, ![inline](./notfound.img), and trailing text.
+Should be split up nicely.
+"#;
+
+        let mut frier = MdFrier::new().unwrap();
+        let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).unwrap().collect();
+        let output = lines_to_string(&lines);
+        insta::assert_snapshot!(output);
+    }
 }

@@ -1109,7 +1109,7 @@ mod tests {
             .next()
             .unwrap();
         let MdContent::Paragraph(MdParagraph { spans, .. }) = first.content else {
-            panic!("exptected paragraph");
+            panic!("expected paragraph");
         };
         assert_eq!(spans[0], Span::new("![".to_owned(), Modifier::Image));
         assert_eq!(

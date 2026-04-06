@@ -82,10 +82,7 @@ pub fn worker_thread(
                                     let section_id = section.id;
                                     let link = link.clone();
                                     event_tx.send(Event::Parsed(document_id, section))?;
-                                    post_parse_events.push(SectionEvent::Image(
-                                        section_id,
-                                            link,
-                                    ));
+                                    post_parse_events.push(SectionEvent::Image(section_id, link));
                                 },
                                 SectionContent::Header(_, _, _) => {
                                     if !theme.has_text_size_protocol.unwrap_or_default() {

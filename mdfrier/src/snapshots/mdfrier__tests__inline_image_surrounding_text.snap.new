@@ -1,0 +1,9 @@
+---
+source: mdfrier/src/lib.rs
+assertion_line: 590
+expression: output
+---
+This a paragraph.
+Here we have an "inline" image, ![inline](./notfound.img), and trailing text.
+![Loading...](./notfound.img)
+Should be split up nicely.
