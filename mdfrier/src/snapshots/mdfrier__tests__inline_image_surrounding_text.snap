@@ -1,6 +1,5 @@
 ---
 source: mdfrier/src/lib.rs
-assertion_line: 590
 expression: output
 ---
 This a paragraph.
