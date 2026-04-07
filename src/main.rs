@@ -433,22 +433,10 @@ fn view(model: &Model, frame: &mut Frame) {
             SectionContent::Lines(lines) => {
                 let mut flat_index = 0;
                 for (line, extras) in lines.iter() {
-                    // Check if this line has a loaded image
-                    let image = extras.iter().find_map(|extra| {
-                        if let LineExtra::Image(_, proto) = extra {
-                            Some(proto)
-                        } else {
-                            None
-                        }
-                    });
-                    let line_height = if let Some(proto) = image {
-                        proto.area().height
-                    } else {
-                        1
-                    };
+                    const LINE_HEIGHT: u16 = 1;
 
                     if y < 0 {
-                        y += line_height as i32;
+                        y += LINE_HEIGHT as i32;
                         continue; // skip this line.
                     }
 
@@ -458,13 +446,8 @@ fn view(model: &Model, frame: &mut Frame) {
                         break;
                     }
 
-                    if let Some(proto) = image {
-                        let img = Image::new(proto);
-                        render_lines(img, line_height, line_y, inner_area, frame);
-                    } else {
-                        let p = Paragraph::new(line.clone());
-                        render_lines(p, line_height, line_y, inner_area, frame);
-                    }
+                    let p = Paragraph::new(line.clone());
+                    render_lines(p, LINE_HEIGHT, line_y, inner_area, frame);
 
                     // Highlight all links that share the same URL as the selected link
                     if let Cursor::Links(CursorPointer { id, index }) = &model.cursor {
@@ -512,7 +495,7 @@ fn view(model: &Model, frame: &mut Frame) {
                         }
                     }
                     flat_index += extras.len();
-                    y += line_height as i32;
+                    y += LINE_HEIGHT as i32;
                 }
             }
             SectionContent::Image(_, proto) => {

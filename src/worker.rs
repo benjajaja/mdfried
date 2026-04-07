@@ -149,7 +149,7 @@ pub fn worker_thread(
                         event_tx.send(Event::ParseDone(document_id, section_id))?;
 
                         if !uncached_image_events.is_empty() {
-                            process_post_parse_events(
+                            process_image_events(
                                 event_tx.clone(),
                                 basepath.clone(),
                                 client.clone(),
@@ -172,7 +172,7 @@ pub fn worker_thread(
 }
 
 #[expect(clippy::too_many_arguments)]
-fn process_post_parse_events(
+fn process_image_events(
     task_tx: Sender<Event>,
     basepath: Option<PathBuf>,
     client: Arc<RwLock<Client>>,

@@ -539,7 +539,6 @@ impl Display for Section {
 }
 
 pub enum LineExtra {
-    Image(String, Protocol),
     Link(SourceContent, u16, u16),
     SearchMatch(usize, usize, String),
 }
@@ -547,7 +546,6 @@ pub enum LineExtra {
 impl Debug for LineExtra {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LineExtra::Image(url, protocol) => write!(f, "Image({url}, {:?})", protocol.type_id()),
             LineExtra::Link(url, start, end) => {
                 write!(f, "Link({:?}, {}, {})", url, start, end)
             }
@@ -562,9 +560,6 @@ impl Debug for LineExtra {
 impl PartialEq for LineExtra {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (LineExtra::Image(..), _) | (_, LineExtra::Image(..)) => {
-                panic!("PartialEq not supported for LineExtra::Image")
-            }
             (LineExtra::Link(l0, l1, l2), LineExtra::Link(r0, r1, r2)) => {
                 l0 == r0 && l1 == r1 && l2 == r2
             }
