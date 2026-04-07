@@ -124,17 +124,25 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
         }
 
         // Check if a header follows (need to preserve one blank line for spacing)
-        let needs_trailing_blank = self
+        let (followed_by_header, followed_by_image) = self
             .inner
             .peek()
-            .is_some_and(|l| matches!(l.kind, LineKind::Header(_)));
+            .map(|l| {
+                (
+                    matches!(l.kind, LineKind::Header(_)),
+                    matches!(l.kind, LineKind::Image { .. }),
+                )
+            })
+            .unwrap_or_default();
 
-        // Trim trailing blank lines
-        while lines
-            .last()
-            .is_some_and(|l| matches!(l.kind, LineKind::Blank))
-        {
-            lines.pop();
+        // Trim trailing blank lines, unless image
+        if !followed_by_image {
+            while lines
+                .last()
+                .is_some_and(|l| matches!(l.kind, LineKind::Blank))
+            {
+                lines.pop();
+            }
         }
 
         // Skip if section ended up empty after trimming
@@ -143,7 +151,7 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
         }
 
         // Re-add one blank line if needed for spacing before header
-        if needs_trailing_blank {
+        if followed_by_header {
             lines.push(Line {
                 kind: LineKind::Blank,
                 spans: Vec::new(),
@@ -307,5 +315,20 @@ mod tests {
         };
         assert_eq!(1, *tier);
         assert_eq!("67890", text);
+    }
+
+    #[test]
+    fn image_after_blank() {
+        let sections = parse_sections("Before\n\n![alt](http://example.com/img.png)");
+        assert_eq!(sections.len(), 2);
+        assert!(matches!(sections[0].content, SectionContent::Lines(_)));
+        assert!(matches!(
+            sections[1].content,
+            SectionContent::ImagePlaceholder(_, _)
+        ));
+        let SectionContent::Lines(lines) = &sections[0].content else {
+            panic!("expected SectionContent::Lines");
+        };
+        assert_eq!(lines.len(), 2, "two lines");
     }
 }
