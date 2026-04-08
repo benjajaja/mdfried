@@ -67,6 +67,7 @@ pub(crate) fn wrap_md_spans(
                             description = Some(desc_span.content.clone());
                         }
                     }
+                    #[cfg(feature = "ratatui")]
                     if description.is_none() {
                         log::warn!("image description node not found (really absent?)");
                     }
