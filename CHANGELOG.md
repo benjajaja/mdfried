@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-04-08
+
 ### Added
 - Set header color via theme setting `header_color` (hex for images, hex or ansi for text-sizing-protocol).
 
