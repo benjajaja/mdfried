@@ -48,6 +48,15 @@ flexi_logger = { version = "0.31.7", features = ["buffer_writer"] }
 [dev-dependencies]
 pretty_assertions = "1.4"
 insta = "1.44.3"
+criterion = "0.5.1"
+
+[[bench]]
+name = "full_parse"
+harness = false
+
+[[bin]]
+name = "mdfried"
+bench = false
 
 [package.metadata.release]
 sign-commit = true
