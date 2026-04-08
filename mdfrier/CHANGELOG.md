@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Changed
+- Rewrote "sections" approach to parsing and output.
+  Lots of internal fixes and cleanups.
+
 ## [0.2.0] - 2026-01-24
 
 ### Added

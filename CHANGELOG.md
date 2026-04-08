@@ -2,9 +2,12 @@
 
 ## [Unreleased]
 
-## [0.18.3] - 2026-04-02
+### Added
+- Set header color via theme setting `header_color` (hex for images, hex or ansi for text-sizing-protocol).
 
-## [0.18.3] - 2026-04-02
+### Changed
+- Rewrote "sections" approach to parsing and output.
+  Lots of internal fixes and cleanups.
 
 ## [0.18.3] - 2026-04-02
 
