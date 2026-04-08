@@ -1,6 +1,7 @@
-use std::{fs, path::PathBuf};
+use std::{fs, path::PathBuf, str::FromStr as _};
 
 use confy::ConfyError;
+use mdfrier::Mapper;
 use ratatui::style::Color;
 use ratatui_image::picker::ProtocolType;
 use serde::{Deserialize, Serialize};
@@ -72,6 +73,7 @@ pub struct Theme {
     pub table_header_color: Option<Color>,
 
     // Other options
+    pub header_color: Option<Color>,
     pub hide_urls: Option<bool>,
     pub has_text_size_protocol: Option<bool>,
 }
@@ -80,7 +82,7 @@ pub struct Theme {
 const STYLED: mdfrier::StyledMapper = mdfrier::StyledMapper;
 
 // Mapper implementation provides content/decorator symbols
-impl mdfrier::Mapper for Theme {
+impl Mapper for Theme {
     fn blockquote_bar(&self) -> &str {
         self.blockquote_bar
             .as_deref()
@@ -191,20 +193,21 @@ impl mdfrier::Mapper for Theme {
     }
 }
 
+const DEFAULT_BLOCKQUOTE_COLORS: [Color; 6] = [
+    Color::Indexed(202),
+    Color::Indexed(203),
+    Color::Indexed(204),
+    Color::Indexed(205),
+    Color::Indexed(206),
+    Color::Indexed(207),
+];
+
 // Theme implementation provides colors/styles (extends Mapper)
 impl mdfrier::ratatui::Theme for Theme {
     fn blockquote_color(&self, depth: usize) -> Color {
-        const DEFAULT_COLORS: [Color; 6] = [
-            Color::Indexed(202),
-            Color::Indexed(203),
-            Color::Indexed(204),
-            Color::Indexed(205),
-            Color::Indexed(206),
-            Color::Indexed(207),
-        ];
         match &self.blockquote_colors {
             Some(colors) if !colors.is_empty() => colors[depth % colors.len()],
-            _ => DEFAULT_COLORS[depth % DEFAULT_COLORS.len()],
+            _ => DEFAULT_BLOCKQUOTE_COLORS[depth % DEFAULT_BLOCKQUOTE_COLORS.len()],
         }
     }
 
@@ -242,6 +245,35 @@ impl mdfrier::ratatui::Theme for Theme {
 
     fn table_header_color(&self) -> Color {
         self.table_header_color.unwrap_or(Color::Indexed(255))
+    }
+}
+
+impl Theme {
+    fn defaults_for_print() -> Theme {
+        use mdfrier::ratatui::Theme as _;
+        let theme = Theme::default();
+        Theme {
+            blockquote_bar: Some(Theme::blockquote_bar(&theme).to_owned()),
+            link_desc_open: Some(Theme::link_desc_open(&theme).to_owned()),
+            link_desc_close: Some(Theme::link_desc_close(&theme).to_owned()),
+            link_url_open: Some(Theme::link_url_open(&theme).to_owned()),
+            link_url_close: Some(Theme::link_url_close(&theme).to_owned()),
+            horizontal_rule_char: Some(Theme::horizontal_rule_char(&theme).to_owned()),
+            task_checked_mark: Some(Theme::task_checked(&theme).to_owned()),
+            blockquote_colors: Some(DEFAULT_BLOCKQUOTE_COLORS.to_vec()),
+            link_bg: Some(Theme::link_bg(&theme)),
+            link_fg: Some(Theme::link_fg(&theme)),
+            prefix_color: Some(Theme::prefix_color(&theme)),
+            emphasis_color: Some(Theme::emphasis_color(&theme)),
+            code_bg: Some(Theme::code_bg(&theme)),
+            code_fg: Some(Theme::code_fg(&theme)),
+            hr_color: Some(Theme::hr_color(&theme)),
+            table_border_color: Some(Theme::table_border_color(&theme)),
+            table_header_color: Some(Theme::table_header_color(&theme)),
+            hide_urls: Some(Theme::hide_urls(&theme)),
+            header_color: Some(Color::from_str("#FFFFFF").unwrap_or_default()),
+            has_text_size_protocol: None,
+        }
     }
 }
 
@@ -327,13 +359,18 @@ pub fn print_default() -> Result<(), Error> {
     let config = Config::from(UserConfig::default());
     let user_config = UserConfig {
         padding: Some(config.padding),
-        font_family: None,
+        font_family: Some("your-font-name".to_owned()),
         max_image_height: Some(config.max_image_height),
         watch_debounce_milliseconds: Some(config.watch_debounce_milliseconds),
         enable_mouse_capture: Some(config.enable_mouse_capture),
         debug_override_protocol_type: config.debug_override_protocol_type,
-        theme: Some(config.theme),
+        theme: Some(Theme::defaults_for_print()),
     };
+
+    let default_config_path = get_configuration_file_path()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| String::from("(not found)"));
+    eprintln!("Config file default path: {default_config_path}",);
 
     // We could use the toml crate to avoid doing the temp-file roundtrip, but doing it this way
     // means it's guaranteed to be good for `confy::load`.
@@ -342,10 +379,5 @@ pub fn print_default() -> Result<(), Error> {
     let text = fs::read_to_string(&tmp_path)?;
     println!("{text}");
     fs::remove_file(tmp_path)?;
-
-    let default_config_path = get_configuration_file_path()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|| String::from("(not found)"));
-    eprintln!("Config file default path: {default_config_path}",);
     Ok(())
 }

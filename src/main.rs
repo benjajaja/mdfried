@@ -523,7 +523,7 @@ fn view(model: &Model, frame: &mut Frame) {
                         let img = Image::new(proto);
                         render_lines(img, section.height, y as u16, inner_area, frame);
                     } else {
-                        let big_text = BigText::new(text, *tier);
+                        let big_text = BigText::new(text, *tier, model.theme().header_color);
                         render_lines(big_text, 2, y as u16, inner_area, frame);
                     }
                 }

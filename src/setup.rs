@@ -2,7 +2,7 @@ pub mod configpicker;
 mod fontpicker;
 pub mod notification;
 
-use cosmic_text::{FontSystem, SwashCache};
+use cosmic_text::{Color, FontSystem, SwashCache};
 use ratatui_image::{
     FontSize,
     picker::{Capability, Picker, ProtocolType, cap_parser::QueryStdioOptions},
@@ -18,6 +18,7 @@ pub struct FontRenderer {
     pub font_size: FontSize, // Terminal font-size, not rendered font-size.
     pub font_name: String,
     pub font_system: FontSystem,
+    pub font_color: Color,
     pub swash_cache: SwashCache,
 }
 
@@ -27,11 +28,13 @@ impl FontRenderer {
         swash_cache: SwashCache,
         font_name: String,
         font_size: FontSize,
+        font_color: Option<Color>,
     ) -> Self {
         FontRenderer {
             font_size,
             font_name,
             font_system,
+            font_color: font_color.unwrap_or_else(|| Color::rgba(255, 255, 255, 255)),
             swash_cache,
         }
     }
@@ -122,6 +125,12 @@ pub fn setup_graphics(
             SwashCache::new(),
             font_name,
             font_size,
+            config.theme.as_ref().and_then(|theme| {
+                theme.header_color.map(|ratatui_color| match ratatui_color {
+                    ratatui::style::Color::Rgb(r, g, b) => Color::rgba(r, g, b, 255),
+                    _ => Color::rgba(255, 255, 255, 255),
+                })
+            }),
         )),
     ))
 }

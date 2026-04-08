@@ -1,6 +1,6 @@
 use std::fmt::Write as _;
 
-use ratatui::{layout::Rect, widgets::Widget};
+use ratatui::{layout::Rect, style::Color, widgets::Widget};
 use unicode_width::UnicodeWidthChar as _;
 
 /// Yields slices of chars where each chunk has unicode width <= max_width.
@@ -40,16 +40,16 @@ fn unicode_chunks(chars: &[char], max_width: u8) -> impl Iterator<Item = (&[char
 pub struct BigText<'a> {
     text: &'a str,
     tier: u8,
+    color: Option<Color>,
 }
 
 impl<'a> BigText<'a> {
-    pub fn new(text: &'a str, tier: u8) -> Self {
-        BigText { text, tier }
+    pub fn new(text: &'a str, tier: u8, color: Option<Color>) -> Self {
+        BigText { text, tier, color }
     }
 
     /// When wrapping with text-wrap, the final line width must be known in advance before
     /// rendering.
-    #[inline]
     pub fn size_ratio(tier: u8) -> (u8, u8) {
         match tier {
             1 => (7, 7),
@@ -61,7 +61,6 @@ impl<'a> BigText<'a> {
         }
     }
 
-    #[inline]
     fn text_sizing_sequence(&self, area_width: u16) -> String {
         let (n, d) = BigText::size_ratio(self.tier);
 
@@ -75,6 +74,18 @@ impl<'a> BigText<'a> {
         write!(symbol, "\x1b[1B").expect("write to string");
         write!(symbol, "\x1b[{}X\x1B[?7l", area_width).expect("write to string");
         write!(symbol, "\x1b[1A").expect("write to string");
+
+        if let Some(color) = self.color {
+            match color {
+                Color::Indexed(ansi_index) => {
+                    write!(symbol, "\x1b[{ansi_index}m").expect("write to string");
+                }
+                Color::Rgb(r, g, b) => {
+                    write!(symbol, "\x1b[38;2;{r};{g};{b}m").expect("write to string");
+                }
+                _ => {}
+            }
+        }
 
         let chars: Vec<char> = self.text.chars().collect();
         for (chunk, chunk_width) in unicode_chunks(&chars, d) {

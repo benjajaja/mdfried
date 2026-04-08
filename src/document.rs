@@ -9,7 +9,7 @@ use std::{
 
 use itertools::Either;
 
-use cosmic_text::{Attrs, Buffer, Color, Family, Metrics, Shaping};
+use cosmic_text::{Attrs, Buffer, Family, Metrics, Shaping};
 use image::{DynamicImage, GenericImage as _, ImageFormat, ImageReader, Rgba, RgbaImage, imageops};
 use mdfrier::{MarkdownLink, SourceContent};
 use ratatui::{layout::Rect, text::Line};
@@ -624,7 +624,7 @@ pub fn header_images(
         dyn_imgs.push((layout_run.text.into(), tier, dyn_img));
     }
 
-    let fg = Color::rgba(255, 255, 255, 255);
+    let fg = font_renderer.font_color;
 
     // Render shaped text, picking the image off the Vec by the Y coord.
     buffer.draw(

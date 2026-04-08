@@ -44,8 +44,13 @@ pub fn interactive_font_picker(picker: &mut Picker) -> Result<Option<String>, Er
     let mut last_rendered: Option<(String, Protocol)> = None;
     let mut inner_width = 0;
 
-    let mut renderer =
-        FontRenderer::new(font_system, swash_cache, String::new(), picker.font_size());
+    let mut renderer = FontRenderer::new(
+        font_system,
+        swash_cache,
+        String::new(),
+        picker.font_size(),
+        None,
+    );
 
     println!("{} system fonts detected.", lowercase_fonts.len());
 
