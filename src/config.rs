@@ -79,14 +79,14 @@ pub struct Theme {
 }
 
 // Delegate to StyledMapper for defaults
-const STYLED: mdfrier::StyledMapper = mdfrier::StyledMapper;
+const STYLED_MAPPER: mdfrier::StyledMapper = mdfrier::StyledMapper;
 
 // Mapper implementation provides content/decorator symbols
 impl Mapper for Theme {
     fn blockquote_bar(&self) -> &str {
         self.blockquote_bar
             .as_deref()
-            .unwrap_or(STYLED.blockquote_bar())
+            .unwrap_or(STYLED_MAPPER.blockquote_bar())
     }
     fn link_desc_open(&self) -> &str {
         self.link_desc_open
@@ -94,7 +94,7 @@ impl Mapper for Theme {
             .unwrap_or(if self.hide_urls() {
                 ""
             } else {
-                STYLED.link_desc_open()
+                STYLED_MAPPER.link_desc_open()
             })
     }
     fn link_desc_close(&self) -> &str {
@@ -103,87 +103,87 @@ impl Mapper for Theme {
             .unwrap_or(if self.hide_urls() {
                 ""
             } else {
-                STYLED.link_desc_close()
+                STYLED_MAPPER.link_desc_close()
             })
     }
     fn link_url_open(&self) -> &str {
         self.link_url_open
             .as_deref()
-            .unwrap_or(STYLED.link_url_open())
+            .unwrap_or(STYLED_MAPPER.link_url_open())
     }
     fn link_url_close(&self) -> &str {
         self.link_url_close
             .as_deref()
-            .unwrap_or(STYLED.link_url_close())
+            .unwrap_or(STYLED_MAPPER.link_url_close())
     }
     fn horizontal_rule_char(&self) -> &str {
         self.horizontal_rule_char
             .as_deref()
-            .unwrap_or(STYLED.horizontal_rule_char())
+            .unwrap_or(STYLED_MAPPER.horizontal_rule_char())
     }
     fn task_checked(&self) -> &str {
         self.task_checked_mark
             .as_deref()
-            .unwrap_or(STYLED.task_checked())
+            .unwrap_or(STYLED_MAPPER.task_checked())
     }
     // Table borders - delegate to StyledMapper
     fn table_vertical(&self) -> &str {
-        STYLED.table_vertical()
+        STYLED_MAPPER.table_vertical()
     }
     fn table_horizontal(&self) -> &str {
-        STYLED.table_horizontal()
+        STYLED_MAPPER.table_horizontal()
     }
     fn table_top_left(&self) -> &str {
-        STYLED.table_top_left()
+        STYLED_MAPPER.table_top_left()
     }
     fn table_top_right(&self) -> &str {
-        STYLED.table_top_right()
+        STYLED_MAPPER.table_top_right()
     }
     fn table_bottom_left(&self) -> &str {
-        STYLED.table_bottom_left()
+        STYLED_MAPPER.table_bottom_left()
     }
     fn table_bottom_right(&self) -> &str {
-        STYLED.table_bottom_right()
+        STYLED_MAPPER.table_bottom_right()
     }
     fn table_top_junction(&self) -> &str {
-        STYLED.table_top_junction()
+        STYLED_MAPPER.table_top_junction()
     }
     fn table_bottom_junction(&self) -> &str {
-        STYLED.table_bottom_junction()
+        STYLED_MAPPER.table_bottom_junction()
     }
     fn table_left_junction(&self) -> &str {
-        STYLED.table_left_junction()
+        STYLED_MAPPER.table_left_junction()
     }
     fn table_right_junction(&self) -> &str {
-        STYLED.table_right_junction()
+        STYLED_MAPPER.table_right_junction()
     }
     fn table_cross(&self) -> &str {
-        STYLED.table_cross()
+        STYLED_MAPPER.table_cross()
     }
     // Text decorators - delegate to StyledMapper (removes them)
     fn emphasis_open(&self) -> &str {
-        STYLED.emphasis_open()
+        STYLED_MAPPER.emphasis_open()
     }
     fn emphasis_close(&self) -> &str {
-        STYLED.emphasis_close()
+        STYLED_MAPPER.emphasis_close()
     }
     fn strong_open(&self) -> &str {
-        STYLED.strong_open()
+        STYLED_MAPPER.strong_open()
     }
     fn strong_close(&self) -> &str {
-        STYLED.strong_close()
+        STYLED_MAPPER.strong_close()
     }
     fn code_open(&self) -> &str {
-        STYLED.code_open()
+        STYLED_MAPPER.code_open()
     }
     fn code_close(&self) -> &str {
-        STYLED.code_close()
+        STYLED_MAPPER.code_close()
     }
     fn strikethrough_open(&self) -> &str {
-        STYLED.strikethrough_open()
+        STYLED_MAPPER.strikethrough_open()
     }
     fn strikethrough_close(&self) -> &str {
-        STYLED.strikethrough_close()
+        STYLED_MAPPER.strikethrough_close()
     }
     fn hide_urls(&self) -> bool {
         self.hide_urls.unwrap_or(true)
@@ -193,58 +193,55 @@ impl Mapper for Theme {
     }
 }
 
-const DEFAULT_BLOCKQUOTE_COLORS: [Color; 6] = [
-    Color::Indexed(202),
-    Color::Indexed(203),
-    Color::Indexed(204),
-    Color::Indexed(205),
-    Color::Indexed(206),
-    Color::Indexed(207),
-];
+// Delegate to DefaultTheme for defaults
+const DEFAULT_THEME: mdfrier::ratatui::DefaultTheme = mdfrier::ratatui::DefaultTheme;
 
 // Theme implementation provides colors/styles (extends Mapper)
 impl mdfrier::ratatui::Theme for Theme {
     fn blockquote_color(&self, depth: usize) -> Color {
         match &self.blockquote_colors {
             Some(colors) if !colors.is_empty() => colors[depth % colors.len()],
-            _ => DEFAULT_BLOCKQUOTE_COLORS[depth % DEFAULT_BLOCKQUOTE_COLORS.len()],
+            _ => DEFAULT_THEME.blockquote_color(depth),
         }
     }
 
     fn link_bg(&self) -> Color {
-        self.link_bg.unwrap_or(Color::Indexed(237))
+        self.link_bg.unwrap_or(DEFAULT_THEME.link_bg())
     }
 
     fn link_fg(&self) -> Color {
-        self.link_fg.unwrap_or(Color::Indexed(4))
+        self.link_fg.unwrap_or(DEFAULT_THEME.link_fg())
     }
 
     fn prefix_color(&self) -> Color {
-        self.prefix_color.unwrap_or(Color::Indexed(189))
+        self.prefix_color.unwrap_or(DEFAULT_THEME.prefix_color())
     }
 
     fn emphasis_color(&self) -> Color {
-        self.emphasis_color.unwrap_or(Color::Indexed(220))
+        self.emphasis_color
+            .unwrap_or(DEFAULT_THEME.emphasis_color())
     }
 
     fn code_bg(&self) -> Color {
-        self.code_bg.unwrap_or(Color::Indexed(236))
+        self.code_bg.unwrap_or(DEFAULT_THEME.code_bg())
     }
 
     fn code_fg(&self) -> Color {
-        self.code_fg.unwrap_or(Color::Indexed(203))
+        self.code_fg.unwrap_or(DEFAULT_THEME.code_fg())
     }
 
     fn hr_color(&self) -> Color {
-        self.hr_color.unwrap_or(Color::Indexed(240))
+        self.hr_color.unwrap_or(DEFAULT_THEME.hr_color())
     }
 
     fn table_border_color(&self) -> Color {
-        self.table_border_color.unwrap_or(Color::Indexed(240))
+        self.table_border_color
+            .unwrap_or(DEFAULT_THEME.table_border_color())
     }
 
     fn table_header_color(&self) -> Color {
-        self.table_header_color.unwrap_or(Color::Indexed(255))
+        self.table_header_color
+            .unwrap_or(DEFAULT_THEME.table_header_color())
     }
 }
 
@@ -252,6 +249,15 @@ impl Theme {
     fn defaults_for_print() -> Theme {
         use mdfrier::ratatui::Theme as _;
         let theme = Theme::default();
+        // Copypaste from mdfrier ratatui.rs
+        const DEFAULT_BLOCKQUOTE_COLORS: [Color; 6] = [
+            Color::Indexed(202),
+            Color::Indexed(203),
+            Color::Indexed(204),
+            Color::Indexed(205),
+            Color::Indexed(206),
+            Color::Indexed(207),
+        ];
         Theme {
             blockquote_bar: Some(Theme::blockquote_bar(&theme).to_owned()),
             link_desc_open: Some(Theme::link_desc_open(&theme).to_owned()),

@@ -52,7 +52,7 @@ pub trait Theme: Mapper {
 
     /// Prefix color for list markers, etc. (default: light blue/gray).
     fn prefix_color(&self) -> Color {
-        Color::Indexed(189)
+        Color::Indexed(222)
     }
 
     /// Emphasis/italic color (default: yellow/gold).
