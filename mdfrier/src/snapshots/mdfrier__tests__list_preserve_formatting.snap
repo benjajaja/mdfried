@@ -20,6 +20,7 @@ expression: output
    spaces are not required.)
 
 - Unordered list can use asterisks
+  And can also have continuations.
 
 * Or minuses
 
