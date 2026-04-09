@@ -461,6 +461,61 @@ Quote break.
     }
 
     #[test]
+    fn list_marker_mapping() {
+        let input = r#"1. First ordered list item
+2. Another item
+   - Unordered sub-list.
+3. Actual numbers don't matter, just that it's a number
+   1. Ordered sub-list
+4. And another item.
+
+- Create a list by starting a line with `+`, `-`, or `*`
+- Sub-lists are made by indenting 2 spaces:
+  - Marker character change forces new list start:
+    - Ac tristique libero volutpat at
+    * Facilisis in pretium nisl aliquet
+    - Nulla volutpat aliquam velit
+  - Task lists
+    - [x] Finish my changes
+    - [ ] Push my commits to GitHub
+    - [ ] Open a pull request
+    - [x] @mentions, #refs, [links](), **formatting**, and <del>tags</del> supported
+    - [x] list syntax required (any unordered or ordered list supported)
+    - [ ] this is a complete item
+    - [ ] this is an incomplete item
++ Very easy!
+"#;
+
+        let mut frier = MdFrier::new().unwrap();
+        struct RomanListMapper;
+        impl Mapper for RomanListMapper {
+            fn ordered_marker(&self, num: u32) -> String {
+                match num {
+                    1 => "I.   ",
+                    2 => "II.  ",
+                    3 => "III. ",
+                    4 => "IV.  ",
+                    _ => "?.   ",
+                }
+                .to_owned()
+            }
+            fn unordered_bullet(&self, _style: BulletStyle) -> &str {
+                "✝ "
+            }
+            fn task_checked(&self) -> &str {
+                "☒ "
+            }
+            fn task_unchecked(&self) -> &str {
+                "☐ "
+            }
+        }
+        let mapper = RomanListMapper {};
+        let lines: Vec<_> = frier.parse(80, input, &mapper).unwrap().collect();
+        let output = lines_to_string(&lines);
+        insta::assert_snapshot!(output);
+    }
+
+    #[test]
     fn list_preserve_formatting() {
         let input = r#"1. First ordered list item
 2. Another item

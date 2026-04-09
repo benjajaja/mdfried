@@ -1,0 +1,28 @@
+---
+source: mdfrier/src/lib.rs
+expression: output
+---
+I.   First ordered list item
+II.  Another item
+     ✝ Unordered sub-list.
+III. Actual numbers don't matter, just that it's a number
+     I.   Ordered sub-list
+IV.  And another item.
+
+✝ Create a list by starting a line with `+`, `-`, or `*`
+✝ Sub-lists are made by indenting 2 spaces:
+  ✝ Marker character change forces new list start:
+    ✝ Ac tristique libero volutpat at
+    ✝ Facilisis in pretium nisl aliquet
+    ✝ Nulla volutpat aliquam velit
+  ✝ Task lists
+    ✝ ☒ Finish my changes
+    ✝ ☐ Push my commits to GitHub
+    ✝ ☐ Open a pull request
+    ✝ ☒ @mentions, #refs, [links](), **formatting**, and <del>tags</del>
+        supported
+    ✝ ☒ list syntax required (any unordered or ordered list supported)
+    ✝ ☐ this is a complete item
+    ✝ ☐ this is an incomplete item
+
+✝ Very easy!
