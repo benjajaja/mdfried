@@ -531,6 +531,7 @@ Quote break.
    (This is contrary to the typical GFM line break behaviour, where trailing spaces are not required.)
 
 - Unordered list can use asterisks
+  And can also have continuations.
 
 * Or minuses
 
@@ -561,6 +562,23 @@ Quote break.
     - [ ] this is a complete item
     - [ ] this is an incomplete item
 - Very easy!
+"#;
+
+        let mut frier = MdFrier::new().unwrap();
+        let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).unwrap().collect();
+        let output = lines_to_string(&lines);
+        insta::assert_snapshot!(output);
+    }
+
+    #[test]
+    fn list_preserve_continuations() {
+        let input = r#"1. First ordered list item
+2. Another item
+   Continuation of item.
+   Carry on.
+
+   Further continuation.
+3. Last item
 "#;
 
         let mut frier = MdFrier::new().unwrap();

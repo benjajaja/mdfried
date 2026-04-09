@@ -615,9 +615,9 @@ fn wrapped_to_lines<M: Mapper>(
 
         // For continuation lines (soft-wrapped), mark ListItems as continuation
         let line_nesting = if line_idx == 0 || wrapped_line.is_first {
-            nesting.clone()
+            &nesting
         } else {
-            nesting
+            &nesting
                 .iter()
                 .map(|c| match c {
                     MdLineContainer::Blockquote => MdLineContainer::Blockquote,
@@ -635,7 +635,7 @@ fn wrapped_to_lines<M: Mapper>(
             .all(|span| span.modifiers.contains(Modifier::Image));
         // Create text line
         if !is_only_image && !wrapped_line.spans.is_empty() {
-            let mut spans = nesting_to_prefix_spans(&line_nesting, mapper);
+            let mut spans = nesting_to_prefix_spans(line_nesting, mapper);
             spans.extend(wrapped_line.spans);
             lines.push(Line {
                 spans,

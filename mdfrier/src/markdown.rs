@@ -90,6 +90,13 @@ impl Iterator for MdIterator<'_> {
                 let nesting: Vec<MdContainer> =
                     self.context.iter().map(|(_, c)| c.clone()).collect();
 
+                eprintln!("CONTINUATION CHECK");
+                eprintln!("content: {content:?}");
+                if let MdContent::Paragraph(p) = &content {
+                    for span in &p.spans {
+                        eprintln!("\t{span:?}");
+                    }
+                }
                 // Check if this is a continuation within a list item
                 let list_item_depth = self
                     .context
@@ -110,6 +117,11 @@ impl Iterator for MdIterator<'_> {
                 } else {
                     false
                 };
+                eprintln!(
+                    "list_item_depth: {list_item_depth:?}, is_list_continuation: {is_list_continuation}, list_item_content_depth: {:?}",
+                    self.list_item_content_depth
+                );
+                eprintln!("context: {:?}", self.context);
 
                 return Some(MdSection {
                     content,

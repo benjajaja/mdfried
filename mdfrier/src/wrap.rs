@@ -42,12 +42,6 @@ pub(crate) fn wrap_md_spans(
         .filter(|line| !line.is_empty())
         .enumerate()
         .map(|(line_idx, mdspans)| {
-            let is_source_newline = mdspans
-                .first()
-                .is_some_and(|s| s.modifiers.contains(Modifier::NewLine));
-
-            let is_first = line_idx == 0 || is_source_newline;
-
             // Extract images from spans
             let mut images: Vec<ImageRef> = Vec::new();
             for (i, s) in mdspans.iter().enumerate() {
@@ -79,7 +73,7 @@ pub(crate) fn wrap_md_spans(
             }
 
             WrappedLine {
-                is_first,
+                is_first: line_idx == 0,
                 spans: mdspans,
                 images,
             }
