@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-04-10
+
 ### Fixed
 - List continuations.
   Lines following a list item with any indentation are aligned to the list item and do not create a (repeated) list item anymore.
