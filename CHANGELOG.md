@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Fixed
+- List continuations.
+  Lines following a list item with any indentation are aligned to the list item and do not create a (repeated) list item anymore.
+
+### Changed
+- List marker color from 189 (barely noticeable) to 222 (light yellow-ish).
+- Cleaned up mdfried `Theme` to get defaults from `mdfrier::ratatui::DefaultTheme` instead of duplicating all constants.
+
+### Added
+- Benchmark for a full parse in mdfrier.
+  Purely markdown parsing/mapping. It's in the microseconds, which is a good start.
+
 ## [0.19.0] - 2026-04-08
 
 ### Added
