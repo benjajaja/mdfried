@@ -1,4 +1,4 @@
-# mdfried
+![mdfried](./assets/logo.png)
 
 `mdfried` is a markdown viewer for the terminal that renders headers as **Bigger Text** than the
 rest.
