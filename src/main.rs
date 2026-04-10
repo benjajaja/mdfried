@@ -499,7 +499,10 @@ fn view(model: &Model, frame: &mut Frame) {
                 }
             }
             SectionContent::Image(_, proto) => {
-                if y >= 0 {
+                // TODO: kitty can actually render partially, but this should probably be improved
+                // on ratatui-image, so that we can also render partially at the top of the frame.
+                let can_render = (y as u16) < inner_area.bottom() - proto.area().height;
+                if y >= 0 && can_render {
                     let img = Image::new(proto);
                     render_lines(img, section.height, y as u16, inner_area, frame);
                 }
