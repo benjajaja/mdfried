@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.2] - 2026-04-10
+
 ### Fixed
 - Sixel and iTerm2 rendering images out of viewport, causing the image to hover somewhere above.
 
