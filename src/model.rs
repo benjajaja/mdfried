@@ -274,7 +274,9 @@ impl Model {
     }
 
     pub fn open_link(&self, url: String) -> Result<(), Error> {
-        std::process::Command::new("xdg-open").arg(&url).spawn()?;
+        if let Err(err) = open::that(&url) {
+            log::error!("{err}");
+        }
         Ok(())
     }
 

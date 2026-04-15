@@ -95,7 +95,7 @@ Key | Description
 `/` | Search text
 `n` | Jump to next match or link
 `N` | Jump to previous match or link
-`Enter` | Open selected link with `xdg-open`
+`Enter` | Open selected link with `xdg-open` (linux) or `open` (macos)
 `Esc` | Leave search or link modes
 
 Entering a number before motion applies the motion that many times.
@@ -106,4 +106,3 @@ select text.
 ### Configuration
 
 `~/.config/mdfried/config.toml` is automatically created on first run.
-
