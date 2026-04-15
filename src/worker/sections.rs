@@ -331,4 +331,35 @@ mod tests {
         };
         assert_eq!(lines.len(), 2, "two lines");
     }
+
+    #[test]
+    fn md_link_parses_as_section_with_one_link() {
+        let sections = parse_sections("[example](https://example.org/)\n");
+        assert_eq!(sections.len(), 1);
+        assert!(matches!(sections[0].content, SectionContent::Lines(_)));
+        let SectionContent::Lines(lines) = &sections[0].content else {
+            panic!("expected SectionContent::Lines");
+        };
+        assert_eq!(lines.len(), 1, "one line");
+        assert!(
+            matches!(lines[0].1.as_slice(), [LineExtra::Link(_, _, _)]),
+            "one link"
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn md_link_with_code_block_parses_as_section_with_one_link() {
+        let sections = parse_sections("[example `code`](https://example.org/)\n");
+        assert_eq!(sections.len(), 1);
+        assert!(matches!(sections[0].content, SectionContent::Lines(_)));
+        let SectionContent::Lines(lines) = &sections[0].content else {
+            panic!("expected SectionContent::Lines");
+        };
+        assert_eq!(lines.len(), 1, "one line");
+        assert!(
+            matches!(lines[0].1.as_slice(), [LineExtra::Link(_, _, _)]),
+            "one link"
+        );
+    }
 }
