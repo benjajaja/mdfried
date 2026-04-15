@@ -68,6 +68,10 @@ fn main() -> io::Result<()> {
             arg!(--"no-cap-checks" "Don't query the terminal stdin for capabilities")
                 .value_parser(value_parser!(bool)),
         )
+        .arg(
+            arg!(--"no-text-sizing-protocol" "Don't use text-sizing-protocol")
+                .value_parser(value_parser!(bool)),
+        )
         .arg(arg!(--"debug-override-protocol-type" <PROTOCOL> "Force graphics protocol to a specific type"))
         .arg(
             arg!(--"log" "log to mdfried_<timestamp>.log file in working directory")
@@ -184,6 +188,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     let force_setup = *matches.get_one("setup").unwrap_or(&false);
     let no_cap_checks = *matches.get_one("no-cap-checks").unwrap_or(&false);
+    let no_text_sizing_protocol = *matches.get_one("no-text-sizing-protocol").unwrap_or(&false);
     let debug_override_protocol_type = config.debug_override_protocol_type.or(matches
         .get_one::<String>("debug-override-protocol-type")
         .map(|s| match s.as_str() {
@@ -198,6 +203,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             &mut user_config,
             force_setup,
             no_cap_checks,
+            no_text_sizing_protocol,
             debug_override_protocol_type,
         );
         match setup_result {

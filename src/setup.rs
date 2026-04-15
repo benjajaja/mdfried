@@ -51,6 +51,7 @@ pub fn setup_graphics(
     config: &mut UserConfig,
     force_font_setup: bool,
     no_cap_checks: bool,
+    no_text_sizing_protocol: bool,
     debug_override_protocol_type: Option<ProtocolType>,
 ) -> Result<SetupResult, Error> {
     let mut picker = if no_cap_checks {
@@ -66,7 +67,8 @@ pub fn setup_graphics(
 
     let has_text_size_protocol = picker
         .capabilities()
-        .contains(&Capability::TextSizingProtocol);
+        .contains(&Capability::TextSizingProtocol)
+        && !no_text_sizing_protocol;
     if has_text_size_protocol {
         return Ok(SetupResult::TextSizing(picker));
     }
