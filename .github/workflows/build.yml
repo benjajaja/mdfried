@@ -105,13 +105,13 @@ jobs:
       - name: Install dependencies (Ubuntu)
         if: runner.os == 'Linux'
         run: |
+          sed -i 's|http://archive.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list
+          sed -i 's|http://security.ubuntu.com|http://azure.archive.ubuntu.com|g' /etc/apt/sources.list
           apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y \
             build-essential \
             curl \
             git \
-            clang \
-            lld \
             ca-certificates \
             libchafa-dev \
             libglib2.0-dev
