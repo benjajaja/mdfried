@@ -105,7 +105,6 @@ jobs:
       - name: Install dependencies (Ubuntu)
         if: runner.os == 'Linux'
         run: |
-          apt-get update
           DEBIAN_FRONTEND=noninteractive apt-get install -y \
             build-essential \
             curl \
