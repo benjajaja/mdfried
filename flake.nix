@@ -27,7 +27,16 @@
         };
         inherit (pkgs) lib;
 
-        craneLib = (crane.mkLib pkgs).overrideToolchain (p: p.rust-bin.stable.latest.default);
+        rustToolchainFile = builtins.fromTOML (builtins.readFile ./rust-toolchain.toml);
+        rustVersion = rustToolchainFile.toolchain.channel;
+
+        rustBase = p: p.rust-bin.stable.${rustVersion}.default;
+        withTargets = targets: p:
+          (rustBase p).override { inherit targets; };
+        withExtensions = extensions: p:
+          (rustBase p).override { inherit extensions; };
+
+        craneLib = (crane.mkLib pkgs).overrideToolchain rustBase;
 
         unfilteredRoot = ./.;
         src = lib.fileset.toSource {
@@ -72,12 +81,8 @@
         # Fully static musl build for portable Linux binaries
         mdfriedStatic =
           let
-            craneLibMusl = (crane.mkLib pkgs).overrideToolchain (
-              p:
-              p.rust-bin.stable.latest.default.override {
-                targets = [ "x86_64-unknown-linux-musl" ];
-              }
-            );
+            craneLibMusl = (crane.mkLib pkgs).overrideToolchain 
+            (withTargets [ "x86_64-unknown-linux-musl" ]);
             muslPkgs = pkgs.pkgsCross.musl64.pkgsStatic;
             chafaMuslStatic =
               (muslPkgs.chafa.override {
@@ -148,12 +153,8 @@
                 config = "x86_64-w64-mingw32";
               };
             };
-            craneLibWindows = (crane.mkLib pkgsWindows).overrideToolchain (
-              p:
-              p.rust-bin.stable.latest.default.override {
-                targets = [ "x86_64-pc-windows-gnu" ];
-              }
-            );
+            craneLibWindows = (crane.mkLib pkgsWindows).overrideToolchain 
+            (withTargets [ "x86_64-pc-windows-gnu" ]);
           in
           craneLibWindows.buildPackage {
             inherit src;
@@ -167,12 +168,8 @@
           };
 
         # LLVM coverage toolchain
-        craneLibLLvmTools = (crane.mkLib pkgs).overrideToolchain (
-          p:
-          p.rust-bin.stable.latest.default.override {
-            extensions = [ "llvm-tools" ];
-          }
-        );
+        craneLibLLvmTools = (crane.mkLib pkgs).overrideToolchain
+          (withExtensions [ "llvm-tools" ]);
 
         # Screenshot tests (only on Linux)
         screenshotTests = if pkgs.stdenv.isLinux then
