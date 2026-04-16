@@ -13,6 +13,7 @@ use crate::{
     error::Error,
 };
 use fontpicker::interactive_font_picker;
+use what_terminal_font::detect_terminal_font;
 
 pub struct FontRenderer {
     pub font_size: FontSize, // Terminal font-size, not rendered font-size.
@@ -97,6 +98,11 @@ pub fn setup_graphics(
             None
         })
     };
+
+    // Try to detect terminal font
+    if let Ok(terminal_font) = detect_terminal_font() {
+        log::info!("Detected terminal font: {}", terminal_font);
+    }
 
     let font_name = match config_font_family {
         Some(font_family) => font_family.clone(),

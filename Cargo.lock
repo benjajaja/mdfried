@@ -1925,6 +1925,7 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-md",
  "unicode-width",
+ "what-terminal-font",
 ]
 
 [[package]]
@@ -4243,6 +4244,13 @@ dependencies = [
  "lazy_static",
  "serde",
  "wezterm-dynamic",
+]
+
+[[package]]
+name = "what-terminal-font"
+version = "0.1.0"
+dependencies = [
+ "thiserror 1.0.69",
 ]
 
 [[package]]

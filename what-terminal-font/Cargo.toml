@@ -1,78 +1,25 @@
-[workspace]
-members = [ "mdfrier" , "what-terminal-font"]
-
 [package]
-name = "mdfried"
-version = "0.19.2"
+name = "what-terminal-font"
+version = "0.1.0"
 edition = "2024"
 authors = ["Benjamin Große <ste3ls@gmail.com>"]
-description = "A markdown viewer for the terminal that renders images and big headers"
+description = "A crate to detect terminal font"
 repository = "https://github.com/benjajaja/mdfried"
-homepage = "https://github.com/benjajaja/mdfried"
-readme = "README.md"
 license = "GPL-3.0-or-later"
-exclude = ["assets/*"]
 rust-version = "1.86.0"
 
-[features]
-default = ["chafa-dyn"]
-chafa-dyn = ["ratatui-image/chafa-dyn"] # for distribution
-chafa-static = ["ratatui-image/chafa-static"] # for building a static binary with musl
-
 [dependencies]
-bitflags = "2.10.0"
-color-eyre = "0.6.5"
-clap = { version = "4.5.21", features = ["cargo", "derive"] }
-confy = "0.6.1"
-cosmic-text = "0.14.2"
-crossterm = { version = "0.29", features = ["use-dev-tty"] }
-image = "0.25.2"
-itertools = "0.14.0"
-libc = { version = "0.2", default-features = false }
-log = { version = "0.4.28" }
-mdfrier = { version = "0.3.1", path = "mdfrier", features = ["ratatui"] }
-what-terminal-font = { version = "0.1.0", path = "what-terminal-font" }
-notify = "8.1.0"
-notify-debouncer-mini = "0.6.0"
-open = "5.3.3"
-ratatui = { version = "^0.30.0", features = ["serde", "crossterm_0_29"] }
-ratatui-image = { version = "10.0.6", default-features = false, features = ["serde"] }
-regex = "1.11.1"
-reqwest = { version = "0.11", default-features = false, features = ["rustls-tls"] }
-unicode-width = "0.2.2"
-serde = { version = "^1.0", features = ["derive"] }
-textwrap = "0.16.2"
-tokio = { version = "1.32.0", features = ["full"] }
-tree-sitter = "0.26"
-tree-sitter-md = "0.5"
-flexi_logger = { version = "0.31.7", features = ["buffer_writer"] }
+thiserror = "1.0"
 
 [dev-dependencies]
-pretty_assertions = "1.4"
-insta = "1.44.3"
-criterion = "0.5.1"
-
-[[bench]]
-name = "full_parse"
-harness = false
 
 [[bin]]
-name = "mdfried"
-bench = false
+name = "what-terminal-font"
+path = "src/main.rs"
 
 [package.metadata.release]
 sign-commit = true
 sign-tag = true
-
-[profile.release]
-codegen-units = 1
-lto = true
-opt-level = 3
-
-[workspace.metadata.release]
-pre-release-replacements = [
-  {file="CHANGELOG.md", search="## \\[Unreleased\\]", replace="## [Unreleased]\n\n## [{{version}}] - {{date}}", exactly=1},
-]
 
 [lints.rust]
 explicit_outlives_requirements = "warn"
@@ -89,9 +36,7 @@ unused_macro_rules = "warn"
 unused_qualifications = "warn"
 
 [lints.clippy]
-# pedantic = { level = "warn", priority = -1 }
 allow_attributes = "warn"
-# as_conversions = "warn"
 as_pointer_underscore = "warn"
 assertions_on_result_states = "warn"
 cfg_not_test = "warn"
