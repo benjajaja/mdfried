@@ -240,8 +240,7 @@ let
 
     # Generate body.html (shared content, uses IMAGE_BASE_URL placeholder)
     cat > $out/body.html << 'HTMLEOF'
-<h2>Screenshot Diffs vs Master</h2>
-<p><a href="IMAGE_BASE_URL/index.html">View full comparison</a></p>
+<h2>Screenshots, Master References, and Diffs</h2>
 HTMLEOF
 
     ${lib.concatMapStringsSep "\n" (terminal: ''
@@ -252,13 +251,13 @@ HTMLEOF
 
       cat >> $out/body.html << TERMEOF
 <h3>${terminal}</h3>
-<p><strong>Current:</strong></p>
+<p><strong>New:</strong></p>
 <img src="IMAGE_BASE_URL/images/screenshot-${terminal}.png" alt="${terminal} current">
 TERMEOF
 
       if [ -f "$out/images/reference-${terminal}.png" ]; then
         cat >> $out/body.html << TERMEOF
-<p><strong>Reference (master):</strong></p>
+<p><strong>Master:</strong></p>
 <img src="IMAGE_BASE_URL/images/reference-${terminal}.png" alt="${terminal} reference">
 TERMEOF
       fi

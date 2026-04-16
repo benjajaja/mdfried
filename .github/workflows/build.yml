@@ -293,35 +293,15 @@ jobs:
           SCREENSHOT_CACHE_KEY=${{ github.run_id }} REFERENCE=$REFERENCE nix build .#screenshotDiffs --impure --print-build-logs
           cp -rL result diffs
 
-      - name: Upload images to catbox.moe (PR only)
+      - name: Save PR number
         if: github.event_name == 'pull_request'
-        run: |
-          # Upload all images and create URL mapping
-          declare -A URL_MAP
-
-          for file in diffs/images/*.png diffs/diffs/*.png; do
-            if [ -f "$file" ]; then
-              echo "Uploading $file..."
-              url=$(curl -s -F "reqtype=fileupload" -F "fileToUpload=@$file" https://catbox.moe/user/api.php)
-              # Get relative path from diffs/ directory
-              relpath="${file#diffs/}"
-              URL_MAP["$relpath"]="$url"
-              echo "  -> $url"
-            fi
-          done
-
-          # Generate comment HTML by replacing IMAGE_BASE_URL/path with actual URLs
-          cp diffs/body.html comment.html
-          for relpath in "${!URL_MAP[@]}"; do
-            url="${URL_MAP[$relpath]}"
-            # Replace IMAGE_BASE_URL/relpath with actual URL
-            sed -i "s|IMAGE_BASE_URL/${relpath}|${url}|g" comment.html
-          done
-          # Remove any remaining IMAGE_BASE_URL references (e.g., index.html link)
-          sed -i 's|<p><a href="IMAGE_BASE_URL/index.html">View full comparison</a></p>||g' comment.html
-
-      - name: Comment on PR
+        run: echo ${{ github.event.pull_request.number }} > pr_number.txt
+      
+      - name: Upload artifacts
         if: github.event_name == 'pull_request'
-        uses: marocchino/sticky-pull-request-comment@v2
+        uses: actions/upload-artifact@v4
         with:
-          path: comment.html
+          name: pr-diffs
+          path: |
+            diffs/
+            pr_number.txt

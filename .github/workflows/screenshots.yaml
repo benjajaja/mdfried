@@ -32,3 +32,46 @@ jobs:
           external_repository: benjajaja/mdfried-screenshots
           publish_dir: ./pages
           publish_branch: gh-pages
+
+  comment-pr-diffs:
+    name: Upload diffs and comment on PR
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'
+    permissions:
+      pull-requests: write
+      actions: read
+    steps:
+      - name: Get PR number
+        run: echo "PR_NUMBER=$(cat pr_number.txt)" >> $GITHUB_ENV
+
+      - name: Download diffs artifact
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: build.yml
+          run_id: ${{ github.event.workflow_run.id }}
+          name: pr-diffs
+          path: .
+          github_token: ${{ github.token }}
+
+      - name: Upload images to catbox.moe
+        run: |
+          declare -A URL_MAP
+          for file in diffs/images/*.png diffs/diffs/*.png; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file..."
+              url=$(curl -s -F "reqtype=fileupload" -F "userhash=${{ secrets.CATBOX_USERHASH }}" -F "fileToUpload=@$file" https://catbox.moe/user/api.php)
+              relpath="${file#diffs/}"
+              URL_MAP["$relpath"]="$url"
+              echo "  -> $url"
+            fi
+          done
+          cp diffs/body.html comment.html
+          for relpath in "${!URL_MAP[@]}"; do
+            sed -i "s|IMAGE_BASE_URL/${relpath}|${URL_MAP[$relpath]}|g" comment.html
+          done
+
+      - name: Comment on PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          number: ${{ env.PR_NUMBER }}
+          path: comment.html
