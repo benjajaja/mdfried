@@ -21,18 +21,26 @@ use std::{
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum Error {
+pub enum WtfError {
     #[error("Terminal could not be determined or is unsupported")]
     UnknownTerminal,
     #[error("Font could not be detected")]
     FontNotFound,
     #[error("I/O Error")]
     Io(io::Error),
+    #[error("Env Var Error")]
+    EnvVar(env::VarError),
 }
 
-impl From<io::Error> for Error {
+impl From<io::Error> for WtfError {
     fn from(value: io::Error) -> Self {
         Self::Io(value)
+    }
+}
+
+impl From<env::VarError> for WtfError {
+    fn from(value: env::VarError) -> Self {
+        Self::EnvVar(value)
     }
 }
 
@@ -44,7 +52,7 @@ impl From<io::Error> for Error {
 ///     Err(e) => eprintln!("Error detecting font: {}", e),
 /// }
 /// ```
-pub fn detect_terminal_font() -> Result<String, Error> {
+pub fn detect_terminal_font() -> Result<String, WtfError> {
     if let Ok(term_program) = env::var("TERM_PROGRAM") {
         match term_program.as_str() {
             "ghostty" => {
@@ -57,7 +65,7 @@ pub fn detect_terminal_font() -> Result<String, Error> {
                     if line.starts_with(GHOSTTY_FONT_FAMILY_CONFIG_PREFIX)
                         && let Some(font_family) =
                             line.get(GHOSTTY_FONT_FAMILY_CONFIG_PREFIX.len()..)
-                        && font_family.len() > 0
+                        && !font_family.is_empty()
                     {
                         return Ok(font_family.to_owned());
                     }
@@ -73,16 +81,20 @@ pub fn detect_terminal_font() -> Result<String, Error> {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let font = stdout.split('"').nth(1);
                 if let Some(font) = font
-                    && font.len() > 0
+                    && !font.is_empty()
                 {
                     return Ok(font.to_owned());
                 }
-                return Err(Error::FontNotFound);
+                return Err(WtfError::FontNotFound);
             }
             "rio" => {
                 const RIO_FONT_FAMILY_CONFIG_PREFIX: &str = "family = \"";
-                let config_home = env::var("XDG_CONFIG_HOME")
-                    .unwrap_or_else(|_| format!("{}/.config", env::var("HOME").unwrap()));
+                let config_home = env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
+                    format!(
+                        "{}/.config",
+                        env::var("HOME").unwrap_or_else(|_| "~".to_owned())
+                    )
+                });
 
                 let path = format!("{}/rio/config.toml", config_home);
                 let reader = BufReader::new(File::open(path)?);
@@ -91,15 +103,13 @@ pub fn detect_terminal_font() -> Result<String, Error> {
                     if line.starts_with(RIO_FONT_FAMILY_CONFIG_PREFIX)
                         && let Some(font_family_line) =
                             line.get(RIO_FONT_FAMILY_CONFIG_PREFIX.len()..)
+                        && let Some(font_family) = font_family_line.split('"').nth(1)
+                        && !font_family.is_empty()
                     {
-                        if let Some(font_family) = font_family_line.split('"').nth(1)
-                            && font_family.len() > 0
-                        {
-                            return Ok(font_family.to_owned());
-                        }
+                        return Ok(font_family.to_owned());
                     }
                 }
-                return Err(Error::FontNotFound);
+                return Err(WtfError::FontNotFound);
             }
             _ => {}
         }
@@ -113,17 +123,21 @@ pub fn detect_terminal_font() -> Result<String, Error> {
                 for line in stdout.lines() {
                     if line.starts_with(KITTY_FONT_FAMILY_CONFIG_PREFIX)
                         && let Some(font_family) = line.get(KITTY_FONT_FAMILY_CONFIG_PREFIX.len()..)
-                        && font_family.len() > 0
+                        && !font_family.is_empty()
                     {
                         return Ok(font_family.to_owned());
                     }
                 }
-                return Err(Error::FontNotFound);
+                return Err(WtfError::FontNotFound);
             }
             "foot" => {
                 const FOOT_FONT_FAMILY_CONFIG_PREFIX: &str = "font=";
-                let config_home = env::var("XDG_CONFIG_HOME")
-                    .unwrap_or_else(|_| format!("{}/.config", env::var("HOME").unwrap()));
+                let config_home = env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
+                    format!(
+                        "{}/.config",
+                        env::var("HOME").unwrap_or_else(|_| "~".to_owned())
+                    )
+                });
 
                 let path = format!("{}/foot/foot.ini", config_home);
                 let reader = BufReader::new(File::open(path)?);
@@ -131,18 +145,16 @@ pub fn detect_terminal_font() -> Result<String, Error> {
                     let line = line?;
                     if line.starts_with(FOOT_FONT_FAMILY_CONFIG_PREFIX)
                         && let Some(font_family) = line.get(FOOT_FONT_FAMILY_CONFIG_PREFIX.len()..)
+                        && let Some(first) = font_family.split(":").next()
+                        && !first.is_empty()
                     {
-                        if let Some(first) = font_family.split(":").nth(0)
-                            && first.len() > 0
-                        {
-                            return Ok(first.to_owned());
-                        }
+                        return Ok(first.to_owned());
                     }
                 }
-                return Err(Error::FontNotFound);
+                return Err(WtfError::FontNotFound);
             }
             _ => {}
         }
     }
-    Err(Error::UnknownTerminal)
+    Err(WtfError::UnknownTerminal)
 }
