@@ -41,9 +41,6 @@ jobs:
       pull-requests: write
       actions: read
     steps:
-      - name: Get PR number
-        run: echo "PR_NUMBER=$(cat pr_number.txt)" >> $GITHUB_ENV
-
       - name: Download diffs artifact
         uses: dawidd6/action-download-artifact@v6
         with:
@@ -52,6 +49,14 @@ jobs:
           name: pr-diffs
           path: .
           github_token: ${{ github.token }}
+
+      - name: Get PR number
+        run: |
+          if [ ! -f pr_number.txt ]; then
+            echo "pr_number.txt not found"
+            exit 1
+          fi
+          echo "PR_NUMBER=$(cat pr_number.txt)" >> $GITHUB_ENV
 
       - name: Upload images to catbox.moe
         run: |
