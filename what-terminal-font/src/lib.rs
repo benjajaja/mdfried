@@ -64,9 +64,15 @@ impl From<FromUtf8Error> for WtfError {
 /// }
 /// ```
 pub fn detect_terminal_font() -> Result<String, WtfError> {
-    let config = RealTerminal {};
-    detect_with_term_program(env::var("TERM_PROGRAM"), &config)
-        .or(detect_with_term(env::var("TERM"), &config))
+    detect(RealTerminal, env::var("TERM_PROGRAM"), env::var("TERM"))
+}
+
+fn detect(
+    config: impl TerminalConfig,
+    term_program: Result<String, env::VarError>,
+    term: Result<String, env::VarError>,
+) -> Result<String, WtfError> {
+    detect_with_term_program(term_program, &config).or(detect_with_term(term, &config))
 }
 
 fn detect_with_term_program(
@@ -121,13 +127,7 @@ fn detect_with_term(
 ) -> Result<String, WtfError> {
     if let Ok(term) = var {
         match term.as_str() {
-            "xterm-kitty" => {
-                return command_get_line(
-                    "kitty",
-                    Command::new("kitten").arg("query-terminal"),
-                    "font_family: ",
-                );
-            }
+            "xterm-kitty" => stdout_get_line("kitty", config.kitty()?, "font_family: "),
             "foot" => {
                 let line = config_get_line("foot/foot.ini", "font=")?;
                 if let Some(font_family) = line.split(':').next()
@@ -135,26 +135,32 @@ fn detect_with_term(
                 {
                     return Ok(font_family.to_owned());
                 }
-                return Err(WtfError::FontNotFound(
+                Err(WtfError::FontNotFound(
                     "foot config expected font line to contain colon separating font-family and size",
-                ));
+                ))
             }
-            _ => {}
+            _ => Err(WtfError::UnknownTerminal),
         }
+    } else {
+        Err(WtfError::UnknownTerminal)
     }
-    Err(WtfError::UnknownTerminal)
 }
 
 trait TerminalConfig {
     fn ghostty(&self) -> Result<String, WtfError>;
+    fn kitty(&self) -> Result<String, WtfError>;
     fn rio(&self) -> Result<BufReader<File>, WtfError>;
 }
 
-struct RealTerminal {}
+struct RealTerminal;
 
 impl TerminalConfig for RealTerminal {
     fn ghostty(&self) -> Result<String, WtfError> {
         command_get_stdout(Command::new("ghostty").arg("+show-config"))
+    }
+
+    fn kitty(&self) -> Result<String, WtfError> {
+        command_get_stdout(Command::new("kitten").arg("query-terminal"))
     }
 
     fn rio(&self) -> Result<BufReader<File>, WtfError> {
@@ -214,15 +220,6 @@ fn reader_get_line(
     Err(WtfError::ConfigFile(terminal, line_prefix))
 }
 
-fn command_get_line(
-    terminal: &'static str,
-    cmd: &mut Command,
-    prefix: &'static str,
-) -> Result<String, WtfError> {
-    let stdout = command_get_stdout(cmd)?;
-    stdout_get_line(terminal, stdout, prefix)
-}
-
 fn stdout_get_line(
     terminal: &'static str,
     stdout: String,
@@ -244,3 +241,6 @@ fn command_get_stdout(cmd: &mut Command) -> Result<String, WtfError> {
     let stdout = String::from_utf8(output.stdout)?;
     Ok(stdout)
 }
+
+#[cfg(test)]
+mod tests;
