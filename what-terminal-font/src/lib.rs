@@ -8,6 +8,7 @@
 //! * foot
 //! * wezterm
 //! * rio
+//! * xterm
 //!
 //! Inspired by fastfetch (and clones') font detection: https://github.com/fastfetch-cli/fastfetch
 
@@ -135,6 +136,20 @@ fn detect_with_term(
                     "foot config expected font line to contain colon separating font-family and size",
                 ))
             }
+            "xterm" | "xterm-256color" => {
+                let reader = config.xterm()?;
+                let font_line = reader_get_line("xterm", reader, "xterm*faceName:")?;
+                if !font_line.is_empty() {
+                    return Ok(font_line);
+                }
+                let reader = config.xterm()?;
+                let font_line = reader_get_line("xterm", reader, "xterm.vt100.faceName:")?;
+                if !font_line.is_empty() {
+                    return Ok(font_line);
+                }
+                // "fixed" is the standard X11 built-in monospace font, used as fallback
+                Ok("fixed".to_owned())
+            }
             _ => Err(WtfError::UnknownTerminal),
         }
     } else {
@@ -148,6 +163,7 @@ trait TerminalConfig {
     fn rio(&self) -> Result<BufReader<File>, WtfError>;
     fn wezterm(&self) -> Result<String, WtfError>;
     fn foot(&self) -> Result<BufReader<File>, WtfError>;
+    fn xterm(&self) -> Result<BufReader<File>, WtfError>;
 }
 
 struct RealTerminal;
@@ -176,6 +192,10 @@ impl TerminalConfig for RealTerminal {
 
     fn foot(&self) -> Result<BufReader<File>, WtfError> {
         config_get_reader("foot/foot.ini")
+    }
+
+    fn xterm(&self) -> Result<BufReader<File>, WtfError> {
+        config_get_reader(".Xresources")
     }
 }
 
