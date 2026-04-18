@@ -14,7 +14,7 @@
 use std::{
     env,
     fs::File,
-    io::{self, BufRead as _, BufReader, Read},
+    io::{self, BufRead as _, BufReader},
     process::Command,
     string::FromUtf8Error,
 };
@@ -60,7 +60,7 @@ impl From<FromUtf8Error> for WtfError {
 /// ```rust
 /// match what_terminal_font::detect_terminal_font() {
 ///     Ok(font) => println!("Using font: {}", font),
-///     Err(e) => eprintln!("Error detecting font: {}", e),
+///     Err(e) => println!("Error detecting font: {}", e),
 /// }
 /// ```
 pub fn detect_terminal_font() -> Result<String, WtfError> {

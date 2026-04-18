@@ -40,26 +40,51 @@ os_name: linux"#
         let mut temp_file = tempfile::NamedTempFile::new()?;
         io::Write::write_all(
             &mut temp_file,
-            b"[colors]\nbackground = '#1e1e2e'\n[font]\nfamily = \"Rio De Janeiro\"\nsize = 14.0",
+            r#"
+[fonts]
+family = "riodejaneiro"
+extras = [{ family = "Microsoft JhengHei" }]
+features = ["ss02", "ss03", "ss05", "ss19"]
+hinting = false
+symbol-map = [
+  { start = "2297", end = "2299", font-family = "Cascadia Code NF" }
+]
+size = 18
+
+[fonts.regular]
+family = "samba"
+style = "Normal"
+weight = 400
+[fonts.bold]
+family = "samba"
+style = "Normal"
+weight = 800
+[fonts.italic]
+family = "samba"
+style = "Italic"
+weight = 400
+[fonts.bold-italic]
+family = "samba"
+style = "Italic"
+weight = 800
+"#
+            .as_bytes(),
         )?;
-        let file = temp_file.into_file();
+        let file = temp_file.reopen()?;
         Ok(BufReader::new(file))
     }
 
     fn wezterm(&self) -> Result<String, WtfError> {
-        Ok(r#"{
-  "font": {
-    "family": "JetBrains Mono",
-    "size": 12.0
-  }
-}"#
+        Ok(r#"LeftToRight
+ 0 a    \u{61}       x_adv=8  cells=1  glyph=a,68   wezterm.font("Wiz Kalifa", {weight="Regular", stretch="Normal", style="Normal"})
+                                      /nix/store/ns8ifac2f7mwisyd6dmbxb17agarhdqm-nerd-fonts-profont-3.4.0+2.3-2.2/share/fonts/truetype/NerdFonts/Wiz/WizKalifa-Regular.ttf, FontConfig"#
         .to_owned())
     }
 
     fn foot(&self) -> Result<BufReader<File>, WtfError> {
         let mut temp_file = tempfile::NamedTempFile::new()?;
         io::Write::write_all(&mut temp_file, b"xxx\nfont=FootPrint:size=12\nblablabla\n")?;
-        let file = temp_file.into_file();
+        let file = temp_file.reopen()?;
         Ok(BufReader::new(file))
     }
 }
@@ -76,14 +101,14 @@ fn ghostty() {
 
 #[test]
 fn wezterm() {
-    let result = detect(TestTerminal, Ok("ghostty".to_owned()), unrelated());
-    assert_eq!(result.unwrap(), "GhostFaceKilla");
+    let result = detect(TestTerminal, Ok("WezTerm".to_owned()), unrelated());
+    assert_eq!(result.unwrap(), "Wiz Kalifa");
 }
 
 #[test]
 fn rio() {
     let result = detect(TestTerminal, Ok("rio".to_owned()), unrelated());
-    assert_eq!(result.unwrap(), "Rio De Janeiro");
+    assert_eq!(result.unwrap(), "riodejaneiro");
 }
 
 #[test]
