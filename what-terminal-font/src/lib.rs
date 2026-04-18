@@ -33,8 +33,8 @@ pub enum WtfError {
     EnvVar(env::VarError),
     #[error("Config file {0} expected line with prefix '{1}'")]
     ConfigFile(&'static str, &'static str),
-    #[error("Command {0} {1:?} expected line with prefix '{2}'")]
-    CommandOutput(String, Vec<String>, &'static str),
+    #[error("{0} output expected line with prefix '{1}'")]
+    CommandOutput(&'static str, &'static str),
 }
 
 impl From<io::Error> for WtfError {
@@ -58,23 +58,29 @@ impl From<FromUtf8Error> for WtfError {
 /// Try to detect the terminal font name.
 ///
 /// ```rust
-/// match what_terminal_font::get_terminal_font() {
+/// match what_terminal_font::detect_terminal_font() {
 ///     Ok(font) => println!("Using font: {}", font),
 ///     Err(e) => eprintln!("Error detecting font: {}", e),
 /// }
 /// ```
 pub fn detect_terminal_font() -> Result<String, WtfError> {
-    if let Ok(term_program) = env::var("TERM_PROGRAM") {
+    let config = RealTerminal {};
+    detect_with_term_program(env::var("TERM_PROGRAM"), &config)
+        .or(detect_with_term(env::var("TERM"), &config))
+}
+
+fn detect_with_term_program(
+    var: Result<String, env::VarError>,
+    config: &impl TerminalConfig,
+) -> Result<String, WtfError> {
+    if let Ok(term_program) = var {
         match term_program.as_str() {
             "ghostty" => {
-                if let Ok(font) = command_get_line(
-                    Command::new("ghostty").arg("+show-config"),
-                    "font-family = ",
-                ) {
+                let stdout = config.ghostty()?;
+                if let Ok(font) = stdout_get_line("ghostty", stdout, "font-family = ") {
                     return Ok(font);
-                } else {
-                    return Ok("JetBrainsMono Nerd Font".to_owned());
                 }
+                return Ok("JetBrainsMono Nerd Font".to_owned());
             }
             "WezTerm" => {
                 let stdout = command_get_stdout(
@@ -94,7 +100,8 @@ pub fn detect_terminal_font() -> Result<String, WtfError> {
                 }
             }
             "rio" => {
-                if let Ok(line) = config_get_line("rio/config.toml", "family = \"")
+                let reader = config.rio()?;
+                if let Ok(line) = reader_get_line("rio", reader, "family = \"")
                     && let Some(font_family) = line.split('"').next()
                     && !font_family.is_empty()
                 {
@@ -105,10 +112,18 @@ pub fn detect_terminal_font() -> Result<String, WtfError> {
             _ => {}
         }
     }
-    if let Ok(term) = env::var("TERM") {
+    Err(WtfError::UnknownTerminal)
+}
+
+fn detect_with_term(
+    var: Result<String, env::VarError>,
+    config: &impl TerminalConfig,
+) -> Result<String, WtfError> {
+    if let Ok(term) = var {
         match term.as_str() {
             "xterm-kitty" => {
                 return command_get_line(
+                    "kitty",
                     Command::new("kitten").arg("query-terminal"),
                     "font_family: ",
                 );
@@ -128,6 +143,35 @@ pub fn detect_terminal_font() -> Result<String, WtfError> {
         }
     }
     Err(WtfError::UnknownTerminal)
+}
+
+trait TerminalConfig {
+    fn ghostty(&self) -> Result<String, WtfError>;
+    fn rio(&self) -> Result<BufReader<File>, WtfError>;
+}
+
+struct RealTerminal {}
+
+impl TerminalConfig for RealTerminal {
+    fn ghostty(&self) -> Result<String, WtfError> {
+        command_get_stdout(Command::new("ghostty").arg("+show-config"))
+    }
+
+    fn rio(&self) -> Result<BufReader<File>, WtfError> {
+        config_get_reader("rio/config.toml")
+    }
+}
+
+fn config_get_reader(config_file: &'static str) -> Result<BufReader<File>, WtfError> {
+    let config_home = env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
+        format!(
+            "{}/.config",
+            env::var("HOME").unwrap_or_else(|_| "~".to_owned())
+        )
+    });
+    let path = format!("{}/{}", config_home, config_file);
+
+    Ok(BufReader::new(File::open(path)?))
 }
 
 fn config_get_line(
@@ -154,8 +198,36 @@ fn config_get_line(
     Err(WtfError::ConfigFile(config_file, line_prefix))
 }
 
-fn command_get_line(cmd: &mut Command, prefix: &'static str) -> Result<String, WtfError> {
+fn reader_get_line(
+    terminal: &'static str,
+    reader: BufReader<File>,
+    line_prefix: &'static str,
+) -> Result<String, WtfError> {
+    for line in reader.lines() {
+        let line = line?;
+        if line.starts_with(line_prefix)
+            && let Some(font_family_line) = line.get(line_prefix.len()..)
+        {
+            return Ok(font_family_line.to_owned());
+        }
+    }
+    Err(WtfError::ConfigFile(terminal, line_prefix))
+}
+
+fn command_get_line(
+    terminal: &'static str,
+    cmd: &mut Command,
+    prefix: &'static str,
+) -> Result<String, WtfError> {
     let stdout = command_get_stdout(cmd)?;
+    stdout_get_line(terminal, stdout, prefix)
+}
+
+fn stdout_get_line(
+    terminal: &'static str,
+    stdout: String,
+    prefix: &'static str,
+) -> Result<String, WtfError> {
     for line in stdout.lines() {
         if line.starts_with(prefix)
             && let Some(font_family) = line.get(prefix.len()..)
@@ -164,13 +236,7 @@ fn command_get_line(cmd: &mut Command, prefix: &'static str) -> Result<String, W
             return Ok(font_family.to_owned());
         }
     }
-    Err(WtfError::CommandOutput(
-        cmd.get_program().to_str().unwrap_or("[missing]").to_owned(),
-        cmd.get_args()
-            .map(|arg| arg.to_str().unwrap_or("[missing]").to_owned())
-            .collect(),
-        prefix,
-    ))
+    Err(WtfError::CommandOutput(terminal, prefix))
 }
 
 fn command_get_stdout(cmd: &mut Command) -> Result<String, WtfError> {
