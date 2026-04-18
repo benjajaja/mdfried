@@ -48,7 +48,8 @@ pub enum SetupResult {
     Complete(Picker, Box<FontRenderer>),
 }
 
-static JETBRAINS_MONO: &[u8] = include_bytes!("../assets/JetBrainsMonoNerdFont-Regular.ttf");
+static JETBRAINS_MONO: &[u8] = include_bytes!("../assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
+static CASCADIA_CODE: &[u8] = include_bytes!("../assets/fonts/CascadiaCode-Regular.otf");
 
 pub fn setup_graphics(
     config: &mut UserConfig,
@@ -78,9 +79,10 @@ pub fn setup_graphics(
         return Ok(SetupResult::AsciiArt(picker));
     }
 
-    let mut font_system = FontSystem::new_with_fonts([cosmic_text::fontdb::Source::Binary(
-        std::sync::Arc::new(JETBRAINS_MONO),
-    )]);
+    let mut font_system = FontSystem::new_with_fonts([
+        cosmic_text::fontdb::Source::Binary(std::sync::Arc::new(JETBRAINS_MONO)),
+        cosmic_text::fontdb::Source::Binary(std::sync::Arc::new(CASCADIA_CODE)),
+    ]);
     let db = font_system.db_mut();
     db.load_system_fonts();
 
