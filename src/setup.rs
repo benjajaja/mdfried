@@ -100,13 +100,14 @@ pub fn setup_graphics(
     };
 
     // Try to detect terminal font
-    if let Ok(terminal_font) = detect_terminal_font() {
-        log::info!("Detected terminal font: {}", terminal_font);
+    let terminal_font = detect_terminal_font();
+    if let Ok(terminal_font) = &terminal_font {
+        println!("Detected terminal font: {}", terminal_font);
     }
 
     let font_name = match config_font_family {
         Some(font_family) => font_family.clone(),
-        None => match interactive_font_picker(&mut picker) {
+        None => match interactive_font_picker(&mut picker, terminal_font.ok()) {
             Ok(Some(setup_font_family)) => {
                 config::store_font_family(config, setup_font_family.clone())?;
                 notification::interactive_notification("Font has been written to config file.")?;

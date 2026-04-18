@@ -19,8 +19,11 @@ use crate::{
 };
 
 #[expect(clippy::too_many_lines)]
-pub fn interactive_font_picker(picker: &mut Picker) -> Result<Option<String>, Error> {
-    let mut input = String::new();
+pub fn interactive_font_picker(
+    picker: &mut Picker,
+    terminal_font: Option<String>,
+) -> Result<Option<String>, Error> {
+    let mut input = terminal_font.unwrap_or_default();
 
     let mut font_system = FontSystem::new();
     let swash_cache = SwashCache::new();
