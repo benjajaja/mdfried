@@ -48,8 +48,8 @@ pub enum SetupResult {
     Complete(Picker, Box<FontRenderer>),
 }
 
-static JETBRAINS_MONO: &[u8] = include_bytes!("../assets/fonts/JetBrainsMonoNerdFont-Regular.ttf");
-static CASCADIA_CODE: &[u8] = include_bytes!("../assets/fonts/CascadiaCode-Regular.otf");
+static JETBRAINS_MONO: &[u8] = include_bytes!("fonts/JetBrainsMonoNerdFont-Regular.ttf");
+static CASCADIA_CODE: &[u8] = include_bytes!("fonts/CascadiaCode-Regular.otf");
 
 pub fn setup_graphics(
     config: &mut UserConfig,
