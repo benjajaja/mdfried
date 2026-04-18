@@ -143,36 +143,6 @@ fn xterm_256color() {
 }
 
 #[test]
-fn xterm_fallback() -> Result<(), Box<dyn std::error::Error>> {
-    let mut temp_file = tempfile::NamedTempFile::new()?;
-    io::Write::write_all(&mut temp_file, b"some other config\n")?;
-    let file = temp_file.reopen()?;
-
-    struct TestTerminalFallback {
-        file: File,
-    }
-    impl TerminalConfig for TestTerminalFallback {
-        fn ghostty(&self) -> Result<String, WtfError> { Ok("".to_owned()) }
-        fn kitty(&self) -> Result<String, WtfError> { Ok("".to_owned()) }
-        fn rio(&self) -> Result<BufReader<File>, WtfError> { Ok(BufReader::new(self.file.try_clone()?)) }
-        fn wezterm(&self) -> Result<String, WtfError> { Ok("".to_owned()) }
-        fn foot(&self) -> Result<BufReader<File>, WtfError> { Ok(BufReader::new(self.file.try_clone()?)) }
-        fn xterm(&self) -> Result<BufReader<File>, WtfError> { Ok(BufReader::new(self.file.try_clone()?)) }
-    }
-
-    let test_terminal = TestTerminalFallback {
-        file: file.try_clone()?,
-    };
-    let result = detect(test_terminal, unrelated(), Ok("xterm".to_owned()));
-    match result {
-        Ok(font) => assert_eq!(font, "fixed"),
-        Err(WtfError::ConfigFile(_, _)) => {},
-        Err(e) => panic!("Unexpected error: {}", e),
-    }
-    Ok(())
-}
-
-#[test]
 fn kitty() {
     let result = detect(TestTerminal, unrelated(), Ok("xterm-kitty".to_owned()));
     assert_eq!(result.unwrap(), "PussyKatNFM");

@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["Benjamin Große <ste3ls@gmail.com>"]
 description = "A crate to detect terminal font"
 repository = "https://github.com/benjajaja/mdfried"
-license = "GPL-3.0-or-later"
+license = "MIT"
 rust-version = "1.86.0"
 
 [dependencies]

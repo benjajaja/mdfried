@@ -1,21 +1,45 @@
-//! what-terminal-font - Detect the terminal font in use, for at least some popular terminals.
+//! # what-terminal-font
 //!
-//! This crate provides functionality to detect what font is currently being used
-//! by the terminal, if the terminal is one of:
+//! Detect the terminal font in use, at least for some popular terminals.
 //!
-//! * kitty
-//! * ghostty
-//! * foot
-//! * wezterm
-//! * rio
-//! * xterm
+//! Inspired by [fastfetch]. Used by [mdfried].
 //!
-//! Inspired by fastfetch (and clones') font detection: https://github.com/fastfetch-cli/fastfetch
+//! This crate attempts to detect what font is currently being used by the terminal, if the
+//! terminal has an implementation in this crate, and either a font is configured, or the terminal
+//! has some mechanism for querying the font via some command, or there is a known default font.
+//!
+//! **Note: the returned "font family" string might not necessarily match the font family
+//! name exactly as reported by the different font systems elsewhere.**
+//!
+//! # Implementations
+//!
+//! * [x] `ghostty, kitty, wezterm` are queried via some command, and the output is parsed.
+//! * [x] `foot, rio, xterm` use their configuration files (linux specific).
+//! * [ ] konsole: doesn't set any `$TERM`-like env var, but config should be parseable.
+//! * [ ] iterm2: macos hardware.
+//! * [ ] others: PRs welcome, [fastfetch source] is a good reference.
+//!
+//! # Example
+//!
+//! ```rust
+//! use what_terminal_font::{detect_terminal_font, WtfError};
+//!
+//! match detect_terminal_font() {
+//!     Ok(font) => println!("Using font: {}", font),
+//!     Err(WtfError::FontNotFound(err)) => println!("Font not detected ({err}), falling back to 'monospace'."),
+//!     Err(WtfError::UnknownTerminal) => println!("Unknown terminal, falling back to 'monospace'."),
+//!     Err(WtfError::Io(err)) => println!("{err}, aborting."),
+//! }
+//! ```
+//!
+//! [fastfetch]: https://github.com/fastfetch-cli/fastfetch
+//! [mdfried]: https://crates.io/crates/mdfried
+//! [fastfetch source]: https://github.com/fastfetch-cli/fastfetch/blob/master/src/detection/terminalfont/terminalfont_linux.c
 
 use std::{
     env,
     fs::File,
-    io::{self, BufRead as _, BufReader},
+    io::{self, BufRead, BufReader},
     process::Command,
     string::FromUtf8Error,
 };
@@ -24,18 +48,12 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum WtfError {
+    #[error("I/O Error")]
+    Io(io::Error),
     #[error("Terminal could not be determined or is unsupported")]
     UnknownTerminal,
     #[error("Font could not be detected: {0}")]
     FontNotFound(&'static str),
-    #[error("I/O Error")]
-    Io(io::Error),
-    #[error("Env Var Error")]
-    EnvVar(env::VarError),
-    #[error("Config file {0} expected line with prefix '{1}'")]
-    ConfigFile(&'static str, &'static str),
-    #[error("{0} output expected line with prefix '{1}'")]
-    CommandOutput(&'static str, &'static str),
 }
 
 impl From<io::Error> for WtfError {
@@ -46,7 +64,7 @@ impl From<io::Error> for WtfError {
 
 impl From<env::VarError> for WtfError {
     fn from(value: env::VarError) -> Self {
-        Self::EnvVar(value)
+        Self::Io(io::Error::other(value))
     }
 }
 
@@ -58,12 +76,12 @@ impl From<FromUtf8Error> for WtfError {
 
 /// Try to detect the terminal font name.
 ///
-/// ```rust
-/// match what_terminal_font::detect_terminal_font() {
-///     Ok(font) => println!("Using font: {}", font),
-///     Err(e) => println!("Error detecting font: {}", e),
-/// }
-/// ```
+/// Gets the font name by config file or command.
+/// If there is a known fallback when the font is not configure, it will be returned. Otherwise
+/// [`WtfError::FontNotFound`] will be returned.
+///
+/// If there is no implementation for the current terminal, then [`WtfError::UnknownTerminal`] will
+/// be returned.
 pub fn detect_terminal_font() -> Result<String, WtfError> {
     detect(RealTerminal, env::var("TERM_PROGRAM"), env::var("TERM"))
 }
@@ -84,7 +102,11 @@ fn detect_with_term_program(
         match term_program.as_str() {
             "ghostty" => {
                 let stdout = config.ghostty()?;
-                if let Ok(font) = stdout_get_line("ghostty", stdout, "font-family = ") {
+                if let Ok(font) = find_line(
+                    stdout.as_bytes(),
+                    "font-family = ",
+                    "ghostty output had no font-family",
+                ) {
                     return Ok(font);
                 }
                 // Default font of ghostty
@@ -104,7 +126,7 @@ fn detect_with_term_program(
             }
             "rio" => {
                 if let Ok(reader) = config.rio() {
-                    if let Ok(line) = reader_get_line("rio", reader, "family = \"")
+                    if let Ok(line) = find_line(reader, "family = \"", "rio config had no family")
                         && let Some(font_family) = line.split('"').next()
                         && !font_family.is_empty()
                     {
@@ -126,12 +148,14 @@ fn detect_with_term(
 ) -> Result<String, WtfError> {
     if let Ok(term) = var {
         match term.as_str() {
-            "xterm-kitty" => {
-                return stdout_get_line("kitty", config.kitty()?, "font_family: ");
-            }
+            "xterm-kitty" => find_line(
+                config.kitty()?.as_bytes(),
+                "font_family: ",
+                "kitten output had no font_family",
+            ),
             "foot" => {
                 if let Ok(reader) = config.foot() {
-                    let line = reader_get_line("foot", reader, "font=")?;
+                    let line = find_line(reader, "font=", "foot config had not font")?;
                     if let Some(font_family) = line.split(':').next()
                         && !font_family.is_empty()
                     {
@@ -142,15 +166,18 @@ fn detect_with_term(
             }
             "xterm" | "xterm-256color" => {
                 if let Ok(reader) = config.xterm() {
-                    let font_line = reader_get_line("xterm", reader, "xterm*faceName:")?;
-                    if !font_line.is_empty() {
+                    if let Ok(font_line) = find_line(reader, "xterm*faceName:", "xterm*faceName")
+                        && !font_line.is_empty()
+                    {
                         return Ok(font_line);
                     }
-                    let reader = config.xterm()?;
-                    let font_line = reader_get_line("xterm", reader, "xterm.vt100.faceName:")?;
-                    if !font_line.is_empty() {
-                        return Ok(font_line);
-                    }
+                }
+                if let Ok(reader) = config.xterm()
+                    && let Ok(font_line) =
+                        find_line(reader, "xterm.vt100.faceName:", "xterm.vt100.faceName")
+                    && !font_line.is_empty()
+                {
+                    return Ok(font_line);
                 }
                 // "fixed" is the standard X11 built-in monospace font, used as fallback in
                 // fastfetch
@@ -217,28 +244,19 @@ fn config_get_reader(config_file: &'static str) -> Result<BufReader<File>, WtfEr
     Ok(BufReader::new(File::open(path)?))
 }
 
-fn reader_get_line(
-    terminal: &'static str,
-    reader: BufReader<File>,
-    line_prefix: &'static str,
-) -> Result<String, WtfError> {
-    for line in reader.lines() {
-        let line = line?;
-        if line.starts_with(line_prefix)
-            && let Some(font_family_line) = line.get(line_prefix.len()..)
-        {
-            return Ok(font_family_line.to_owned());
-        }
-    }
-    Err(WtfError::ConfigFile(terminal, line_prefix))
+fn command_get_stdout(cmd: &mut Command) -> Result<String, WtfError> {
+    let output = cmd.output()?;
+    let stdout = String::from_utf8(output.stdout)?;
+    Ok(stdout)
 }
 
-fn stdout_get_line(
-    terminal: &'static str,
-    stdout: String,
+fn find_line(
+    source: impl BufRead,
     prefix: &'static str,
+    error_message: &'static str,
 ) -> Result<String, WtfError> {
-    for line in stdout.lines() {
+    for line in source.lines() {
+        let line = line?;
         if line.starts_with(prefix)
             && let Some(font_family) = line.get(prefix.len()..)
             && !font_family.is_empty()
@@ -246,13 +264,7 @@ fn stdout_get_line(
             return Ok(font_family.to_owned());
         }
     }
-    Err(WtfError::CommandOutput(terminal, prefix))
-}
-
-fn command_get_stdout(cmd: &mut Command) -> Result<String, WtfError> {
-    let output = cmd.output()?;
-    let stdout = String::from_utf8(output.stdout)?;
-    Ok(stdout)
+    Err(WtfError::FontNotFound(error_message))
 }
 
 #[cfg(test)]
