@@ -87,6 +87,7 @@ fn detect_with_term_program(
                 if let Ok(font) = stdout_get_line("ghostty", stdout, "font-family = ") {
                     return Ok(font);
                 }
+                // Default font of ghostty
                 return Ok("JetBrainsMono Nerd Font".to_owned());
             }
             "WezTerm" => {
@@ -102,13 +103,15 @@ fn detect_with_term_program(
                 }
             }
             "rio" => {
-                let reader = config.rio()?;
-                if let Ok(line) = reader_get_line("rio", reader, "family = \"")
-                    && let Some(font_family) = line.split('"').next()
-                    && !font_family.is_empty()
-                {
-                    return Ok(font_family.to_owned());
+                if let Ok(reader) = config.rio() {
+                    if let Ok(line) = reader_get_line("rio", reader, "family = \"")
+                        && let Some(font_family) = line.split('"').next()
+                        && !font_family.is_empty()
+                    {
+                        return Ok(font_family.to_owned());
+                    }
                 }
+                // Default font of rio
                 return Ok("Cascadia Code".to_owned());
             }
             _ => {}
@@ -123,31 +126,34 @@ fn detect_with_term(
 ) -> Result<String, WtfError> {
     if let Ok(term) = var {
         match term.as_str() {
-            "xterm-kitty" => stdout_get_line("kitty", config.kitty()?, "font_family: "),
+            "xterm-kitty" => {
+                return stdout_get_line("kitty", config.kitty()?, "font_family: ");
+            }
             "foot" => {
-                let reader = config.foot()?;
-                let line = reader_get_line("foot", reader, "font=")?;
-                if let Some(font_family) = line.split(':').next()
-                    && !font_family.is_empty()
-                {
-                    return Ok(font_family.to_owned());
+                if let Ok(reader) = config.foot() {
+                    let line = reader_get_line("foot", reader, "font=")?;
+                    if let Some(font_family) = line.split(':').next()
+                        && !font_family.is_empty()
+                    {
+                        return Ok(font_family.to_owned());
+                    }
                 }
-                Err(WtfError::FontNotFound(
-                    "foot config expected font line to contain colon separating font-family and size",
-                ))
+                Err(WtfError::FontNotFound("foot"))
             }
             "xterm" | "xterm-256color" => {
-                let reader = config.xterm()?;
-                let font_line = reader_get_line("xterm", reader, "xterm*faceName:")?;
-                if !font_line.is_empty() {
-                    return Ok(font_line);
+                if let Ok(reader) = config.xterm() {
+                    let font_line = reader_get_line("xterm", reader, "xterm*faceName:")?;
+                    if !font_line.is_empty() {
+                        return Ok(font_line);
+                    }
+                    let reader = config.xterm()?;
+                    let font_line = reader_get_line("xterm", reader, "xterm.vt100.faceName:")?;
+                    if !font_line.is_empty() {
+                        return Ok(font_line);
+                    }
                 }
-                let reader = config.xterm()?;
-                let font_line = reader_get_line("xterm", reader, "xterm.vt100.faceName:")?;
-                if !font_line.is_empty() {
-                    return Ok(font_line);
-                }
-                // "fixed" is the standard X11 built-in monospace font, used as fallback
+                // "fixed" is the standard X11 built-in monospace font, used as fallback in
+                // fastfetch
                 Ok("fixed".to_owned())
             }
             _ => Err(WtfError::UnknownTerminal),
