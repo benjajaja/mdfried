@@ -70,7 +70,7 @@ pub fn interactive_font_picker(
         terminal.draw(|f| {
             let area = f.area();
             let block = ratatui::widgets::Block::default()
-                .title("Enter font name")
+                .title("Enter font name for headers")
                 .borders(ratatui::widgets::Borders::ALL)
                 .border_style(Color::Yellow)
                 .padding(Padding::proportional(1));

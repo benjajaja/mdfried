@@ -105,23 +105,32 @@ pub fn setup_graphics(
         })
     };
 
-    // Try to detect terminal font
-    let terminal_font = detect_terminal_font();
-    if let Ok(terminal_font) = &terminal_font {
-        println!("Detected terminal font: {}", terminal_font);
-    }
-
     let font_name = match config_font_family {
         Some(font_family) => font_family.clone(),
-        None => match interactive_font_picker(db, &mut picker, terminal_font.ok()) {
-            Ok(Some(setup_font_family)) => {
-                config::store_font_family(config, setup_font_family.clone())?;
+        None => {
+            let terminal_font = detect_terminal_font();
+
+            if !force_font_setup
+                && let Ok(terminal_font) = &terminal_font
+                && all_font_families.contains(terminal_font)
+            {
+                config::store_font_family(config, terminal_font.clone())?;
                 notification::interactive_notification("Font has been written to config file.")?;
-                setup_font_family
+                terminal_font.to_owned()
+            } else {
+                match interactive_font_picker(db, &mut picker, terminal_font.ok()) {
+                    Ok(Some(setup_font_family)) => {
+                        config::store_font_family(config, setup_font_family.clone())?;
+                        notification::interactive_notification(
+                            "Font has been written to config file.",
+                        )?;
+                        setup_font_family
+                    }
+                    Ok(None) => return Ok(SetupResult::Aborted),
+                    Err(err) => return Err(err),
+                }
             }
-            Ok(None) => return Ok(SetupResult::Aborted),
-            Err(err) => return Err(err),
-        },
+        }
     };
 
     let font_size = picker.font_size();
