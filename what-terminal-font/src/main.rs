@@ -9,7 +9,7 @@ fn main() {
             process::exit(0);
         }
         Err(e) => {
-            eprintln!("Error detecting terminal font: {}", e);
+            eprintln!("{e}");
             process::exit(1);
         }
     }
