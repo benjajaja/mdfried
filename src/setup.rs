@@ -48,6 +48,8 @@ pub enum SetupResult {
     Complete(Picker, Box<FontRenderer>),
 }
 
+static JETBRAINS_MONO: &[u8] = include_bytes!("../assets/JetBrainsMonoNerdFont-Regular.ttf");
+
 pub fn setup_graphics(
     config: &mut UserConfig,
     force_font_setup: bool,
@@ -76,7 +78,9 @@ pub fn setup_graphics(
         return Ok(SetupResult::AsciiArt(picker));
     }
 
-    let mut font_system = FontSystem::new();
+    let mut font_system = FontSystem::new_with_fonts([cosmic_text::fontdb::Source::Binary(
+        std::sync::Arc::new(JETBRAINS_MONO),
+    )]);
     let db = font_system.db_mut();
     db.load_system_fonts();
 
