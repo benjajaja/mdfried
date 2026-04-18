@@ -62,13 +62,14 @@ pub fn interactive_font_picker(
     let mut terminal = Terminal::with_options(
         backend,
         TerminalOptions {
-            viewport: ratatui::Viewport::Inline(7),
+            viewport: ratatui::Viewport::Inline(9),
         },
     )?;
     terminal.clear()?;
 
     loop {
-        let first_match = find_first_match(&lowercase_fonts, &input.to_ascii_lowercase());
+        let (first_match, prev_match, next_match) =
+            find_first_match(&lowercase_fonts, &input.to_ascii_lowercase());
 
         terminal.draw(|f| {
             let area = f.area();
@@ -81,21 +82,39 @@ pub fn interactive_font_picker(
             inner_width = inner_area.width;
             f.render_widget(block, area);
 
+            let mut first_line = inner_area;
+            first_line.height = 1;
+            f.render_widget(
+                Paragraph::new(Line::from(prev_match.unwrap_or_default()).dark_gray()),
+                first_line,
+            );
+
+            let mut second_line = inner_area;
+            second_line.y += 1;
+            second_line.height = 1;
             if let Some(first_match) = first_match.clone() {
                 f.render_widget(
                     Paragraph::new(Line::from(first_match).dark_gray()),
-                    inner_area,
+                    second_line,
                 );
             }
             f.render_widget(
                 Paragraph::new(Line::from(input.clone()).white()),
-                inner_area,
+                second_line,
+            );
+
+            let mut third_line = inner_area;
+            third_line.y += 2;
+            third_line.height = 1;
+            f.render_widget(
+                Paragraph::new(Line::from(next_match.unwrap_or_default()).dark_gray()),
+                third_line,
             );
 
             if let Some((_, ref mut proto)) = last_rendered {
                 let img = Image::new(proto);
                 let mut area = inner_area;
-                area.y += 1;
+                area.y += 3;
                 area.height = 2;
                 f.render_widget(img, area);
             }
@@ -105,7 +124,7 @@ pub fn interactive_font_picker(
                 Rect::new(1, f.area().y + f.area().height - 1, inner_area.width, 1),
             );
 
-            f.set_cursor_position(((input.len()) as u16 + 3, f.area().y + 2));
+            f.set_cursor_position(((input.len()) as u16 + 3, f.area().y + 3));
         })?;
 
         if inner_width > 0 && first_match.is_some() {
@@ -145,14 +164,14 @@ pub fn interactive_font_picker(
                         input.pop(); // Remove the last character
                     }
                     KeyCode::Tab => {
-                        if let Some(family) =
+                        if let (Some(family), _, _) =
                             find_first_match(&lowercase_fonts, &input.to_ascii_lowercase())
                         {
                             input = family;
                         }
                     }
                     KeyCode::Enter => {
-                        if let Some(family) =
+                        if let (Some(family), _, _) =
                             find_first_match(&lowercase_fonts, &input.to_ascii_lowercase())
                         {
                             terminal.clear()?;
@@ -172,6 +191,20 @@ pub fn interactive_font_picker(
                         ratatui::restore();
                         return Ok(None);
                     }
+                    KeyCode::Up => {
+                        if let (_, Some(prev), _) =
+                            find_first_match(&lowercase_fonts, &input.to_ascii_lowercase())
+                        {
+                            input = prev;
+                        }
+                    }
+                    KeyCode::Down => {
+                        if let (_, _, Some(next)) =
+                            find_first_match(&lowercase_fonts, &input.to_ascii_lowercase())
+                        {
+                            input = next;
+                        }
+                    }
                     KeyCode::Char(c) => {
                         // Append the character unless a control modifier is pressed
                         if modifiers.is_empty() {
@@ -187,17 +220,25 @@ pub fn interactive_font_picker(
     }
 }
 
-fn find_first_match(all_fonts: &BTreeMap<String, String>, input: &str) -> Option<String> {
-    let mut first_match = None;
+fn find_first_match(
+    all_fonts: &BTreeMap<String, String>,
+    input: &str,
+) -> (Option<String>, Option<String>, Option<String>) {
+    let mut prev = None;
     if input.is_empty() {
-        first_match = all_fonts.first_key_value().map(|t| t.1).cloned();
+        let mut iter = all_fonts.iter();
+        let first_match = iter.next().map(|t| t.1).cloned();
+        let next = iter.next().map(|t| t.1).cloned();
+        return (first_match, None, next);
     } else {
-        for (lowercase_pattern, pattern) in all_fonts {
+        let mut peekable = all_fonts.iter().peekable();
+        for (lowercase_pattern, pattern) in &mut peekable {
             if lowercase_pattern.starts_with(input) {
-                first_match = Some(pattern.clone());
-                break;
+                let next = peekable.peek();
+                return (Some(pattern.clone()), prev, next.map(|t| t.1).cloned());
             }
+            prev = Some(pattern.clone())
         }
     }
-    first_match
+    (None, None, None)
 }
