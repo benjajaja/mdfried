@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.3] - 2026-04-18
+
 ### Added
 - Use `open` crate for opening instead of `xdg-open`.
   By Oytech, makes opening links now work on any platform.
