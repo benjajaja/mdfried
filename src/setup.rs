@@ -113,7 +113,7 @@ pub fn setup_graphics(
 
     let font_name = match config_font_family {
         Some(font_family) => font_family.clone(),
-        None => match interactive_font_picker(&mut picker, terminal_font.ok()) {
+        None => match interactive_font_picker(db, &mut picker, terminal_font.ok()) {
             Ok(Some(setup_font_family)) => {
                 config::store_font_family(config, setup_font_family.clone())?;
                 notification::interactive_notification("Font has been written to config file.")?;

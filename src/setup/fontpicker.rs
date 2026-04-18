@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, io};
 
-use cosmic_text::{FontSystem, SwashCache};
+use cosmic_text::{FontSystem, SwashCache, fontdb::Database};
 use ratatui::{
     Terminal, TerminalOptions,
     crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
@@ -20,15 +20,11 @@ use crate::{
 
 #[expect(clippy::too_many_lines)]
 pub fn interactive_font_picker(
+    db: &mut Database,
     picker: &mut Picker,
     terminal_font: Option<String>,
 ) -> Result<Option<String>, Error> {
     let mut input = terminal_font.unwrap_or_default();
-
-    let mut font_system = FontSystem::new();
-    let swash_cache = SwashCache::new();
-    let db = font_system.db_mut();
-    db.load_system_fonts();
 
     let lowercase_fonts: BTreeMap<String, String> = db
         .faces()
@@ -48,8 +44,8 @@ pub fn interactive_font_picker(
     let mut inner_width = 0;
 
     let mut renderer = FontRenderer::new(
-        font_system,
-        swash_cache,
+        FontSystem::new(),
+        SwashCache::new(),
         String::new(),
         picker.font_size(),
         None,
