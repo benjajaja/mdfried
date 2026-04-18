@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+- Bake "JetBrains Mono" and "Cascadia Code" fonts into binary.
+  These fonts are baked into ghostty and rio, respectively.
+- Autoselect detected font if perfect match, and skip fontpicker UI.
+
 ## [0.19.3] - 2026-04-18
 
 ### Added
