@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.4] - 2026-04-18
+
 ### Added
 - Bake "JetBrains Mono" and "Cascadia Code" fonts into binary.
   These fonts are baked into ghostty and rio, respectively.
