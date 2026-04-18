@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+- Use `open` crate for opening instead of `xdg-open`.
+  By Oytech, makes opening links now work on any platform.
+- Current terminal font detection.
+  The font picker calls the new sub-crate `what-terminal-font` to get the current terminal font
+  family name, and pre-selects this for the fontpicker.
+  The fontpicker can now also select the previous and next fonts of the system fonts list.
+
 ## [0.19.2] - 2026-04-10
 
 ### Fixed
