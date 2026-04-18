@@ -14,7 +14,7 @@
 use std::{
     env,
     fs::File,
-    io::{self, BufRead as _, BufReader},
+    io::{self, BufRead as _, BufReader, Read},
     process::Command,
     string::FromUtf8Error,
 };
@@ -89,12 +89,7 @@ fn detect_with_term_program(
                 return Ok("JetBrainsMono Nerd Font".to_owned());
             }
             "WezTerm" => {
-                let stdout = command_get_stdout(
-                    Command::new("wezterm")
-                        .arg("ls-fonts")
-                        .arg("--text")
-                        .arg("a"),
-                )?;
+                let stdout = config.wezterm()?;
                 if let Some(font) = stdout.split('"').nth(1)
                     && !font.is_empty()
                 {
@@ -129,7 +124,8 @@ fn detect_with_term(
         match term.as_str() {
             "xterm-kitty" => stdout_get_line("kitty", config.kitty()?, "font_family: "),
             "foot" => {
-                let line = config_get_line("foot/foot.ini", "font=")?;
+                let reader = config.foot()?;
+                let line = reader_get_line("foot", reader, "font=")?;
                 if let Some(font_family) = line.split(':').next()
                     && !font_family.is_empty()
                 {
@@ -150,6 +146,8 @@ trait TerminalConfig {
     fn ghostty(&self) -> Result<String, WtfError>;
     fn kitty(&self) -> Result<String, WtfError>;
     fn rio(&self) -> Result<BufReader<File>, WtfError>;
+    fn wezterm(&self) -> Result<String, WtfError>;
+    fn foot(&self) -> Result<BufReader<File>, WtfError>;
 }
 
 struct RealTerminal;
@@ -166,6 +164,19 @@ impl TerminalConfig for RealTerminal {
     fn rio(&self) -> Result<BufReader<File>, WtfError> {
         config_get_reader("rio/config.toml")
     }
+
+    fn wezterm(&self) -> Result<String, WtfError> {
+        command_get_stdout(
+            Command::new("wezterm")
+                .arg("ls-fonts")
+                .arg("--text")
+                .arg("a"),
+        )
+    }
+
+    fn foot(&self) -> Result<BufReader<File>, WtfError> {
+        config_get_reader("foot/foot.ini")
+    }
 }
 
 fn config_get_reader(config_file: &'static str) -> Result<BufReader<File>, WtfError> {
@@ -178,30 +189,6 @@ fn config_get_reader(config_file: &'static str) -> Result<BufReader<File>, WtfEr
     let path = format!("{}/{}", config_home, config_file);
 
     Ok(BufReader::new(File::open(path)?))
-}
-
-fn config_get_line(
-    config_file: &'static str,
-    line_prefix: &'static str,
-) -> Result<String, WtfError> {
-    let config_home = env::var("XDG_CONFIG_HOME").unwrap_or_else(|_| {
-        format!(
-            "{}/.config",
-            env::var("HOME").unwrap_or_else(|_| "~".to_owned())
-        )
-    });
-    let path = format!("{}/{}", config_home, config_file);
-
-    let reader = BufReader::new(File::open(path)?);
-    for line in reader.lines() {
-        let line = line?;
-        if line.starts_with(line_prefix)
-            && let Some(font_family_line) = line.get(line_prefix.len()..)
-        {
-            return Ok(font_family_line.to_owned());
-        }
-    }
-    Err(WtfError::ConfigFile(config_file, line_prefix))
 }
 
 fn reader_get_line(

@@ -40,8 +40,25 @@ os_name: linux"#
         let mut temp_file = tempfile::NamedTempFile::new()?;
         io::Write::write_all(
             &mut temp_file,
-            b"[colors]\nbackground = '#1e1e2e'\n[font]\nfamily = \"Cascadia Code\"\nsize = 14.0",
+            b"[colors]\nbackground = '#1e1e2e'\n[font]\nfamily = \"Rio De Janeiro\"\nsize = 14.0",
         )?;
+        let file = temp_file.into_file();
+        Ok(BufReader::new(file))
+    }
+
+    fn wezterm(&self) -> Result<String, WtfError> {
+        Ok(r#"{
+  "font": {
+    "family": "JetBrains Mono",
+    "size": 12.0
+  }
+}"#
+        .to_owned())
+    }
+
+    fn foot(&self) -> Result<BufReader<File>, WtfError> {
+        let mut temp_file = tempfile::NamedTempFile::new()?;
+        io::Write::write_all(&mut temp_file, b"xxx\nfont=FootPrint:size=12\nblablabla\n")?;
         let file = temp_file.into_file();
         Ok(BufReader::new(file))
     }
@@ -66,7 +83,14 @@ fn wezterm() {
 #[test]
 fn rio() {
     let result = detect(TestTerminal, Ok("rio".to_owned()), unrelated());
-    assert_eq!(result.unwrap(), "Cascadia Code");
+    assert_eq!(result.unwrap(), "Rio De Janeiro");
+}
+
+#[test]
+fn foot() {
+    let test_terminal = TestTerminal;
+    let result = detect(test_terminal, unrelated(), Ok("foot".to_owned()));
+    assert_eq!(result.unwrap(), "FootPrint");
 }
 
 #[test]
