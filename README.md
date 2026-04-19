@@ -106,3 +106,9 @@ select text.
 ### Configuration
 
 `~/.config/mdfried/config.toml` is automatically created on first run.
+
+`mdfried --print-config` prints out a full example config with a full theme.
+
+### Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md).

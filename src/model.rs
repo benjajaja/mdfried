@@ -3,7 +3,7 @@ use std::{
     fmt::Display,
     fs,
     num::NonZero,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::mpsc::{Receiver, Sender},
 };
 
@@ -273,7 +273,26 @@ impl Model {
         (start_y, end_y)
     }
 
-    pub fn open_link(&self, url: String) -> Result<(), Error> {
+    pub fn open_link(&mut self, url: String) -> Result<(), Error> {
+        let url_as_path = Path::new(&url);
+        if url_as_path.extension() == Some(std::ffi::OsStr::new("md"))
+            && fs::exists(url_as_path).unwrap_or_default()
+            && let Ok(text) = fs::read_to_string(url_as_path)
+        {
+            // This looks like we should have a method to "clear everything".
+            self.document_id = DocumentId::default();
+            self.document = Document::default();
+            self.cursor = Cursor::None;
+            self.scroll = 0;
+            self.input_queue = InputQueue::None;
+            // We should also think about having some kind of history stack, with:
+            // * file name
+            // * scroll
+            // * cursor
+            // * ???
+            return self.open(self.screen_size, text);
+        }
+
         if let Err(err) = open::that(&url) {
             log::error!("{err}");
         }
