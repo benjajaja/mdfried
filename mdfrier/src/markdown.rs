@@ -1131,4 +1131,45 @@ mod tests {
         );
         assert_eq!(spans[4], Span::new(")".to_owned(), Modifier::Image));
     }
+
+    #[test]
+    fn link_code() {
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
+        let source = "![text with `code`](http://example.com/?a=1&`code`=2)\n";
+        let tree = parser.parse(source, None).unwrap();
+        let first = MdIterator::new(tree, &mut inline_parser, source)
+            .next()
+            .unwrap();
+        let MdContent::Paragraph(MdParagraph { spans, .. }) = first.content else {
+            panic!("expected paragraph");
+        };
+        assert_eq!(spans[0], Span::new("![".to_owned(), Modifier::Image));
+        assert_eq!(
+            spans[1],
+            Span {
+                content: "text with ".to_owned(),
+                modifiers: Modifier::Image | Modifier::LinkDescription,
+                source_content: None,
+            }
+        );
+        assert_eq!(
+            spans[2],
+            Span {
+                content: "code".to_owned(),
+                modifiers: Modifier::Image | Modifier::LinkDescription | Modifier::Code,
+                source_content: None,
+            }
+        );
+        assert_eq!(spans[3], Span::new("](".to_owned(), Modifier::Image));
+        assert_eq!(
+            spans[4],
+            Span {
+                content: "http://example.com/?a=1&`code`=2".to_owned(),
+                modifiers: Modifier::Image | Modifier::LinkURL,
+                source_content: Some(SourceContent::from("http://example.com/?a=1&`code`=2")),
+            }
+        );
+        assert_eq!(spans[5], Span::new(")".to_owned(), Modifier::Image));
+    }
 }
