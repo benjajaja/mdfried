@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+- If a link ends in `.md` and exists as a file, open it as document.
+
+### Fixed
+- Links with multiple spans in the description correctly open the URL again.
+
 ## [0.19.4] - 2026-04-18
 
 ### Added
