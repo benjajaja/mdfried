@@ -397,7 +397,7 @@ pub struct Span {
     pub modifiers: Modifier,
     /// Original full content for spans that may be split (e.g., URLs that wrap across lines).
     /// When present, this should be used instead of `content` for semantic purposes like link targets.
-    pub source_content: Option<SourceContent>,
+    source_content: Option<SourceContent>,
 }
 
 impl Span {
@@ -452,6 +452,10 @@ impl Span {
             ),
             Self::new(")".to_owned(), Modifier::Link),
         ]
+    }
+
+    pub fn get_source_content(&self) -> Option<SourceContent> {
+        self.source_content.clone()
     }
 }
 
@@ -721,11 +725,12 @@ impl MdParagraph {
                 // This is why we return Option<SourceContent>, *only* LinkURL spans return
                 // Some(SourceContent). That is, if there was some other SourceContent on some spans,
                 // it should NOT be returned (without changing this block).
-                if let Some(desc) = self.spans.iter_mut().rev().find(|span| {
-                    span.modifiers.contains(Modifier::LinkDescription)
+                for span in self.spans.iter_mut().rev() {
+                    if span.modifiers.contains(Modifier::LinkDescription)
                         && !span.modifiers.contains(Modifier::Image)
-                }) {
-                    desc.source_content = Some(source_content);
+                    {
+                        span.source_content = Some(source_content.clone());
+                    }
                 }
             }
             pos = child.end_byte();

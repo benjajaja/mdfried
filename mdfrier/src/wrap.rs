@@ -47,7 +47,7 @@ pub(crate) fn wrap_md_spans(
             for (i, s) in mdspans.iter().enumerate() {
                 if s.modifiers.contains(Modifier::LinkURL)
                     && s.modifiers.contains(Modifier::Image)
-                    && let Some(source_content) = &s.source_content
+                    && let Some(source_content) = &s.get_source_content()
                 {
                     // Track back to get description if any.
                     // TODO: something's wrong about this!
@@ -152,18 +152,22 @@ pub(crate) fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>) -> Vec<Vec<Spa
                         lines.push(std::mem::take(&mut line));
                         line_width = 0;
                     }
-                    let mut extra = mdspan.modifiers;
+                    let mut modifiers = mdspan.modifiers;
                     if !copied_newline {
                         copied_newline = true;
                     } else {
-                        extra.remove(Modifier::NewLine);
+                        modifiers.remove(Modifier::NewLine);
                     }
                     // Preserve source_content when splitting spans (for wrapped URLs)
-                    line.push(Span {
-                        content: part_content,
-                        modifiers: extra,
-                        source_content: mdspan.source_content.clone(),
-                    });
+                    if modifiers.contains(Modifier::LinkURL) {
+                        line.push(Span::link(
+                            part_content,
+                            modifiers,
+                            mdspan.get_source_content(),
+                        ));
+                    } else {
+                        line.push(Span::new(part_content, modifiers));
+                    }
                     line_width += part_width;
                 }
             } else {

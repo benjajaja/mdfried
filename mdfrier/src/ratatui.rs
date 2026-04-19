@@ -326,8 +326,7 @@ pub fn render_line<T: Theme>(md_line: MdLine, theme: &T) -> (Line<'static>, Vec<
             && !node.modifiers.contains(MdModifier::LinkURLWrapper)
         {
             // Use source_content if available (for wrapped/split URLs), otherwise content
-            let source_content = node.source_content.clone();
-            if let Some(link) = source_content {
+            if let Some(link) = node.get_source_content() {
                 tags.push(Tag::Link(line_spans.len(), link));
             } else {
                 log::warn!("node has LinkURL but no source_content");

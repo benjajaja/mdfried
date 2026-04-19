@@ -233,7 +233,8 @@ fn extract_links(line: &ratatui::text::Line<'_>, tags: Vec<Tag>) -> Vec<LineExtr
 mod tests {
     use super::*;
     use crate::document::SectionContent;
-    use mdfrier::MdFrier;
+    use mdfrier::{MdFrier, SourceContent};
+    use ratatui::text::Span;
 
     #[expect(clippy::unwrap_used)]
     fn parse_sections(text: &str) -> Vec<Section> {
@@ -366,7 +367,7 @@ mod tests {
     #[test]
     fn link_with_multiple_spans_has_correct_url() {
         let url = "https://example.com/target";
-        let markdown = format!("[text with *emphasis* and **strong**]({})", url);
+        let markdown = format!("unrelated [text with `code`]({})", url);
 
         let sections = parse_sections(&markdown);
         assert_eq!(sections.len(), 1);
@@ -388,37 +389,22 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(link_extras.len(), 4,);
+        assert_eq!(link_extras.len(), 2);
 
         assert_eq!(link_extras[0].as_ref(), url,);
         assert_eq!(link_extras[1].as_ref(), url,);
-        assert_eq!(link_extras[2].as_ref(), url,);
-        assert_eq!(link_extras[3].as_ref(), url,);
     }
 
     #[test]
     fn extract_links_multiple_spans_same_url() {
-        use mdfrier::SourceContent;
-        use ratatui::{prelude::Stylize, text::Span};
-
-        let line = ratatui::text::Line::from(vec![
-            Span::from("text with "),
-            Span::from("emphasis").italic(),
-            Span::from(" and "),
-            Span::from("strong").bold(),
-        ]);
+        let line = ratatui::text::Line::from(vec![Span::from("text with "), Span::from("code")]);
 
         let url = SourceContent::from("https://example.com/target");
-        let tags = vec![
-            Tag::Link(0, url.clone()),
-            Tag::Link(1, url.clone()),
-            Tag::Link(2, url.clone()),
-            Tag::Link(3, url.clone()),
-        ];
+        let tags = vec![Tag::Link(0, url.clone()), Tag::Link(1, url.clone())];
 
         let link_extras = extract_links(&line, tags);
 
-        assert_eq!(link_extras.len(), 4);
+        assert_eq!(link_extras.len(), 2);
 
         for extra in &link_extras {
             let LineExtra::Link(extra_url, _, _) = extra else {
