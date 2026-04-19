@@ -654,7 +654,7 @@ fn wrapped_to_lines<M: Mapper>(
                 },
                 Span::new("]".to_owned(), Modifier::LinkDescriptionWrapper),
                 Span::new("(".to_owned(), Modifier::LinkURLWrapper),
-                Span::new(img.url.clone(), Modifier::LinkURL),
+                Span::link(img.url.clone(), Modifier::LinkURL, None),
                 Span::new(")".to_owned(), Modifier::LinkURLWrapper),
             ];
             lines.push(Line {

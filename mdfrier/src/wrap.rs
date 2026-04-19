@@ -251,7 +251,7 @@ mod tests {
             Span::new("link".into(), Modifier::LinkDescription),
             Span::new("]".into(), Modifier::LinkDescriptionWrapper),
             Span::new("(".into(), Modifier::LinkURLWrapper),
-            Span::new("https://example.com".into(), Modifier::LinkURL),
+            Span::link("https://example.com".into(), Modifier::LinkURL, None),
             Span::new(")".into(), Modifier::LinkURLWrapper),
         ];
         let lines = wrap_md_spans_lines(25, mdspans);

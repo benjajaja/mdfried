@@ -497,7 +497,11 @@ mod tests {
     #[test]
     fn url_tag_without_source_content() {
         let md_line = MdLine {
-            spans: vec![Span::new("https://example.com".into(), MdModifier::LinkURL)],
+            spans: vec![Span::link(
+                "https://example.com".into(),
+                MdModifier::LinkURL,
+                None,
+            )],
             kind: LineKind::Paragraph,
         };
 

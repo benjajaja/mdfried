@@ -402,6 +402,10 @@ pub struct Span {
 
 impl Span {
     pub fn new(content: String, extra: Modifier) -> Self {
+        debug_assert!(
+            !extra.contains(Modifier::LinkURL),
+            "Span::new with LinkURL modifier; should use Span::link"
+        );
         Span {
             content,
             modifiers: extra,
@@ -1070,9 +1074,10 @@ mod tests {
 
     #[test]
     fn detect_bare_url_skips_existing_links() {
-        let spans = vec![Span::new(
+        let spans = vec![Span::link(
             "https://example.com".to_owned(),
             Modifier::Link | Modifier::LinkURL,
+            None,
         )];
         let result = detect_bare_urls(spans.clone());
         assert_eq!(result, spans);
