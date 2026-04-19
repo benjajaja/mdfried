@@ -6,7 +6,12 @@ use std::hint::black_box;
 fn bench_full_md(c: &mut Criterion) {
     let input = std::fs::read_to_string("assets/full.md").unwrap();
 
-    c.bench_function("parse full.md", |b| {
+    let mut group = c.benchmark_group("parse full.md");
+    group.warm_up_time(std::time::Duration::from_secs(5));
+    group.measurement_time(std::time::Duration::from_secs(30));
+    group.sample_size(500);
+
+    group.bench_function("parse", |b| {
         b.iter(|| {
             let mut frier = MdFrier::new().unwrap();
             frier
