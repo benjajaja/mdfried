@@ -813,9 +813,16 @@ fn deep_fry(mut dyn_img: DynamicImage) -> DynamicImage {
 #[cfg(test)]
 mod tests {
 
+    use ratatui::{
+        style::Stylize as _,
+        text::{Line, Span},
+    };
     use regex::Regex;
 
-    use crate::{document::Document, *};
+    use crate::{
+        document::{Document, LineExtra, SectionContent},
+        *,
+    };
 
     #[test]
     fn widgestsources_update() {
