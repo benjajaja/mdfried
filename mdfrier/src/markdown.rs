@@ -599,7 +599,6 @@ impl MdContent {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MdParagraph {
-    pub backing: String,
     pub spans: Vec<Span>,
 }
 
@@ -609,10 +608,7 @@ impl MdParagraph {
     }
 
     fn from_inline(node: Node<'_>, text: &str, blockquote_depth: usize) -> Option<MdContent> {
-        let mut p = MdParagraph {
-            backing: String::new(),
-            spans: Vec::new(),
-        };
+        let mut p = MdParagraph { spans: Vec::new() };
         p.recurse(node, text, Modifier::default(), 0);
         p.spans = split_newlines(p.spans);
         p.spans = detect_bare_urls(p.spans);
@@ -669,7 +665,6 @@ impl MdParagraph {
                 // Strip the backtick delimiters from code span content
                 let content = &source[node.byte_range()];
                 let stripped = content.trim_start_matches('`').trim_end_matches('`').trim(); // Also trim inner whitespace that some code spans have
-                self.backing.push_str(stripped);
                 self.spans
                     .push(Span::new(stripped.to_owned(), extra.union(Modifier::Code)));
                 return None;
@@ -690,7 +685,6 @@ impl MdParagraph {
             "link_destination" => {
                 let url = source[node.byte_range()].to_owned();
                 let source_content = SourceContent::from(url.as_ref());
-                self.backing.push_str(&url);
                 self.spans.push(Span::link(
                     url,
                     extra.union(Modifier::LinkURL),
@@ -703,8 +697,6 @@ impl MdParagraph {
         let extra = extra.union(current_extra);
 
         if node.child_count() == 0 {
-            self.backing
-                .push_str(&source[node.start_byte()..node.end_byte()]);
             self.spans.push(Span::new(
                 source[node.start_byte()..node.end_byte()].to_owned(),
                 extra,
@@ -741,7 +733,6 @@ impl MdParagraph {
         }
 
         if pos < node.end_byte() {
-            self.backing.push_str(&source[pos..node.end_byte()]);
             self.spans
                 .push(Span::new(source[pos..node.end_byte()].to_owned(), extra));
         }
@@ -750,10 +741,7 @@ impl MdParagraph {
     }
 
     fn empty() -> MdParagraph {
-        Self {
-            backing: String::new(),
-            spans: Vec::new(),
-        }
+        Self { spans: Vec::new() }
     }
 }
 
@@ -761,7 +749,6 @@ impl From<&str> for MdParagraph {
     fn from(value: &str) -> Self {
         let owned = value.to_owned();
         Self {
-            backing: owned.clone(),
             spans: vec![Span::new(owned, Modifier::default())],
         }
     }
