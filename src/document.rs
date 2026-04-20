@@ -174,15 +174,41 @@ impl Document {
         }
     }
 
-    pub fn get_y(&self, id: usize) -> i16 {
+    pub fn get_y(&self, CursorPointer { id, index }: &CursorPointer) -> Option<i16> {
         let mut y = 0;
-        for section in self.sections.iter() {
-            if section.id == id {
-                break;
+        for section in &self.sections {
+            match &section.content {
+                SectionContent::Lines(lines) => {
+                    if section.id != *id {
+                        y += section.height as i16;
+                        continue;
+                    }
+
+                    // Flatten extras, mirrors what we do when building cursor in
+                    // find_nth_next_cursor and friends. Not pretty.
+                    let mut i = 0;
+                    for (line_y, (_line, extras)) in lines.iter().enumerate() {
+                        for _extra in extras {
+                            if i == *index {
+                                return Some(y + (line_y as i16));
+                            }
+                            i += 1;
+                        }
+                    }
+                    // Probably some test, didn't have LineExtras.
+                    log::warn!("get_y did not match index {index} in LineExtras: {y}");
+                    return Some(y);
+                }
+                _ => {
+                    if section.id == *id {
+                        return Some(y);
+                    }
+                    y += section.height as i16;
+                }
             }
-            y += section.height as i16;
         }
-        y
+        log::warn!("get_y did not find {id},{index}");
+        None
     }
 
     // Find first should be slightly more efficient.
@@ -820,6 +846,7 @@ mod tests {
     use regex::Regex;
 
     use crate::{
+        cursor::CursorPointer,
         document::{Document, LineExtra, SectionContent},
         *,
     };
@@ -900,38 +927,45 @@ mod tests {
     }
 
     #[test]
+    #[expect(clippy::unwrap_used)]
     fn get_y() {
-        let mut ws = Document::default();
-        ws.push(Section {
+        #[expect(clippy::let_underscore_untyped)]
+        let _ = flexi_logger::Logger::try_with_env()
+            .unwrap()
+            .start()
+            .inspect_err(|err| eprint!("test logger setup failed: {err}"));
+
+        let mut doc = Document::default();
+        doc.push(Section {
             id: 1,
             height: 2,
             content: SectionContent::Header(String::from("one"), 1, None),
         });
-        ws.push(Section {
+        doc.push(Section {
             id: 2,
             height: 1,
             content: SectionContent::Lines(vec![(Line::from("line"), Vec::new())]),
         });
-        ws.push(Section {
+        doc.push(Section {
             id: 3,
             height: 1,
             content: SectionContent::Lines(vec![(Line::from("line"), Vec::new())]),
         });
-        ws.push(Section {
+        doc.push(Section {
             id: 4,
             height: 2,
             content: SectionContent::Header(String::from("one"), 1, None),
         });
-        ws.push(Section {
+        doc.push(Section {
             id: 5,
             height: 1,
             content: SectionContent::Lines(vec![(Line::from("line"), Vec::new())]),
         });
-        assert_eq!(ws.get_y(1), 0);
-        assert_eq!(ws.get_y(2), 2);
-        assert_eq!(ws.get_y(3), 3);
-        assert_eq!(ws.get_y(4), 4);
-        assert_eq!(ws.get_y(5), 6);
+        assert_eq!(doc.get_y(&CursorPointer { id: 1, index: 0 }).unwrap(), 0);
+        assert_eq!(doc.get_y(&CursorPointer { id: 2, index: 0 }).unwrap(), 2);
+        assert_eq!(doc.get_y(&CursorPointer { id: 3, index: 0 }).unwrap(), 3);
+        assert_eq!(doc.get_y(&CursorPointer { id: 4, index: 0 }).unwrap(), 4);
+        assert_eq!(doc.get_y(&CursorPointer { id: 5, index: 0 }).unwrap(), 6);
     }
 
     #[test]

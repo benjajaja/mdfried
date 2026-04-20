@@ -8,6 +8,7 @@
 ### Fixed
 - Links with multiple spans in the description correctly open the URL again.
 - Distinct links in same section getting overwritten by "split link spans" logic.
+- Link jumping was broken after sections refactor.
 
 ### Changed
 - Logging to stderr with `--log-to-stderr` (replaces `--log`).

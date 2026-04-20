@@ -439,14 +439,18 @@ impl Model {
 
     fn jump_to_pointer(&mut self) {
         if let Some(pointer) = self.cursor.pointer() {
-            let id = pointer.id;
-            let pointer_y = self.document.get_y(id);
-            let (from, to) = self.visible_lines();
-            if pointer_y > to {
-                self.scroll_by((pointer_y - to) as i32);
-            } else if pointer_y < from {
-                self.scroll_by((pointer_y - from) as i32);
+            if let Some(pointer_y) = self.document.get_y(pointer) {
+                let (from, to) = self.visible_lines();
+                if pointer_y > to {
+                    self.scroll_by((pointer_y - to) as i32);
+                } else if pointer_y < from {
+                    self.scroll_by((pointer_y - from) as i32);
+                }
+            } else {
+                log::error!("jump_to_pointer did not find Y for {pointer:?}");
             }
+        } else {
+            log::error!("jump_to_pointer without cursor / pointer");
         }
     }
 
@@ -723,7 +727,7 @@ mod tests {
             });
         }
 
-        // Just outside of view (terminal height is 20, we don't render on last line)
+        // Just outside of view (test terminal height is 20, we don't render on last line)
         model.cursor = Cursor::Search(String::new(), Some(CursorPointer { id: 19, index: 0 }));
         model.jump_to_pointer();
         assert_eq!(model.scroll, 1);
