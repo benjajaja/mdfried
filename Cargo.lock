@@ -1895,7 +1895,7 @@ dependencies = [
 
 [[package]]
 name = "mdfried"
-version = "0.19.4"
+version = "0.19.5"
 dependencies = [
  "bitflags 2.10.0",
  "clap",

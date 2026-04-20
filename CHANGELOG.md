@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.5] - 2026-04-20
+
 ### Added
 - If a link ends in `.md` and exists as a file, open it as document.
 
