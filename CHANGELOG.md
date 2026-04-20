@@ -9,6 +9,7 @@
 - Links with multiple spans in the description correctly open the URL again.
 - Distinct links in same section getting overwritten by "split link spans" logic.
 - Link jumping was broken after sections refactor.
+- Don't silently suppress `html_block`s. Render as text without any wrapping.
 
 ### Changed
 - Logging to stderr with `--log-to-stderr` (replaces `--log`).

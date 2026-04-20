@@ -662,4 +662,17 @@ Should be split up nicely.
         let output = lines_to_string(&lines);
         insta::assert_snapshot!(output);
     }
+
+    #[test]
+    fn html() {
+        let input = r#"<div style="color: green">
+    I want to put in HTML in markdown for some reason.
+</div>
+"#;
+
+        let mut frier = MdFrier::new().unwrap();
+        let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).unwrap().collect();
+        let output = lines_to_string(&lines);
+        insta::assert_snapshot!(output);
+    }
 }

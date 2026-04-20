@@ -1,0 +1,7 @@
+---
+source: mdfrier/src/lib.rs
+expression: output
+---
+<div style="color: green">
+    I want to put in HTML in markdown for some reason.
+</div>

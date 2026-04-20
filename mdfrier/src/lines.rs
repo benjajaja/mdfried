@@ -289,6 +289,13 @@ fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> V
             rows,
             alignments,
         } => table_to_lines(width, header, rows, alignments, nesting, mapper),
+        MdContent::Html { html } => html
+            .split("\n")
+            .map(|linestr| Line {
+                spans: vec![Span::from(linestr.to_owned())],
+                kind: LineKind::Paragraph,
+            })
+            .collect(),
     }
 }
 

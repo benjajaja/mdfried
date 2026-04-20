@@ -193,6 +193,7 @@ impl<'a> MdIterator<'a> {
             }
             "thematic_break" => Some(MdContent::HorizontalRule),
             "pipe_table" => Some(self.parse_table(node)),
+            "html_block" => Some(self.parse_html(node)),
             _ => None,
         }
     }
@@ -353,6 +354,12 @@ impl<'a> MdIterator<'a> {
             .filter(|(_, c)| matches!(c, MdContainer::Blockquote(_)))
             .count();
         MdParagraph::from_inline(tree.root_node(), text, blockquote_depth)
+    }
+
+    fn parse_html(&self, node: Node<'a>) -> MdContent {
+        #[expect(clippy::string_slice)]
+        let html = self.source[node.byte_range()].to_owned();
+        MdContent::Html { html }
     }
 }
 
@@ -588,6 +595,9 @@ pub(crate) enum MdContent {
         header: Vec<Vec<Span>>,
         rows: Vec<Vec<Vec<Span>>>,
         alignments: Vec<TableAlignment>,
+    },
+    Html {
+        html: String,
     },
 }
 
