@@ -9,6 +9,9 @@
 - Links with multiple spans in the description correctly open the URL again.
 - Distinct links in same section getting overwritten by "split link spans" logic.
 
+### Changed
+- Logging to stderr with `--log-to-stderr` (replaces `--log`).
+
 ## [0.19.4] - 2026-04-18
 
 ### Added

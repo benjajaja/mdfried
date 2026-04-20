@@ -1,6 +1,6 @@
 use std::{io::Write, sync::OnceLock};
 
-use flexi_logger::{DeferredNow, FileSpec, FlexiLoggerError, Logger, LoggerHandle};
+use flexi_logger::{DeferredNow, FlexiLoggerError, Logger, LoggerHandle};
 use log::Record;
 use ratatui::{
     Frame,
@@ -16,7 +16,8 @@ static LOGGER: OnceLock<LoggerHandle> = OnceLock::new();
 pub fn init_logger(log_to_file: bool) -> Result<(), FlexiLoggerError> {
     let logger = if log_to_file {
         Logger::try_with_env_or_str("info")?
-            .log_to_file(FileSpec::default())
+            .log_to_buffer(10000, Some(markdown_format))
+            .duplicate_to_stderr(flexi_logger::Duplicate::All)
             .start()
     } else {
         Logger::try_with_env_or_str("info")?

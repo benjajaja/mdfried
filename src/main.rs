@@ -64,7 +64,7 @@ fn main() -> io::Result<()> {
         )
         .arg(arg!(--"debug-override-protocol-type" <PROTOCOL> "Force graphics protocol to a specific type"))
         .arg(
-            arg!(--"log" "log to mdfried_<timestamp>.log file in working directory")
+            arg!(--"log-to-stderr" "Log to stderr.\nMust be used with stderr redirection, otherwise garbled text will appear.\nFor example, in another terminal, get and copy the filename of stdin with `tty`,\nlet's say it's `/dev/pts/7`. Then run:\nmdfried FILE.md --log-to-stderr 2>/dev/pts/7\nThe logs will appear nicely colored in the other terminal.")
                 .value_parser(value_parser!(bool)),
         )
         .arg(
@@ -117,7 +117,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         return Ok(());
     }
 
-    debug::init_logger(*matches.get_one("log").unwrap_or(&false))?;
+    debug::init_logger(*matches.get_one("log-to-stderr").unwrap_or(&false))?;
 
     let path = matches.get_one::<PathBuf>("path");
 
