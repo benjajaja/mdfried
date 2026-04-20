@@ -722,7 +722,11 @@ impl MdParagraph {
                 // Some(SourceContent). That is, if there was some other SourceContent on some spans,
                 // it should NOT be returned (without changing this block).
                 for span in self.spans.iter_mut().rev() {
-                    if span.modifiers.contains(Modifier::LinkDescription)
+                    // We only want to overwrite previous spans that have been line-broken, not
+                    // genuine different links, so skip if the span already has some
+                    // `source_content`.
+                    if span.source_content.is_none()
+                        && span.modifiers.contains(Modifier::LinkDescription)
                         && !span.modifiers.contains(Modifier::Image)
                     {
                         span.source_content = Some(source_content.clone());

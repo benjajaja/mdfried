@@ -7,6 +7,7 @@
 
 ### Fixed
 - Links with multiple spans in the description correctly open the URL again.
+- Distinct links in same section getting overwritten by "split link spans" logic.
 
 ## [0.19.4] - 2026-04-18
 
