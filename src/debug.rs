@@ -1,6 +1,6 @@
-use std::io::Write;
+use std::{io::Write, sync::OnceLock};
 
-use flexi_logger::{DeferredNow, FileSpec, FlexiLoggerError, Logger};
+use flexi_logger::{DeferredNow, FileSpec, FlexiLoggerError, Logger, LoggerHandle};
 use log::Record;
 use ratatui::{
     Frame,
@@ -11,8 +11,10 @@ use ratatui::{
 };
 use textwrap::{Options, wrap};
 
-pub fn ui_logger(log_to_file: bool) -> Result<flexi_logger::LoggerHandle, FlexiLoggerError> {
-    if log_to_file {
+static LOGGER: OnceLock<LoggerHandle> = OnceLock::new();
+
+pub fn init_logger(log_to_file: bool) -> Result<(), FlexiLoggerError> {
+    let logger = if log_to_file {
         Logger::try_with_env_or_str("info")?
             .log_to_file(FileSpec::default())
             .start()
@@ -20,7 +22,11 @@ pub fn ui_logger(log_to_file: bool) -> Result<flexi_logger::LoggerHandle, FlexiL
         Logger::try_with_env_or_str("info")?
             .log_to_buffer(10000, Some(markdown_format))
             .start()
+    }?;
+    if let Err(_logger) = LOGGER.set(logger) {
+        panic!("error initializing global logger: already initialized.");
     }
+    Ok(())
 }
 
 fn markdown_format(
@@ -37,7 +43,7 @@ fn markdown_format(
     )
 }
 
-pub fn render_snapshot(snapshot: &flexi_logger::Snapshot, frame: &mut Frame) -> Rect {
+pub fn render_snapshot(snapshot: &flexi_logger::Snapshot, frame: &mut Frame) {
     let debug_block = Block::bordered().title("logs");
 
     let frame_area = frame.area();
@@ -86,7 +92,6 @@ pub fn render_snapshot(snapshot: &flexi_logger::Snapshot, frame: &mut Frame) -> 
         );
         frame.render_widget(line, rect);
     }
-    half_area_left
 }
 
 /// Parse a log line in format: **LEVEL** *module* `message`
@@ -150,4 +155,10 @@ fn parse_log_line(line: &str) -> Line<'static> {
     }
 
     Line::from(spans)
+}
+
+pub fn update_snapshot(snapshot: &mut flexi_logger::Snapshot) -> Option<bool> {
+    LOGGER
+        .get()
+        .and_then(|logger| logger.update_snapshot(snapshot).ok())
 }

@@ -24,12 +24,13 @@ pub fn view(model: &Model, frame: &mut Frame) {
     let padding = model.block_padding(frame_area);
     block = block.padding(padding);
 
-    let inner_area = if let Some(snapshot) = &model.log_snapshot {
-        let area = crate::debug::render_snapshot(snapshot, frame);
+    let inner_area = if model.log_snapshot.is_some() {
+        let mut half_area_left = frame_area;
+        half_area_left.width /= 2;
         let mut fixed_padding = padding;
         fixed_padding.right = 0;
         block = block.padding(fixed_padding);
-        block.inner(area)
+        block.inner(half_area_left)
     } else {
         block.inner(frame_area)
     };

@@ -23,7 +23,6 @@ use std::{
 };
 
 use clap::{ArgMatches, arg, command, value_parser};
-use flexi_logger::LoggerHandle;
 use ratatui::{
     DefaultTerminal, Terminal,
     crossterm::{
@@ -118,7 +117,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         return Ok(());
     }
 
-    let ui_logger = debug::ui_logger(*matches.get_one("log").unwrap_or(&false))?;
+    debug::init_logger(*matches.get_one("log").unwrap_or(&false))?;
 
     let path = matches.get_one::<PathBuf>("path");
 
@@ -254,7 +253,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         None
     };
 
-    run(&mut terminal, model, &ui_logger)?;
+    run(&mut terminal, model)?;
     drop(debouncer);
 
     // Cursor might be in wird places, prompt or whatever should always show at the bottom now.
@@ -349,11 +348,7 @@ impl std::fmt::Debug for Event {
     }
 }
 
-fn run(
-    terminal: &mut DefaultTerminal,
-    mut model: Model,
-    ui_logger: &LoggerHandle,
-) -> Result<(), Error> {
+fn run(terminal: &mut DefaultTerminal, mut model: Model) -> Result<(), Error> {
     terminal.draw(|frame| view(&model, frame))?;
     loop {
         let (had_events, _, had_reload) = model.process_events()?;
@@ -366,10 +361,13 @@ fn run(
         };
 
         if (had_events || had_input) && !skip_render && !had_reload {
-            if let Some(ref mut snapshot) = model.log_snapshot {
-                ui_logger.update_snapshot(snapshot)?;
-            }
-            terminal.draw(|frame| view(&model, frame))?;
+            terminal.draw(|frame| {
+                view(&model, frame);
+                if let Some(snapshot) = &mut model.log_snapshot {
+                    debug::update_snapshot(snapshot);
+                    debug::render_snapshot(snapshot, frame);
+                }
+            })?;
         }
     }
 }
