@@ -30,7 +30,7 @@ image = "0.25.2"
 itertools = "0.14.0"
 libc = { version = "0.2", default-features = false }
 log = { version = "0.4.28" }
-mdfrier = { version = "0.3.1", path = "mdfrier", features = ["ratatui"] }
+mdfrier = { version = "0.3.2", path = "mdfrier", features = ["ratatui"] }
 what-terminal-font = { version = "0.1.0", path = "what-terminal-font" }
 notify = "8.1.0"
 notify-debouncer-mini = "0.6.0"
