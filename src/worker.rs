@@ -213,9 +213,9 @@ fn process_image_events(
                                 proto,
                             ))?
                         }
-                        Err(Error::UnknownImage(_id, link)) => {
-                            log::error!("image_section UnknownImage: {link}");
-                            // Leave the image line as-is (shows ![alt](url))
+                        Err(Error::ImageLoad(url, error)) => {
+                            log::warn!("ImageError {url}: {error}");
+                            task_tx.send(Event::ImageFailed(document_id, section_id, url, error))?
                         }
                         Err(err) => {
                             log::error!("image_section error: {err}");

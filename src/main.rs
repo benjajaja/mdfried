@@ -302,6 +302,7 @@ pub enum Event {
     ParseDone(DocumentId, Option<SectionID>), // Only signals "parsing done", not "images ready"!
     Parsed(DocumentId, Section),
     ImageLoaded(DocumentId, SectionID, MarkdownLink, Protocol),
+    ImageFailed(DocumentId, SectionID, String, String),
     HeaderLoaded(DocumentId, SectionID, Vec<(String, u8, Protocol)>),
     FileChanged,
 }
@@ -324,6 +325,13 @@ impl Display for Event {
 
             Event::ImageLoaded(document_id, section_id, url, _) => {
                 write!(f, "Event::ImageLoaded({document_id}, {section_id}, {url})")
+            }
+
+            Event::ImageFailed(document_id, section_id, url, error) => {
+                write!(
+                    f,
+                    "Event::ImageFailed({document_id}, {section_id}, {url}, {error})"
+                )
             }
 
             Event::HeaderLoaded(document_id, section_id, rows) => {

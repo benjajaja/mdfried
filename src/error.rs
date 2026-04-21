@@ -27,7 +27,7 @@ pub enum Error {
     Download(reqwest::Error),
     NoFont,
     Thread(String),
-    UnknownImage(usize, String),
+    ImageLoad(String, String),
     Notify(notify::Error),
     MarkdownParse,
     // Do not overuse this one!
@@ -56,7 +56,7 @@ impl fmt::Display for Error {
             Error::Download(err) => write!(f, "HTTP request error: {err}"),
             Error::NoFont => write!(f, "No font available"),
             Error::Thread(msg) => write!(f, "Thread error: {msg}"),
-            Error::UnknownImage(_, url) => write!(f, "Unknown image format: {url}"),
+            Error::ImageLoad(url, error) => write!(f, "Image error {url}: {error}"),
             Error::Notify(err) => write!(f, "Watch error: {err}"),
             Error::Generic(msg) => write!(f, "Generic error: {msg}"),
             Error::MarkdownParse => write!(f, "Markdown parsing failed"),

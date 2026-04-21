@@ -736,7 +736,10 @@ pub async fn image_section(
         let response = client.get(url).headers(headers).send().await?;
         drop(client);
         if !response.status().is_success() {
-            return Err(Error::UnknownImage(id, url.to_owned()));
+            return Err(Error::ImageLoad(
+                url.to_owned(),
+                format!("status {}", response.status()),
+            ));
         }
         let ct = response
             .headers()
@@ -747,7 +750,14 @@ pub async fn image_section(
             Some("image/png") => Ok(ImageFormat::Png),
             Some("image/webp") => Ok(ImageFormat::WebP),
             Some("image/gif") => Ok(ImageFormat::Gif),
-            _ => Err(Error::UnknownImage(id, url.to_owned())),
+            Some(ct) => Err(Error::ImageLoad(
+                url.to_owned(),
+                format!("unhandled content-type {ct}"),
+            )),
+            None => Err(Error::ImageLoad(
+                url.to_owned(),
+                "no content-type".to_owned(),
+            )),
         }?;
 
         ImageSource::Bytes(response.bytes().await?.to_vec(), format)

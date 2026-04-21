@@ -34,11 +34,13 @@ to directly scale text without needing to render as images!
 See [ratatui-image](https://github.com/benjajaja/ratatui-image?tab=readme-ov-file#compatibility-matrix)
 to see if your terminal does even have graphics support, and for further details.
 
-In general, Kitty, WezTerm, iTerm2, Ghostty, Foot, `xterm -ti vt340`, *should* work.
+In general, Kitty, WezTerm, iTerm2, Ghostty, Foot, `xterm -ti vt340`, Rio, *should* work.
 
 On terminals without graphics whatsoever, like Alactritty, images are rendered with Chafa.
 
 # Installation
+
+Packaged in distros:
 
 * Rust cargo: `cargo install mdfried`
   * From source : `cargo install --path .`
@@ -53,6 +55,8 @@ On terminals without graphics whatsoever, like Alactritty, images are rendered w
 * Mac: `brew install mdfried` or `port install mdfried` or [realease binaries](https://github.com/benjajaja/mdfried/releases/latest)
 * Windows: [Download release .exe](https://github.com/benjajaja/mdfried/releases/latest)
 
+[![Packaging status](https://repology.org/badge/vertical-allrepos/mdfried.svg)](https://repology.org/project/mdfried/versions)
+
 # Usage
 
 ### Running
@@ -62,10 +66,9 @@ mdfried ./path/to.md
 ```
 
 Unless you're using Kitty version 0.40 or greater, or a terminal that does not support any graphics
-protocol, the first time you run `mdfried` you will have to pick a font.
+protocol, the first time you run `mdfried` you may have to pick a font, if your terminal's font
+could not be automatically detected.  
 You should pick the same font that your terminal is using, but you could pick any.
-The font-setup screen lets you search the system fonts - you will want to pick the same font that
-your terminal is using.
 The font is rendered directly as a preview.
 Once confirmed, the choice is written into the configuration file.
 
@@ -76,6 +79,8 @@ You can also pipe markdown into it:
 ```
 readable https://lobste.rs | markdownify | mdfried
 ```
+
+See `--help` for all options.
 
 ### Key bindings
 
