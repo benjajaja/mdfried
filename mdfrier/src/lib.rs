@@ -675,4 +675,24 @@ Should be split up nicely.
         let output = lines_to_string(&lines);
         insta::assert_snapshot!(output);
     }
+
+    #[test]
+    fn nested_image_link() {
+        // Test case for nested image in link: [![image](url)](link)
+        // This should preserve the nested structure, not split it
+        let input = "[![test image](http://example.com/image.png)](http://example.com/link)";
+
+        let mut frier = MdFrier::new().unwrap();
+        let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).unwrap().collect();
+        let output = lines_to_string(&lines);
+
+        // The output should contain the full nested structure, not split components
+        assert!(
+            output
+                .contains("[![test image](http://example.com/image.png)](http://example.com/link)")
+        );
+
+        // It should also contain an image loading section below.
+        assert!(output.contains("![Loading...](http://example.com/image.png)"));
+    }
 }
