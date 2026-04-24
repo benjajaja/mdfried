@@ -227,8 +227,6 @@ impl MdFrier {
 #[cfg(test)]
 #[expect(clippy::unwrap_used)]
 mod tests {
-    use crate::markdown::SourceContent;
-
     use super::*;
     use pretty_assertions::assert_eq;
 
@@ -433,27 +431,17 @@ Quote break.
             .unwrap()
             .flat_map(|l| l.spans)
             .collect();
-        let url_source = SourceContent::from("https://example.com/path");
         assert_eq!(
             spans,
             vec![
                 Span::new("See ".into(), Modifier::empty()),
                 Span::new("(".into(), Modifier::LinkURLWrapper),
-                Span::source_link(
-                    "https://".into(),
-                    Modifier::LinkURL | Modifier::BareLink,
-                    url_source.clone()
-                ),
-                Span::source_link(
+                Span::new("https://".into(), Modifier::LinkURL | Modifier::BareLink,),
+                Span::new(
                     "example.com/".into(),
                     Modifier::LinkURL | Modifier::BareLink,
-                    url_source.clone()
                 ),
-                Span::source_link(
-                    "path".into(),
-                    Modifier::LinkURL | Modifier::BareLink,
-                    url_source.clone()
-                ),
+                Span::new("path".into(), Modifier::LinkURL | Modifier::BareLink,),
                 Span::new(")".into(), Modifier::LinkURLWrapper),
                 Span::new(" ok?".into(), Modifier::empty()),
             ]
@@ -629,7 +617,6 @@ Quote break.
             .collect();
         assert_eq!(lines.len(), 1);
 
-        let url_source = SourceContent::from("https://url");
         assert_eq!(
             lines[0].spans,
             vec![
@@ -637,15 +624,12 @@ Quote break.
                     "[".into(),
                     Modifier::Link | Modifier::LinkDescriptionWrapper
                 ),
-                Span::source_link(
-                    "desc".into(),
-                    Modifier::Link | Modifier::LinkDescription,
-                    url_source.clone()
-                ),
+                Span::new("desc".into(), Modifier::Link | Modifier::LinkDescription,),
                 Span::new(
                     "]".into(),
                     Modifier::Link | Modifier::LinkDescriptionWrapper
                 ),
+                Span::new("https://url".into(), Modifier::Link | Modifier::LinkURL),
             ]
         );
     }
@@ -684,15 +668,48 @@ Should be split up nicely.
 
         let mut frier = MdFrier::new().unwrap();
         let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).unwrap().collect();
-        let output = lines_to_string(&lines);
 
-        // The output should contain the full nested structure, not split components
-        assert!(
-            output
-                .contains("[![test image](http://example.com/image.png)](http://example.com/link)")
+        assert_eq!(
+            lines[0].spans,
+            vec![
+                Span::new(
+                    "[".to_string(),
+                    Modifier::Link | Modifier::LinkDescriptionWrapper,
+                ),
+                Span::new(
+                    "![".to_string(),
+                    Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+                ),
+                Span::new(
+                    "test image".to_string(),
+                    Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+                ),
+                Span::new(
+                    "](".to_string(),
+                    Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+                ),
+                Span::new(
+                    "http://example.com/image.png".to_string(),
+                    Modifier::Link
+                        | Modifier::LinkDescription
+                        | Modifier::LinkURL
+                        | Modifier::Image,
+                ),
+                Span::new(
+                    ")".to_string(),
+                    Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+                ),
+                Span::new(
+                    "]".to_string(),
+                    Modifier::Link | Modifier::LinkDescriptionWrapper,
+                ),
+                Span::new("(".to_string(), Modifier::Link | Modifier::LinkURLWrapper,),
+                Span::new(
+                    "http://example.com/link".to_string(),
+                    Modifier::Link | Modifier::LinkURL,
+                ),
+                Span::new(")".to_string(), Modifier::Link | Modifier::LinkURLWrapper,),
+            ]
         );
-
-        // It should also contain an image loading section below.
-        assert!(output.contains("![Loading...](http://example.com/image.png)"));
     }
 }

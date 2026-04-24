@@ -6,11 +6,15 @@
 //! - Image lines become their own section
 //! - All other lines are aggregated into text sections
 
+use std::cell::RefCell;
 use std::iter::Peekable;
+use std::mem::swap;
+use std::rc::Rc;
 
-use mdfrier::ratatui::{Tag, render_line};
-use mdfrier::{Line, LineKind, MarkdownLink};
+use mdfrier::ratatui::render_line;
+use mdfrier::{Line, LineKind, MarkdownLink, Modifier as MdModifier, SourceContent};
 use ratatui::text::Span;
+use unicode_width::UnicodeWidthStr;
 
 use crate::config::Theme;
 use crate::document::{LineExtra, Section, SectionContent, SectionID};
@@ -53,11 +57,10 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
         id
     }
 
-    /// Render a line to ratatui Line with extracted links.
-    fn render_line(&self, line: Line) -> (ratatui::text::Line<'static>, Vec<LineExtra>) {
-        let (rendered, tags) = render_line(line, self.theme);
-        let links = extract_links(&rendered, tags);
-        (rendered, links)
+    /// Render a line to ratatui Line without links, for headers, images, or other non-text
+    /// content.
+    fn render_simple_line(&self, line: Line) -> ratatui::text::Line<'static> {
+        render_line(line, self.theme, None::<fn(&mdfrier::Span)>)
     }
 
     /// Process header lines into sections.
@@ -71,38 +74,42 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
                 content: SectionContent::Header(text.clone(), tier, None),
             };
         }
-        let mut lines = vec![self.render_line(first)];
+        let mut lines = vec![self.render_simple_line(first)];
         if let Some(first) = lines.get_mut(0) {
-            first.0.spans.insert(0, Span::from(" "));
-            first
-                .0
-                .spans
-                .insert(0, Span::from("#".repeat(tier as usize)));
+            first.spans.insert(0, Span::from(" "));
+            first.spans.insert(0, Span::from("#".repeat(tier as usize)));
         }
         Section {
             id,
             height: 2,
-            content: SectionContent::HeaderPlaceholder(text.clone(), tier, lines),
+            content: SectionContent::HeaderPlaceholder(
+                text.clone(),
+                tier,
+                lines.into_iter().map(|line| (line, Vec::new())).collect(),
+            ),
         }
     }
 
     /// Process image lines into a section.
     fn process_image(&mut self, first: Line, link: MarkdownLink) -> Section {
         let id = self.next_section_id();
-        let mut lines = vec![self.render_line(first)];
+        let mut lines = vec![self.render_simple_line(first)];
 
         // Include trailing blank line if present (to maintain spacing)
         if let Some(peeked) = self.inner.peek() {
             if matches!(peeked.kind, LineKind::Blank) {
                 let blank = self.inner.next().expect("peeked");
-                lines.push(self.render_line(blank));
+                lines.push(self.render_simple_line(blank));
             }
         }
 
         Section {
             id,
             height: lines.len() as u16,
-            content: SectionContent::ImagePlaceholder(link, lines),
+            content: SectionContent::ImagePlaceholder(
+                link,
+                lines.into_iter().map(|line| (line, Vec::new())).collect(),
+            ),
         }
     }
 
@@ -158,9 +165,21 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
             });
         }
 
+        let link_tracker = Rc::new(RefCell::new(LinkTracker::default()));
+
         let rendered_lines: Vec<_> = lines
             .into_iter()
-            .map(|line| self.render_line(line))
+            .map(|line| {
+                let link_tracker_inner = Rc::clone(&link_tracker);
+                let lines = render_line(
+                    line,
+                    self.theme,
+                    Some(move |node: &mdfrier::Span| {
+                        link_tracker_inner.borrow_mut().track(node);
+                    }),
+                );
+                (lines, link_tracker.borrow_mut().extras())
+            })
             .collect();
 
         let id = self.next_section_id();
@@ -208,25 +227,103 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<'_, I> {
     }
 }
 
-/// Extract link info from tags, using span index to calculate character offsets.
-fn extract_links(line: &ratatui::text::Line<'_>, tags: Vec<Tag>) -> Vec<LineExtra> {
-    tags.into_iter()
-        .filter_map(|tag| {
-            if let Tag::Link(span_idx, url) = tag {
-                // Sum widths of spans before this one to get character offset
-                let offset: u16 = line.spans[..span_idx]
-                    .iter()
-                    .map(|s| unicode_width::UnicodeWidthStr::width(s.content.as_ref()) as u16)
-                    .sum();
-                let span_width =
-                    unicode_width::UnicodeWidthStr::width(line.spans[span_idx].content.as_ref())
-                        as u16;
-                Some(LineExtra::Link(url, offset, offset + span_width))
-            } else {
-                None
-            }
-        })
-        .collect()
+#[derive(Default)]
+struct LinkTracker {
+    offset: u16,
+    extras: Vec<LineExtra>,
+    link_builder: Option<LinkBuilder>,
+}
+
+#[derive(Debug)]
+struct LinkBuilder {
+    start: u16,
+    end: u16,
+    is_in_url: bool,
+    url: String,
+}
+
+impl LinkBuilder {
+    fn start(start: u16) -> LinkBuilder {
+        LinkBuilder {
+            start,
+            end: 0,
+            is_in_url: false,
+            url: String::new(),
+        }
+    }
+    fn end(&mut self, end: u16) {
+        self.end = end;
+    }
+    fn push(&mut self, content: &str) {
+        self.url.push_str(content);
+    }
+
+    fn into_extra(self) -> LineExtra {
+        LineExtra::Link(SourceContent::from(&*self.url), self.start, self.end)
+    }
+}
+
+impl LinkTracker {
+    pub fn track(&mut self, node: &mdfrier::Span) {
+        log::debug!("track: {}", node.content);
+        let span_width = node.content.width() as u16;
+        if self.link_builder.is_none()
+            && node
+                .modifiers
+                .contains(MdModifier::Link | MdModifier::LinkDescriptionWrapper)
+        {
+            // Start at next span.
+            self.link_builder = Some(LinkBuilder::start(self.offset + span_width));
+            log::debug!("ENTER link: {:?}", self.link_builder);
+        } else if self.link_builder.is_some()
+            && node
+                .modifiers
+                .contains(MdModifier::Link | MdModifier::LinkDescriptionWrapper)
+            && !node.modifiers.contains(MdModifier::Image)
+        {
+            let Some(link_builder) = self.link_builder.as_mut() else {
+                panic!("exit link without a LinkBuilder");
+            };
+            // Ends before this span.
+            link_builder.end(self.offset);
+            log::debug!("EXIT link: {:?}", self.link_builder);
+        } else if let Some(link_builder) = &mut self.link_builder
+            && node
+                .modifiers
+                .contains(MdModifier::Link | MdModifier::LinkURL)
+            && !node.modifiers.contains(MdModifier::Image)
+        {
+            link_builder.push(&node.content);
+            log::debug!("PUSH: {}", node.content);
+        } else if let Some(link_builder) = &mut self.link_builder
+            && !link_builder.is_in_url
+            && node
+                .modifiers
+                .contains(MdModifier::Link | MdModifier::LinkURLWrapper)
+            && !node.modifiers.contains(MdModifier::Image)
+        {
+            link_builder.is_in_url = true;
+            log::debug!("enter URL");
+        } else if node
+            .modifiers
+            .contains(MdModifier::Link | MdModifier::LinkURLWrapper)
+            && !node.modifiers.contains(MdModifier::Image)
+            && let Some(link_builder) = self.link_builder.take()
+        {
+            log::debug!("exit URL: {:?}", link_builder);
+            self.extras.push(link_builder.into_extra());
+        } else {
+            log::debug!("ignored: {:?}", node.modifiers);
+            log::debug!("\t{:?}", node.content);
+        }
+        self.offset += span_width;
+    }
+    pub fn extras(&mut self) -> Vec<LineExtra> {
+        let mut extras = Vec::new();
+        swap(&mut self.extras, &mut extras);
+        log::debug!("LinkTracker extras: {extras:?}");
+        extras
+    }
 }
 
 #[cfg(test)]
@@ -234,7 +331,15 @@ mod tests {
     use super::*;
     use crate::document::SectionContent;
     use mdfrier::{MdFrier, SourceContent};
-    use ratatui::text::Span;
+
+    #[ctor::ctor]
+    fn init_logger() {
+        #[expect(clippy::let_underscore_untyped)]
+        let _ = flexi_logger::Logger::try_with_env()
+            .unwrap()
+            .start()
+            .inspect_err(|err| eprint!("test logger setup failed: {err}"));
+    }
 
     #[expect(clippy::unwrap_used)]
     fn parse_sections(text: &str) -> Vec<Section> {
@@ -342,10 +447,7 @@ mod tests {
             panic!("expected SectionContent::Lines");
         };
         assert_eq!(lines.len(), 1, "one line");
-        assert!(
-            matches!(lines[0].1.as_slice(), [LineExtra::Link(_, _, _)]),
-            "one link"
-        );
+        assert!(matches!(lines[0].1.as_slice(), [LineExtra::Link(_, _, _)]),);
     }
 
     #[test]
@@ -389,28 +491,57 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(link_extras.len(), 2);
-
+        log::debug!("TEST LOG");
+        dbg!(&lines);
+        assert_eq!(link_extras.len(), 1);
         assert_eq!(link_extras[0].as_ref(), url,);
-        assert_eq!(link_extras[1].as_ref(), url,);
     }
 
     #[test]
     fn extract_links_multiple_spans_same_url() {
-        let line = ratatui::text::Line::from(vec![Span::from("text with "), Span::from("code")]);
+        // let line = ratatui::text::Line::from(vec![Span::from("text with "), Span::from("code")]);
+        //
+        // let url = SourceContent::from("https://example.com/target");
+        // let tags = vec![Tag::Link(0, url.clone()), Tag::Link(1, url.clone())];
+        //
+        // let link_extras = extract_links(&line, tags);
+        //
+        // assert_eq!(link_extras.len(), 2);
+        //
+        // for extra in &link_extras {
+        // let LineExtra::Link(extra_url, _, _) = extra else {
+        // panic!("Expected LineExtra::Link");
+        // };
+        // assert_eq!(extra_url.as_ref(), url.as_ref(),);
+        // }
+    }
 
-        let url = SourceContent::from("https://example.com/target");
-        let tags = vec![Tag::Link(0, url.clone()), Tag::Link(1, url.clone())];
+    #[test]
+    fn nested_image_link() {
+        let markdown =
+            format!("[![test image](http://example.com/image.png)](http://example.com/link)");
 
-        let link_extras = extract_links(&line, tags);
+        let sections = parse_sections(&markdown);
 
-        assert_eq!(link_extras.len(), 2);
+        let SectionContent::Lines(lines) = &sections[0].content else {
+            panic!("expected SectionContent::Lines");
+        };
 
-        for extra in &link_extras {
-            let LineExtra::Link(extra_url, _, _) = extra else {
-                panic!("Expected LineExtra::Link");
-            };
-            assert_eq!(extra_url.as_ref(), url.as_ref(),);
-        }
+        let link_extras: Vec<_> = lines[0]
+            .1
+            .iter()
+            .filter_map(|extra| {
+                if let LineExtra::Link(url, _, _) = extra {
+                    Some(url)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        assert_eq!(
+            link_extras,
+            vec![&SourceContent::from("http://example.com/link")]
+        );
     }
 }

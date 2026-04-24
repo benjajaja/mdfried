@@ -45,9 +45,7 @@ pub(crate) fn wrap_md_spans(
             // Extract images from spans
             let mut images: Vec<ImageRef> = Vec::new();
             for (i, s) in mdspans.iter().enumerate() {
-                if s.modifiers.contains(Modifier::LinkURL)
-                    && s.modifiers.contains(Modifier::Image)
-                    && let Some(source_content) = &s.get_source_content()
+                if s.modifiers.contains(Modifier::LinkURL) && s.modifiers.contains(Modifier::Image)
                 {
                     // Track back to get description if any.
                     // TODO: something's wrong about this!
@@ -66,7 +64,7 @@ pub(crate) fn wrap_md_spans(
                         log::warn!("image description node not found (really absent?)");
                     }
                     images.push(ImageRef {
-                        url: source_content.as_ref().to_owned(),
+                        url: s.content.clone(),
                         description: description.unwrap_or_default(),
                     });
                 }
@@ -160,11 +158,7 @@ pub(crate) fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>) -> Vec<Vec<Spa
                     }
                     // Preserve source_content when splitting spans (for wrapped URLs)
                     if modifiers.contains(Modifier::LinkURL) {
-                        line.push(Span::link(
-                            part_content,
-                            modifiers,
-                            mdspan.get_source_content(),
-                        ));
+                        line.push(Span::new(part_content, modifiers));
                     } else {
                         line.push(Span::new(part_content, modifiers));
                     }
@@ -251,7 +245,7 @@ mod tests {
             Span::new("link".into(), Modifier::LinkDescription),
             Span::new("]".into(), Modifier::LinkDescriptionWrapper),
             Span::new("(".into(), Modifier::LinkURLWrapper),
-            Span::link("https://example.com".into(), Modifier::LinkURL, None),
+            Span::new("https://example.com".into(), Modifier::LinkURL),
             Span::new(")".into(), Modifier::LinkURLWrapper),
         ];
         let lines = wrap_md_spans_lines(25, mdspans);

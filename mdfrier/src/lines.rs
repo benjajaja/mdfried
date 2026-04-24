@@ -425,13 +425,16 @@ fn apply_decorators<M: Mapper>(spans: Vec<Span>, mapper: &M) -> Vec<Span> {
 
         // Hide URL spans if configured (but not Image spans - they're extracted during wrapping)
         let hide = mapper.hide_urls()
-            && span
-                .modifiers
-                .intersects(Modifier::LinkURL | Modifier::LinkURLWrapper)
-            && !span.modifiers.contains(Modifier::BareLink)
-            && !span.modifiers.contains(Modifier::Image);
+            && (span.modifiers.contains(Modifier::LinkURLWrapper)
+                && !(span.modifiers.contains(Modifier::BareLink)
+                    || span.modifiers.contains(Modifier::Image)));
         if !hide {
             result.push(span);
+        } else {
+            result.push(Span {
+                content: String::new(),
+                modifiers: span.modifiers,
+            });
         }
 
         prev_emphasis = has_emphasis;
@@ -661,7 +664,7 @@ fn wrapped_to_lines<M: Mapper>(
                 },
                 Span::new("]".to_owned(), Modifier::LinkDescriptionWrapper),
                 Span::new("(".to_owned(), Modifier::LinkURLWrapper),
-                Span::link(img.url.clone(), Modifier::LinkURL, None),
+                Span::new(img.url.clone(), Modifier::LinkURL),
                 Span::new(")".to_owned(), Modifier::LinkURLWrapper),
             ];
             lines.push(Line {
@@ -862,4 +865,150 @@ fn table_to_lines<M: Mapper>(
     lines.push(build_border(BorderPosition::Bottom));
 
     lines
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+    use tree_sitter::Parser;
+
+    #[ctor::ctor]
+    fn init_logger() {
+        #[expect(clippy::let_underscore_untyped)]
+        let _ = flexi_logger::Logger::try_with_env()
+            .unwrap()
+            .start()
+            .inspect_err(|err| eprint!("test logger setup failed: {err}"));
+    }
+
+    fn make_parser() -> Parser {
+        let mut parser = Parser::new();
+        parser
+            .set_language(&tree_sitter_md::LANGUAGE.into())
+            .unwrap();
+        parser
+    }
+    fn make_inline_parser() -> Parser {
+        let mut inline_parser = Parser::new();
+        inline_parser
+            .set_language(&tree_sitter_md::INLINE_LANGUAGE.into())
+            .unwrap();
+        inline_parser
+    }
+
+    #[test]
+    fn line_iterator_clean_links() {
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
+        let source = "[link](http://example.com)\n";
+        let tree = parser.parse(source, None).unwrap();
+        let iter = MdIterator::new(tree, &mut inline_parser, source);
+
+        struct HideUrlsMapper;
+        impl Mapper for HideUrlsMapper {
+            fn link_desc_open(&self) -> &str {
+                ""
+            }
+            fn link_desc_close(&self) -> &str {
+                ""
+            }
+            fn hide_urls(&self) -> bool {
+                true
+            }
+        }
+
+        let line_iter = LineIterator::new(iter, 80, &HideUrlsMapper {});
+        let lines: Vec<Line> = line_iter.collect();
+        assert_eq!(
+            lines[0],
+            Line {
+                spans: vec![
+                    Span::new(
+                        "".to_owned(),
+                        Modifier::Link | Modifier::LinkDescriptionWrapper,
+                    ),
+                    Span::new(
+                        "link".to_owned(),
+                        Modifier::Link | Modifier::LinkDescription,
+                    ),
+                    Span::new(
+                        "".to_owned(),
+                        Modifier::Link | Modifier::LinkDescriptionWrapper,
+                    ),
+                    Span::new(
+                        "http://example.com".to_owned(),
+                        Modifier::Link | Modifier::LinkURL,
+                    ),
+                ],
+                kind: LineKind::Paragraph,
+            }
+        );
+    }
+
+    #[test]
+    #[ignore]
+    fn line_iterator_clean_links_nested_image() {
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
+        let source = "[![image](http://example.com/img.png)](http://example.com)\n";
+        let tree = parser.parse(source, None).unwrap();
+        let iter = MdIterator::new(tree, &mut inline_parser, source);
+
+        struct HideUrlsMapper;
+        impl Mapper for HideUrlsMapper {
+            fn link_desc_open(&self) -> &str {
+                ""
+            }
+            fn link_desc_close(&self) -> &str {
+                ""
+            }
+            fn hide_urls(&self) -> bool {
+                true
+            }
+        }
+
+        let line_iter = LineIterator::new(iter, 80, &HideUrlsMapper {});
+        let lines: Vec<Line> = line_iter.collect();
+        assert_eq!(
+            lines[0],
+            Line {
+                spans: vec![
+                    Span::new(
+                        "".to_owned(),
+                        Modifier::Link | Modifier::LinkDescriptionWrapper,
+                    ),
+                    Span::new(
+                        "![".to_owned(),
+                        Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+                    ),
+                    Span::new(
+                        "image".to_owned(),
+                        Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+                    ),
+                    Span::new(
+                        "](".to_owned(),
+                        Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+                    ),
+                    Span::new(
+                        "http://example.com/img.png".to_owned(),
+                        Modifier::Link
+                            | Modifier::LinkDescription
+                            | Modifier::Image
+                            | Modifier::LinkURL,
+                    ),
+                    Span::new(
+                        ")".to_owned(),
+                        Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+                    ),
+                    Span::new(
+                        "".to_owned(),
+                        Modifier::Link | Modifier::LinkDescriptionWrapper,
+                    ),
+                ],
+                kind: LineKind::Paragraph,
+            }
+        );
+    }
 }

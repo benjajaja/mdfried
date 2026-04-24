@@ -402,71 +402,30 @@ bitflags! {
 pub struct Span {
     pub content: String,
     pub modifiers: Modifier,
-    /// Original full content for spans that may be split (e.g., URLs that wrap across lines).
-    /// When present, this should be used instead of `content` for semantic purposes like link targets.
-    source_content: Option<SourceContent>,
 }
 
 impl Span {
     pub fn new(content: String, extra: Modifier) -> Self {
-        debug_assert!(
-            !extra.contains(Modifier::LinkURL),
-            "Span::new with LinkURL modifier; should use Span::link"
-        );
+        // debug_assert!(
+        // !extra.contains(Modifier::LinkURL),
+        // "Span::new with LinkURL modifier; should use Span::link"
+        // );
         Span {
             content,
             modifiers: extra,
-            source_content: None,
-        }
-    }
-
-    /// Create a span with source content (for URLs that may be split across lines).
-    pub fn link(content: String, modifiers: Modifier, url: Option<SourceContent>) -> Self {
-        debug_assert!(
-            modifiers.contains(Modifier::LinkURL),
-            "link requires LinkURL"
-        );
-        let source_content = url.unwrap_or_else(|| SourceContent::from(content.as_ref()));
-        Span {
-            content,
-            modifiers,
-            source_content: Some(source_content),
-        }
-    }
-
-    /// Create a span with source content (for URLs that may be split across lines).
-    #[cfg(test)]
-    pub fn source_link(
-        content: String,
-        modifiers: Modifier,
-        source_content: SourceContent,
-    ) -> Self {
-        Span {
-            content,
-            modifiers,
-            source_content: Some(source_content),
         }
     }
 
     #[cfg(test)]
     pub fn test_link(description: &str, url: &str) -> Vec<Self> {
-        let source_content = SourceContent::from(url);
         vec![
             Self::new("[".to_owned(), Modifier::Link),
             Self::new(description.to_owned(), Modifier::Link),
             Self::new("]".to_owned(), Modifier::Link),
             Self::new("(".to_owned(), Modifier::Link),
-            Self::source_link(
-                url.to_owned(),
-                Modifier::Link | Modifier::LinkURL,
-                source_content,
-            ),
+            Self::new(url.to_owned(), Modifier::Link | Modifier::LinkURL),
             Self::new(")".to_owned(), Modifier::Link),
         ]
-    }
-
-    pub fn get_source_content(&self) -> Option<SourceContent> {
-        self.source_content.clone()
     }
 }
 
@@ -475,7 +434,6 @@ impl From<String> for Span {
         Span {
             content: value,
             modifiers: Modifier::default(),
-            source_content: None,
         }
     }
 }
@@ -695,11 +653,8 @@ impl MdParagraph {
             "link_destination" => {
                 let url = source[node.byte_range()].to_owned();
                 let source_content = SourceContent::from(url.as_ref());
-                self.spans.push(Span::link(
-                    url,
-                    extra.union(Modifier::LinkURL),
-                    Some(source_content.clone()),
-                ));
+                self.spans
+                    .push(Span::new(url, extra.union(Modifier::LinkURL)));
                 return Some(source_content);
             }
             _ => Modifier::default(),
@@ -726,23 +681,23 @@ impl MdParagraph {
                     .push(Span::new(source[pos..child.start_byte()].to_owned(), extra));
             }
 
-            let source_content = self.recurse(child, source, extra, _depth + 1);
-            if let Some(source_content) = source_content {
-                // This is why we return Option<SourceContent>, *only* LinkURL spans return
-                // Some(SourceContent). That is, if there was some other SourceContent on some spans,
-                // it should NOT be returned (without changing this block).
-                for span in self.spans.iter_mut().rev() {
-                    // We only want to overwrite previous spans that have been line-broken, not
-                    // genuine different links, so skip if the span already has some
-                    // `source_content`.
-                    if span.source_content.is_none()
-                        && span.modifiers.contains(Modifier::LinkDescription)
-                        && !span.modifiers.contains(Modifier::Image)
-                    {
-                        span.source_content = Some(source_content.clone());
-                    }
-                }
-            }
+            self.recurse(child, source, extra, _depth + 1);
+            // if let Some(source_content) = source_content {
+            // This is why we return Option<SourceContent>, *only* LinkURL spans return
+            // Some(SourceContent). That is, if there was some other SourceContent on some spans,
+            // it should NOT be returned (without changing this block).
+            // for span in self.spans.iter_mut().rev() {
+            // We only want to overwrite previous spans that have been line-broken, not
+            // genuine different links, so skip if the span already has some
+            // `source_content`.
+            // if span.source_content.is_none()
+            // && span.modifiers.contains(Modifier::LinkDescription)
+            // && !span.modifiers.contains(Modifier::Image)
+            // {
+            // span.source_content = Some(source_content.clone());
+            // }
+            // }
+            // }
             pos = child.end_byte();
         }
 
@@ -889,10 +844,9 @@ fn detect_bare_urls(mdspans: Vec<Span>) -> Vec<Span> {
 
             // The URL itself - marked as LinkURL (never first, wrapper is always before)
             let url = mat.as_str().to_owned();
-            result.push(Span::link(
+            result.push(Span::new(
                 url,
                 base_modifiers | Modifier::LinkURL | Modifier::BareLink,
-                None,
             ));
 
             // Closing wrapper
@@ -958,7 +912,7 @@ fn split_newlines(mdspans: Vec<Span>) -> Vec<Span> {
                     mdspan.modifiers.union(Modifier::NewLine)
                 },
                 // Preserve source_content across all split parts
-                source_content: mdspan.source_content.clone(),
+                // source_content: mdspan.source_content.clone(),
             });
         }
     }
@@ -1075,10 +1029,9 @@ mod tests {
 
     #[test]
     fn detect_bare_url_skips_existing_links() {
-        let spans = vec![Span::link(
+        let spans = vec![Span::new(
             "https://example.com".to_owned(),
             Modifier::Link | Modifier::LinkURL,
-            None,
         )];
         let result = detect_bare_urls(spans.clone());
         assert_eq!(result, spans);
@@ -1128,7 +1081,6 @@ mod tests {
             Span {
                 content: "text".to_owned(),
                 modifiers: Modifier::Image | Modifier::LinkDescription,
-                source_content: None,
             }
         );
         assert_eq!(spans[2], Span::new("](".to_owned(), Modifier::Image));
@@ -1137,7 +1089,6 @@ mod tests {
             Span {
                 content: "url".to_owned(),
                 modifiers: Modifier::Image | Modifier::LinkURL,
-                source_content: Some(SourceContent::from("url")),
             }
         );
         assert_eq!(spans[4], Span::new(")".to_owned(), Modifier::Image));
@@ -1161,7 +1112,6 @@ mod tests {
             Span {
                 content: "text with ".to_owned(),
                 modifiers: Modifier::Image | Modifier::LinkDescription,
-                source_content: None,
             }
         );
         assert_eq!(
@@ -1169,7 +1119,6 @@ mod tests {
             Span {
                 content: "code".to_owned(),
                 modifiers: Modifier::Image | Modifier::LinkDescription | Modifier::Code,
-                source_content: None,
             }
         );
         assert_eq!(spans[3], Span::new("](".to_owned(), Modifier::Image));
@@ -1178,9 +1127,89 @@ mod tests {
             Span {
                 content: "http://example.com/?a=1&`code`=2".to_owned(),
                 modifiers: Modifier::Image | Modifier::LinkURL,
-                source_content: Some(SourceContent::from("http://example.com/?a=1&`code`=2")),
             }
         );
         assert_eq!(spans[5], Span::new(")".to_owned(), Modifier::Image));
+    }
+
+    #[test]
+    fn nested_image_link() {
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
+        let source = "[![image](http://example.com/img.png)](http://example.com)\n";
+        let tree = parser.parse(source, None).unwrap();
+        let first = MdIterator::new(tree, &mut inline_parser, source)
+            .next()
+            .unwrap();
+        let MdContent::Paragraph(MdParagraph { spans, .. }) = first.content else {
+            panic!("expected paragraph");
+        };
+        assert_eq!(
+            spans[0],
+            Span::new(
+                "[".to_owned(),
+                Modifier::Link | Modifier::LinkDescriptionWrapper
+            )
+        );
+        assert_eq!(
+            spans[1],
+            Span {
+                content: "![".to_owned(),
+                modifiers: Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+            }
+        );
+        assert_eq!(
+            spans[2],
+            Span {
+                content: "image".to_owned(),
+                modifiers: Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+            }
+        );
+        assert_eq!(
+            spans[3],
+            Span::new(
+                "](".to_owned(),
+                Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+            )
+        );
+        assert_eq!(
+            spans[4],
+            Span {
+                content: "http://example.com/img.png".to_owned(),
+                modifiers: Modifier::Link
+                    | Modifier::LinkDescription
+                    | Modifier::LinkURL
+                    | Modifier::Image,
+            }
+        );
+        assert_eq!(
+            spans[5],
+            Span::new(
+                ")".to_owned(),
+                Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+            )
+        );
+        assert_eq!(
+            spans[6],
+            Span::new(
+                "]".to_owned(),
+                Modifier::Link | Modifier::LinkDescriptionWrapper
+            )
+        );
+        assert_eq!(
+            spans[7],
+            Span::new("(".to_owned(), Modifier::Link | Modifier::LinkURLWrapper)
+        );
+        assert_eq!(
+            spans[8],
+            Span {
+                content: "http://example.com".to_owned(),
+                modifiers: Modifier::Link | Modifier::LinkURL,
+            }
+        );
+        assert_eq!(
+            spans[9],
+            Span::new(")".to_owned(), Modifier::Link | Modifier::LinkURLWrapper)
+        );
     }
 }

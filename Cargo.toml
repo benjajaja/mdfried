@@ -51,6 +51,7 @@ flexi_logger = { version = "0.31.7", features = ["buffer_writer"] }
 pretty_assertions = "1.4"
 insta = "1.44.3"
 criterion = "0.5.1"
+ctor = "0.2"
 
 [[bench]]
 name = "full_parse"
