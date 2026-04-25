@@ -1,7 +1,6 @@
 //! Ratatui integration for mdfrier.
 //!
-//! This module provides conversion from [`MdLine`] to styled ratatui `Line` widgets,
-//! along with semantic [`Tag`]s that can be used by the application.
+//! This module provides conversion from [`MdLine`] to styled ratatui `Line` widgets.
 
 use ratatui::{
     style::{Color, Modifier, Style},
@@ -326,10 +325,7 @@ fn node_to_span<T: Theme>(
         // TODO: make OSC links work when https://github.com/ratatui/ratatui/pull/1605
     } = node;
 
-    if theme.hide_urls()
-        && modifiers.contains(MdModifier::LinkURL)
-        && !modifiers.contains(MdModifier::Image)
-    {
+    if theme.hide_urls() && modifiers.is_link_url() {
         // TODO: this seems super hacky, can we not do this earlier?
         return RatatuiSpan::default();
     }
@@ -403,8 +399,6 @@ fn node_to_span<T: Theme>(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     /// Test that Tag::Link uses source_content for split URLs
     #[test]
     fn split_url_tag_uses_source_content() {

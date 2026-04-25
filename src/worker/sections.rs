@@ -8,16 +8,15 @@
 
 use std::cell::RefCell;
 use std::iter::Peekable;
-use std::mem::swap;
 use std::rc::Rc;
 
 use mdfrier::ratatui::render_line;
-use mdfrier::{Line, LineKind, MarkdownLink, Modifier as MdModifier, SourceContent};
+use mdfrier::{Line, LineKind, MarkdownLink};
 use ratatui::text::Span;
-use unicode_width::UnicodeWidthStr;
 
+use super::link_tracker::LinkTracker;
 use crate::config::Theme;
-use crate::document::{LineExtra, Section, SectionContent, SectionID};
+use crate::document::{Section, SectionContent, SectionID};
 
 /// Events produced during section iteration that need post-processing.
 pub enum SectionEvent {
@@ -227,109 +226,10 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<'_, I> {
     }
 }
 
-#[derive(Default)]
-struct LinkTracker {
-    offset: u16,
-    extras: Vec<LineExtra>,
-    link_builder: Option<LinkBuilder>,
-}
-
-#[derive(Debug)]
-struct LinkBuilder {
-    start: u16,
-    end: u16,
-    is_in_url: bool,
-    url: String,
-}
-
-impl LinkBuilder {
-    fn start(start: u16) -> LinkBuilder {
-        LinkBuilder {
-            start,
-            end: 0,
-            is_in_url: false,
-            url: String::new(),
-        }
-    }
-    fn end(&mut self, end: u16) {
-        self.end = end;
-    }
-    fn push(&mut self, content: &str) {
-        self.url.push_str(content);
-    }
-
-    fn into_extra(self) -> LineExtra {
-        LineExtra::Link(SourceContent::from(&*self.url), self.start, self.end)
-    }
-}
-
-impl LinkTracker {
-    pub fn track(&mut self, node: &mdfrier::Span) {
-        log::debug!("track: {}", node.content);
-        let span_width = node.content.width() as u16;
-        if self.link_builder.is_none()
-            && node
-                .modifiers
-                .contains(MdModifier::Link | MdModifier::LinkDescriptionWrapper)
-        {
-            // Start at next span.
-            self.link_builder = Some(LinkBuilder::start(self.offset + span_width));
-            log::debug!("ENTER link: {:?}", self.link_builder);
-        } else if self.link_builder.is_some()
-            && node
-                .modifiers
-                .contains(MdModifier::Link | MdModifier::LinkDescriptionWrapper)
-            && !node.modifiers.contains(MdModifier::Image)
-        {
-            let Some(link_builder) = self.link_builder.as_mut() else {
-                panic!("exit link without a LinkBuilder");
-            };
-            // Ends before this span.
-            link_builder.end(self.offset);
-            log::debug!("EXIT link: {:?}", self.link_builder);
-        } else if let Some(link_builder) = &mut self.link_builder
-            && node
-                .modifiers
-                .contains(MdModifier::Link | MdModifier::LinkURL)
-            && !node.modifiers.contains(MdModifier::Image)
-        {
-            link_builder.push(&node.content);
-            log::debug!("PUSH: {}", node.content);
-        } else if let Some(link_builder) = &mut self.link_builder
-            && !link_builder.is_in_url
-            && node
-                .modifiers
-                .contains(MdModifier::Link | MdModifier::LinkURLWrapper)
-            && !node.modifiers.contains(MdModifier::Image)
-        {
-            link_builder.is_in_url = true;
-            log::debug!("enter URL");
-        } else if node
-            .modifiers
-            .contains(MdModifier::Link | MdModifier::LinkURLWrapper)
-            && !node.modifiers.contains(MdModifier::Image)
-            && let Some(link_builder) = self.link_builder.take()
-        {
-            log::debug!("exit URL: {:?}", link_builder);
-            self.extras.push(link_builder.into_extra());
-        } else {
-            log::debug!("ignored: {:?}", node.modifiers);
-            log::debug!("\t{:?}", node.content);
-        }
-        self.offset += span_width;
-    }
-    pub fn extras(&mut self) -> Vec<LineExtra> {
-        let mut extras = Vec::new();
-        swap(&mut self.extras, &mut extras);
-        log::debug!("LinkTracker extras: {extras:?}");
-        extras
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::SectionContent;
+    use crate::document::{LineExtra, SectionContent};
     use mdfrier::{MdFrier, SourceContent};
 
     #[ctor::ctor]

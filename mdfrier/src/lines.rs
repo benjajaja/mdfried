@@ -233,7 +233,8 @@ fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> V
                     MdLineContainer::ListItem { marker, .. } => marker_width(marker, mapper),
                 })
                 .sum();
-            let wrapped_lines = wrap_md_spans(width, decorated_spans, prefix_width);
+            let wrapped_lines =
+                wrap_md_spans(width, decorated_spans, prefix_width, mapper.hide_urls());
             wrapped_to_lines(wrapped_lines, nesting, mapper)
         }
         MdContent::Header { tier, text } => {
@@ -251,7 +252,7 @@ fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> V
                     _ => (1, 3),
                 };
                 let scaled_width = width / 2 * d / n;
-                let wrapped = wrap_md_spans(scaled_width, spans, 0);
+                let wrapped = wrap_md_spans(scaled_width, spans, 0, false);
                 wrapped
                     .into_iter()
                     .map(|line| Line {
@@ -791,7 +792,7 @@ fn table_to_lines<M: Mapper>(
                 let col_width = col_widths.get(i).copied().unwrap_or(3);
                 let inner_width = col_width.saturating_sub(2).max(1) as u16;
                 let decorated = apply_decorators(cell.clone(), mapper);
-                let wrapped = wrap_md_spans_lines(inner_width, decorated);
+                let wrapped = wrap_md_spans_lines(inner_width, decorated, mapper.hide_urls());
                 if wrapped.is_empty() {
                     vec![Vec::new()]
                 } else {

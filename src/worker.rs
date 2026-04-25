@@ -7,6 +7,7 @@
 //!
 //! For example, text search could benefit from running in the worker, but it's not clear how the
 //! text should then actually be shared.
+mod link_tracker;
 pub mod sections;
 
 use std::{

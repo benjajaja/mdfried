@@ -395,6 +395,17 @@ bitflags! {
     }
 }
 
+impl Modifier {
+    // Returns true if LinkURL but not Image.
+    pub fn is_link_url(&self) -> bool {
+        self.contains(Modifier::LinkURL) && !self.contains(Modifier::Image)
+    }
+    /// Returns true if contains `modifier` but not [`Modifier::Image`].
+    pub fn is_link_modifier(&self, modifier: Modifier) -> bool {
+        self.contains(modifier) && !self.contains(Modifier::Image)
+    }
+}
+
 /// Span with modifiers.
 ///
 /// Also may have some [`SourceContent`], e.g. links.
@@ -414,18 +425,6 @@ impl Span {
             content,
             modifiers: extra,
         }
-    }
-
-    #[cfg(test)]
-    pub fn test_link(description: &str, url: &str) -> Vec<Self> {
-        vec![
-            Self::new("[".to_owned(), Modifier::Link),
-            Self::new(description.to_owned(), Modifier::Link),
-            Self::new("]".to_owned(), Modifier::Link),
-            Self::new("(".to_owned(), Modifier::Link),
-            Self::new(url.to_owned(), Modifier::Link | Modifier::LinkURL),
-            Self::new(")".to_owned(), Modifier::Link),
-        ]
     }
 }
 
