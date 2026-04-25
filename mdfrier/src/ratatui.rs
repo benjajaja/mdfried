@@ -323,9 +323,16 @@ fn node_to_span<T: Theme>(
     let Span {
         content,
         modifiers,
-        ..
         // TODO: make OSC links work when https://github.com/ratatui/ratatui/pull/1605
     } = node;
+
+    if theme.hide_urls()
+        && modifiers.contains(MdModifier::LinkURL)
+        && !modifiers.contains(MdModifier::Image)
+    {
+        // TODO: this seems super hacky, can we not do this earlier?
+        return RatatuiSpan::default();
+    }
 
     // Handle special modifier-based styling
     if modifiers.contains(MdModifier::BlockquoteBar) {

@@ -629,7 +629,9 @@ Quote break.
                     "]".into(),
                     Modifier::Link | Modifier::LinkDescriptionWrapper
                 ),
+                Span::new("".to_owned(), Modifier::Link | Modifier::LinkURLWrapper,),
                 Span::new("https://url".into(), Modifier::Link | Modifier::LinkURL),
+                Span::new("".to_owned(), Modifier::Link | Modifier::LinkURLWrapper,),
             ]
         );
     }

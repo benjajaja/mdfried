@@ -656,16 +656,28 @@ fn wrapped_to_lines<M: Mapper>(
         // Create image lines
         for img in wrapped_line.images {
             let spans = vec![
-                Span::new("![".to_owned(), Modifier::LinkDescriptionWrapper),
+                Span::new(
+                    "![".to_owned(),
+                    Modifier::Image | Modifier::LinkDescriptionWrapper,
+                ),
                 if is_only_image {
-                    Span::new(img.description.clone(), Modifier::LinkDescription)
+                    Span::new(
+                        img.description.clone(),
+                        Modifier::Image | Modifier::LinkDescription,
+                    )
                 } else {
-                    Span::new("Loading...".to_owned(), Modifier::LinkDescription)
+                    Span::new(
+                        "Loading...".to_owned(),
+                        Modifier::Image | Modifier::LinkDescription,
+                    )
                 },
-                Span::new("]".to_owned(), Modifier::LinkDescriptionWrapper),
-                Span::new("(".to_owned(), Modifier::LinkURLWrapper),
-                Span::new(img.url.clone(), Modifier::LinkURL),
-                Span::new(")".to_owned(), Modifier::LinkURLWrapper),
+                Span::new(
+                    "]".to_owned(),
+                    Modifier::Image | Modifier::LinkDescriptionWrapper,
+                ),
+                Span::new("(".to_owned(), Modifier::Image | Modifier::LinkURLWrapper),
+                Span::new(img.url.clone(), Modifier::Image | Modifier::LinkURL),
+                Span::new(")".to_owned(), Modifier::Image | Modifier::LinkURLWrapper),
             ];
             lines.push(Line {
                 spans,
@@ -937,10 +949,12 @@ mod tests {
                         "".to_owned(),
                         Modifier::Link | Modifier::LinkDescriptionWrapper,
                     ),
+                    Span::new("".to_owned(), Modifier::Link | Modifier::LinkURLWrapper,),
                     Span::new(
                         "http://example.com".to_owned(),
                         Modifier::Link | Modifier::LinkURL,
                     ),
+                    Span::new("".to_owned(), Modifier::Link | Modifier::LinkURLWrapper,),
                 ],
                 kind: LineKind::Paragraph,
             }
