@@ -424,7 +424,6 @@ fn apply_decorators<M: Mapper>(spans: Vec<Span>, mapper: &M) -> Vec<Span> {
             };
         }
 
-        // Hide URL spans if configured (but not Image spans - they're extracted during wrapping)
         let hide = mapper.hide_urls()
             && (span.modifiers.contains(Modifier::LinkURLWrapper)
                 && !(span.modifiers.contains(Modifier::BareLink)
@@ -432,6 +431,8 @@ fn apply_decorators<M: Mapper>(spans: Vec<Span>, mapper: &M) -> Vec<Span> {
         if !hide {
             result.push(span);
         } else {
+            // LinkURLWrapper may be hidden by setting to "empty content", but we need them to
+            // exist for LinkTracker logic.
             result.push(Span {
                 content: String::new(),
                 modifiers: span.modifiers,

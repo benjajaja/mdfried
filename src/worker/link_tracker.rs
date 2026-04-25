@@ -8,6 +8,8 @@ use unicode_width::UnicodeWidthStr as _;
 use crate::document::LineExtra;
 
 #[derive(Default)]
+/// Iterator over [`mdfrier::Span`]s and extract links as [`LineExtra::Link`]`(url, start, end)`,
+/// where "start" and "end" are the respective positions in the [`mdfrier::Line`].
 pub struct LinkTracker {
     offset: u16,
     extras: Vec<LineExtra>,

@@ -406,9 +406,9 @@ impl Modifier {
     }
 }
 
-/// Span with modifiers.
+/// Span, `String` content with [`Modifier`]s.
 ///
-/// Also may have some [`SourceContent`], e.g. links.
+/// This is a proto-ratatui-span, we need a different set of modifiers beyond just styling.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Span {
     pub content: String,
@@ -466,8 +466,8 @@ impl UnicodeWidthStr for Span {
 /// A source content, such as a URL.
 ///
 /// Derefs to [`Arc<str>`] which is a unique content (e.g. URL).
-/// The pointer at [`Arc::as_ptr`] is intentionally shared across multiple [`Span`]s when some
-/// content has been line-wrapped.
+/// The pointer at [`Arc::as_ptr`] is intentionally shared across multiple [`Span`]s that can
+/// result from a single markdown link description, or from line-wrapping.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SourceContent(Arc<str>);
 
@@ -613,17 +613,11 @@ impl MdParagraph {
     }
 
     #[expect(clippy::string_slice)]
-    pub(crate) fn recurse(
-        &mut self,
-        node: Node<'_>,
-        source: &str,
-        extra: Modifier,
-        _depth: i32,
-    ) -> Option<SourceContent> {
+    pub(crate) fn recurse(&mut self, node: Node<'_>, source: &str, extra: Modifier, _depth: i32) {
         let kind = node.kind();
 
         if kind.contains("delimiter") {
-            return None;
+            return;
         }
 
         let current_extra = match kind {
@@ -636,14 +630,14 @@ impl MdParagraph {
                 let stripped = content.trim_start_matches('`').trim_end_matches('`').trim(); // Also trim inner whitespace that some code spans have
                 self.spans
                     .push(Span::new(stripped.to_owned(), extra.union(Modifier::Code)));
-                return None;
+                return;
             }
             "hard_line_break" | "soft_break" => {
                 // GFM hard line break (two trailing spaces + newline) or soft break
                 self.spans
                     // TODO Modifier::Code seems incorrect here
                     .push(Span::new(String::new(), extra.union(Modifier::Code)));
-                return None;
+                return;
             }
             "[" | "]" => Modifier::LinkDescriptionWrapper,
             "(" | ")" => Modifier::LinkURLWrapper,
@@ -653,10 +647,9 @@ impl MdParagraph {
             "image_description" => Modifier::LinkDescription,
             "link_destination" => {
                 let url = source[node.byte_range()].to_owned();
-                let source_content = SourceContent::from(url.as_ref());
                 self.spans
                     .push(Span::new(url, extra.union(Modifier::LinkURL)));
-                return Some(source_content);
+                return;
             }
             _ => Modifier::default(),
         };
@@ -667,7 +660,7 @@ impl MdParagraph {
                 source[node.start_byte()..node.end_byte()].to_owned(),
                 extra,
             ));
-            return None;
+            return;
         }
 
         let mut pos = node.start_byte();
@@ -683,22 +676,6 @@ impl MdParagraph {
             }
 
             self.recurse(child, source, extra, _depth + 1);
-            // if let Some(source_content) = source_content {
-            // This is why we return Option<SourceContent>, *only* LinkURL spans return
-            // Some(SourceContent). That is, if there was some other SourceContent on some spans,
-            // it should NOT be returned (without changing this block).
-            // for span in self.spans.iter_mut().rev() {
-            // We only want to overwrite previous spans that have been line-broken, not
-            // genuine different links, so skip if the span already has some
-            // `source_content`.
-            // if span.source_content.is_none()
-            // && span.modifiers.contains(Modifier::LinkDescription)
-            // && !span.modifiers.contains(Modifier::Image)
-            // {
-            // span.source_content = Some(source_content.clone());
-            // }
-            // }
-            // }
             pos = child.end_byte();
         }
 
@@ -706,8 +683,6 @@ impl MdParagraph {
             self.spans
                 .push(Span::new(source[pos..node.end_byte()].to_owned(), extra));
         }
-
-        None
     }
 
     fn empty() -> MdParagraph {
@@ -912,8 +887,6 @@ fn split_newlines(mdspans: Vec<Span>) -> Vec<Span> {
                 } else {
                     mdspan.modifiers.union(Modifier::NewLine)
                 },
-                // Preserve source_content across all split parts
-                // source_content: mdspan.source_content.clone(),
             });
         }
     }

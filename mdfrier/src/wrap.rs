@@ -102,6 +102,8 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>, hide_urls: bool) -> V
         }
 
         let span_width = if hide_urls && mdspan.modifiers.is_link_url() {
+            // If hide_urls, the LinkURL is kept for building LinkExtra::Link after wrapping, but
+            // will be filtered out later. Therefore, ignore for width counts.
             0
         } else {
             mdspan.content.width() as u16

@@ -655,8 +655,6 @@ Should be split up nicely.
 
     #[test]
     fn nested_image_link() {
-        // Test case for nested image in link: [![image](url)](link)
-        // This should preserve the nested structure, not split it
         let input = "[![test image](http://example.com/image.png)](http://example.com/link)";
 
         let mut frier = MdFrier::new().unwrap();
