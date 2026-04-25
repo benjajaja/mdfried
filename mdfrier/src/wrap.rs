@@ -228,16 +228,13 @@ mod tests {
 
     #[test]
     fn newline() {
-        let mdspans = vec![
-            Span::from("one "),
-            Span::new("two".into(), Modifier::NewLine),
-        ];
+        let mdspans = vec![Span::from("one "), Span::with("two", Modifier::NewLine)];
         let lines = wrap_md_spans_lines(10, mdspans, false);
         assert_eq!(
             lines,
             vec![
                 vec![Span::from("one")],
-                vec![Span::new("two".into(), Modifier::NewLine),]
+                vec![Span::with("two", Modifier::NewLine),]
             ],
         );
     }
@@ -245,12 +242,12 @@ mod tests {
     #[test]
     fn link_wrapping() {
         let mdspans = vec![
-            Span::new("[".into(), Modifier::LinkDescriptionWrapper),
-            Span::new("link".into(), Modifier::LinkDescription),
-            Span::new("]".into(), Modifier::LinkDescriptionWrapper),
-            Span::new("(".into(), Modifier::LinkURLWrapper),
-            Span::new("https://example.com".into(), Modifier::LinkURL),
-            Span::new(")".into(), Modifier::LinkURLWrapper),
+            Span::with("[", Modifier::LinkDescriptionWrapper),
+            Span::with("link", Modifier::LinkDescription),
+            Span::with("]", Modifier::LinkDescriptionWrapper),
+            Span::with("(", Modifier::LinkURLWrapper),
+            Span::with("https://example.com", Modifier::LinkURL),
+            Span::with(")", Modifier::LinkURLWrapper),
         ];
         let lines = wrap_md_spans_lines(25, mdspans, false);
         assert_eq!(

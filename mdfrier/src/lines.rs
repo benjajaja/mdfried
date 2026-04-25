@@ -938,24 +938,12 @@ mod tests {
             lines[0],
             Line {
                 spans: vec![
-                    Span::new(
-                        "".to_owned(),
-                        Modifier::Link | Modifier::LinkDescriptionWrapper,
-                    ),
-                    Span::new(
-                        "link".to_owned(),
-                        Modifier::Link | Modifier::LinkDescription,
-                    ),
-                    Span::new(
-                        "".to_owned(),
-                        Modifier::Link | Modifier::LinkDescriptionWrapper,
-                    ),
-                    Span::new("".to_owned(), Modifier::Link | Modifier::LinkURLWrapper,),
-                    Span::new(
-                        "http://example.com".to_owned(),
-                        Modifier::Link | Modifier::LinkURL,
-                    ),
-                    Span::new("".to_owned(), Modifier::Link | Modifier::LinkURLWrapper,),
+                    Span::with("", Modifier::Link | Modifier::LinkDescriptionWrapper),
+                    Span::with("link", Modifier::Link | Modifier::LinkDescription),
+                    Span::with("", Modifier::Link | Modifier::LinkDescriptionWrapper),
+                    Span::with("", Modifier::Link | Modifier::LinkURLWrapper,),
+                    Span::with("http://example.com", Modifier::Link | Modifier::LinkURL),
+                    Span::with("", Modifier::Link | Modifier::LinkURLWrapper,),
                 ],
                 kind: LineKind::Paragraph,
             }
@@ -990,37 +978,31 @@ mod tests {
             lines[0],
             Line {
                 spans: vec![
-                    Span::new(
-                        "".to_owned(),
-                        Modifier::Link | Modifier::LinkDescriptionWrapper,
+                    Span::with("", Modifier::Link | Modifier::LinkDescriptionWrapper),
+                    Span::with(
+                        "![",
+                        Modifier::Link | Modifier::LinkDescription | Modifier::Image
                     ),
-                    Span::new(
-                        "![".to_owned(),
-                        Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+                    Span::with(
+                        "image",
+                        Modifier::Link | Modifier::LinkDescription | Modifier::Image
                     ),
-                    Span::new(
-                        "image".to_owned(),
-                        Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+                    Span::with(
+                        "](",
+                        Modifier::Link | Modifier::LinkDescription | Modifier::Image
                     ),
-                    Span::new(
-                        "](".to_owned(),
-                        Modifier::Link | Modifier::LinkDescription | Modifier::Image,
-                    ),
-                    Span::new(
-                        "http://example.com/img.png".to_owned(),
+                    Span::with(
+                        "http://example.com/img.png",
                         Modifier::Link
                             | Modifier::LinkDescription
                             | Modifier::Image
                             | Modifier::LinkURL,
                     ),
-                    Span::new(
-                        ")".to_owned(),
-                        Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+                    Span::with(
+                        ")",
+                        Modifier::Link | Modifier::LinkDescription | Modifier::Image
                     ),
-                    Span::new(
-                        "".to_owned(),
-                        Modifier::Link | Modifier::LinkDescriptionWrapper,
-                    ),
+                    Span::with("", Modifier::Link | Modifier::LinkDescriptionWrapper),
                 ],
                 kind: LineKind::Paragraph,
             }

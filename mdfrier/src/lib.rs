@@ -434,16 +434,13 @@ Quote break.
         assert_eq!(
             spans,
             vec![
-                Span::new("See ".into(), Modifier::empty()),
-                Span::new("(".into(), Modifier::LinkURLWrapper),
-                Span::new("https://".into(), Modifier::LinkURL | Modifier::BareLink,),
-                Span::new(
-                    "example.com/".into(),
-                    Modifier::LinkURL | Modifier::BareLink,
-                ),
-                Span::new("path".into(), Modifier::LinkURL | Modifier::BareLink,),
-                Span::new(")".into(), Modifier::LinkURLWrapper),
-                Span::new(" ok?".into(), Modifier::empty()),
+                Span::from("See "),
+                Span::with("(", Modifier::LinkURLWrapper),
+                Span::with("https://", Modifier::LinkURL | Modifier::BareLink),
+                Span::with("example.com/", Modifier::LinkURL | Modifier::BareLink,),
+                Span::with("path", Modifier::LinkURL | Modifier::BareLink,),
+                Span::with(")", Modifier::LinkURLWrapper),
+                Span::with(" ok?", Modifier::empty()),
             ]
         );
     }
@@ -620,18 +617,12 @@ Quote break.
         assert_eq!(
             lines[0].spans,
             vec![
-                Span::new(
-                    "[".into(),
-                    Modifier::Link | Modifier::LinkDescriptionWrapper
-                ),
-                Span::new("desc".into(), Modifier::Link | Modifier::LinkDescription,),
-                Span::new(
-                    "]".into(),
-                    Modifier::Link | Modifier::LinkDescriptionWrapper
-                ),
-                Span::new("".to_owned(), Modifier::Link | Modifier::LinkURLWrapper,),
-                Span::new("https://url".into(), Modifier::Link | Modifier::LinkURL),
-                Span::new("".to_owned(), Modifier::Link | Modifier::LinkURLWrapper,),
+                Span::with("[", Modifier::Link | Modifier::LinkDescriptionWrapper),
+                Span::with("desc", Modifier::Link | Modifier::LinkDescription,),
+                Span::with("]", Modifier::Link | Modifier::LinkDescriptionWrapper),
+                Span::with("", Modifier::Link | Modifier::LinkURLWrapper,),
+                Span::with("https://url", Modifier::Link | Modifier::LinkURL),
+                Span::with("", Modifier::Link | Modifier::LinkURLWrapper,),
             ]
         );
     }
@@ -674,43 +665,37 @@ Should be split up nicely.
         assert_eq!(
             lines[0].spans,
             vec![
-                Span::new(
-                    "[".to_owned(),
-                    Modifier::Link | Modifier::LinkDescriptionWrapper,
+                Span::with("[", Modifier::Link | Modifier::LinkDescriptionWrapper),
+                Span::with(
+                    "![",
+                    Modifier::Link | Modifier::LinkDescription | Modifier::Image
                 ),
-                Span::new(
-                    "![".to_owned(),
-                    Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+                Span::with(
+                    "test image",
+                    Modifier::Link | Modifier::LinkDescription | Modifier::Image
                 ),
-                Span::new(
-                    "test image".to_owned(),
-                    Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+                Span::with(
+                    "](",
+                    Modifier::Link | Modifier::LinkDescription | Modifier::Image
                 ),
-                Span::new(
-                    "](".to_owned(),
-                    Modifier::Link | Modifier::LinkDescription | Modifier::Image,
-                ),
-                Span::new(
-                    "http://example.com/image.png".to_owned(),
+                Span::with(
+                    "http://example.com/image.png",
                     Modifier::Link
                         | Modifier::LinkDescription
                         | Modifier::LinkURL
                         | Modifier::Image,
                 ),
-                Span::new(
-                    ")".to_owned(),
-                    Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+                Span::with(
+                    ")",
+                    Modifier::Link | Modifier::LinkDescription | Modifier::Image
                 ),
-                Span::new(
-                    "]".to_owned(),
-                    Modifier::Link | Modifier::LinkDescriptionWrapper,
+                Span::with("]", Modifier::Link | Modifier::LinkDescriptionWrapper),
+                Span::with("(", Modifier::Link | Modifier::LinkURLWrapper,),
+                Span::with(
+                    "http://example.com/link",
+                    Modifier::Link | Modifier::LinkURL
                 ),
-                Span::new("(".to_owned(), Modifier::Link | Modifier::LinkURLWrapper,),
-                Span::new(
-                    "http://example.com/link".to_owned(),
-                    Modifier::Link | Modifier::LinkURL,
-                ),
-                Span::new(")".to_owned(), Modifier::Link | Modifier::LinkURLWrapper,),
+                Span::with(")", Modifier::Link | Modifier::LinkURLWrapper,),
             ]
         );
     }

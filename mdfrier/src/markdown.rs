@@ -417,14 +417,16 @@ pub struct Span {
 
 impl Span {
     pub fn new(content: String, extra: Modifier) -> Self {
-        // debug_assert!(
-        // !extra.contains(Modifier::LinkURL),
-        // "Span::new with LinkURL modifier; should use Span::link"
-        // );
         Span {
             content,
             modifiers: extra,
         }
+    }
+
+    #[cfg(test)]
+    pub fn with(content: &str, modifiers: Modifier) -> Self {
+        let content = content.to_owned();
+        Span { content, modifiers }
     }
 }
 
@@ -927,18 +929,18 @@ mod tests {
     #[test]
     fn split_no_empty_spans() {
         let mdspans = split_newlines(vec![
-            Span::new("one line".to_owned(), Modifier::default()),
-            Span::new(".".to_owned(), Modifier::default()),
-            Span::new("\nanother line".to_owned(), Modifier::NewLine),
-            Span::new(".".to_owned(), Modifier::default()),
+            Span::with("one line", Modifier::default()),
+            Span::with(".", Modifier::default()),
+            Span::with("\nanother line", Modifier::NewLine),
+            Span::with(".", Modifier::default()),
         ]);
         assert_eq!(
             mdspans,
             vec![
-                Span::new("one line".to_owned(), Modifier::default()),
-                Span::new(".".to_owned(), Modifier::default()),
-                Span::new("another line".to_owned(), Modifier::NewLine),
-                Span::new(".".to_owned(), Modifier::default()),
+                Span::with("one line", Modifier::default()),
+                Span::with(".", Modifier::default()),
+                Span::with("another line", Modifier::NewLine),
+                Span::with(".", Modifier::default()),
             ]
         );
     }
@@ -990,8 +992,8 @@ mod tests {
 
     #[test]
     fn detect_bare_url() {
-        let spans = vec![Span::new(
-            "Check https://example.com for more.".to_owned(),
+        let spans = vec![Span::with(
+            "Check https://example.com for more.",
             Modifier::default(),
         )];
         let result = detect_bare_urls(spans);
@@ -1010,8 +1012,8 @@ mod tests {
 
     #[test]
     fn detect_bare_url_preserves_existing_modifiers() {
-        let spans = vec![Span::new(
-            "See https://example.com now".to_owned(),
+        let spans = vec![Span::with(
+            "See https://example.com now",
             Modifier::Emphasis,
         )];
         let result = detect_bare_urls(spans);
@@ -1028,8 +1030,8 @@ mod tests {
 
     #[test]
     fn detect_bare_url_skips_existing_links() {
-        let spans = vec![Span::new(
-            "https://example.com".to_owned(),
+        let spans = vec![Span::with(
+            "https://example.com",
             Modifier::Link | Modifier::LinkURL,
         )];
         let result = detect_bare_urls(spans.clone());
@@ -1038,7 +1040,7 @@ mod tests {
 
     #[test]
     fn detect_bare_url_skips_code() {
-        let spans = vec![Span::new("https://example.com".to_owned(), Modifier::Code)];
+        let spans = vec![Span::with("https://example.com", Modifier::Code)];
         let result = detect_bare_urls(spans.clone());
         assert_eq!(result, spans);
     }
@@ -1046,10 +1048,7 @@ mod tests {
     #[test]
     fn angle_bracket_url_preserved() {
         // Angle bracket URLs like <http://example.com> should preserve both < and >
-        let spans = vec![Span::new(
-            "<http://www.example.com>".to_owned(),
-            Modifier::default(),
-        )];
+        let spans = vec![Span::with("<http://www.example.com>", Modifier::default())];
         let result = detect_bare_urls(spans);
         assert_eq!(result.len(), 5);
         assert_eq!(result[0].content, "<");
@@ -1074,23 +1073,17 @@ mod tests {
         let MdContent::Paragraph(MdParagraph { spans }) = first.content else {
             panic!("expected paragraph");
         };
-        assert_eq!(spans[0], Span::new("![".to_owned(), Modifier::Image));
+        assert_eq!(spans[0], Span::with("![", Modifier::Image));
         assert_eq!(
             spans[1],
-            Span {
-                content: "text".to_owned(),
-                modifiers: Modifier::Image | Modifier::LinkDescription,
-            }
+            Span::with("text", Modifier::Image | Modifier::LinkDescription)
         );
-        assert_eq!(spans[2], Span::new("](".to_owned(), Modifier::Image));
+        assert_eq!(spans[2], Span::with("](", Modifier::Image));
         assert_eq!(
             spans[3],
-            Span {
-                content: "url".to_owned(),
-                modifiers: Modifier::Image | Modifier::LinkURL,
-            }
+            Span::with("url", Modifier::Image | Modifier::LinkURL)
         );
-        assert_eq!(spans[4], Span::new(")".to_owned(), Modifier::Image));
+        assert_eq!(spans[4], Span::with(")", Modifier::Image));
     }
 
     #[test]
@@ -1105,30 +1098,27 @@ mod tests {
         let MdContent::Paragraph(MdParagraph { spans }) = first.content else {
             panic!("expected paragraph");
         };
-        assert_eq!(spans[0], Span::new("![".to_owned(), Modifier::Image));
+        assert_eq!(spans[0], Span::with("![", Modifier::Image));
         assert_eq!(
             spans[1],
-            Span {
-                content: "text with ".to_owned(),
-                modifiers: Modifier::Image | Modifier::LinkDescription,
-            }
+            Span::with("text with ", Modifier::Image | Modifier::LinkDescription)
         );
         assert_eq!(
             spans[2],
-            Span {
-                content: "code".to_owned(),
-                modifiers: Modifier::Image | Modifier::LinkDescription | Modifier::Code,
-            }
+            Span::with(
+                "code",
+                Modifier::Image | Modifier::LinkDescription | Modifier::Code
+            )
         );
-        assert_eq!(spans[3], Span::new("](".to_owned(), Modifier::Image));
+        assert_eq!(spans[3], Span::with("](", Modifier::Image));
         assert_eq!(
             spans[4],
-            Span {
-                content: "http://example.com/?a=1&`code`=2".to_owned(),
-                modifiers: Modifier::Image | Modifier::LinkURL,
-            }
+            Span::with(
+                "http://example.com/?a=1&`code`=2",
+                Modifier::Image | Modifier::LinkURL
+            )
         );
-        assert_eq!(spans[5], Span::new(")".to_owned(), Modifier::Image));
+        assert_eq!(spans[5], Span::with(")", Modifier::Image));
     }
 
     #[test]
@@ -1145,70 +1135,58 @@ mod tests {
         };
         assert_eq!(
             spans[0],
-            Span::new(
-                "[".to_owned(),
-                Modifier::Link | Modifier::LinkDescriptionWrapper
-            )
+            Span::with("[", Modifier::Link | Modifier::LinkDescriptionWrapper)
         );
         assert_eq!(
             spans[1],
-            Span {
-                content: "![".to_owned(),
-                modifiers: Modifier::Link | Modifier::LinkDescription | Modifier::Image,
-            }
+            Span::with(
+                "![",
+                Modifier::Link | Modifier::LinkDescription | Modifier::Image
+            )
         );
         assert_eq!(
             spans[2],
-            Span {
-                content: "image".to_owned(),
-                modifiers: Modifier::Link | Modifier::LinkDescription | Modifier::Image,
-            }
+            Span::with(
+                "image",
+                Modifier::Link | Modifier::LinkDescription | Modifier::Image
+            )
         );
         assert_eq!(
             spans[3],
-            Span::new(
-                "](".to_owned(),
-                Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+            Span::with(
+                "](",
+                Modifier::Link | Modifier::LinkDescription | Modifier::Image
             )
         );
         assert_eq!(
             spans[4],
-            Span {
-                content: "http://example.com/img.png".to_owned(),
-                modifiers: Modifier::Link
-                    | Modifier::LinkDescription
-                    | Modifier::LinkURL
-                    | Modifier::Image,
-            }
+            Span::with(
+                "http://example.com/img.png",
+                Modifier::Link | Modifier::LinkDescription | Modifier::LinkURL | Modifier::Image,
+            )
         );
         assert_eq!(
             spans[5],
-            Span::new(
-                ")".to_owned(),
-                Modifier::Link | Modifier::LinkDescription | Modifier::Image,
+            Span::with(
+                ")",
+                Modifier::Link | Modifier::LinkDescription | Modifier::Image
             )
         );
         assert_eq!(
             spans[6],
-            Span::new(
-                "]".to_owned(),
-                Modifier::Link | Modifier::LinkDescriptionWrapper
-            )
+            Span::with("]", Modifier::Link | Modifier::LinkDescriptionWrapper)
         );
         assert_eq!(
             spans[7],
-            Span::new("(".to_owned(), Modifier::Link | Modifier::LinkURLWrapper)
+            Span::with("(", Modifier::Link | Modifier::LinkURLWrapper)
         );
         assert_eq!(
             spans[8],
-            Span {
-                content: "http://example.com".to_owned(),
-                modifiers: Modifier::Link | Modifier::LinkURL,
-            }
+            Span::with("http://example.com", Modifier::Link | Modifier::LinkURL)
         );
         assert_eq!(
             spans[9],
-            Span::new(")".to_owned(), Modifier::Link | Modifier::LinkURLWrapper)
+            Span::with(")", Modifier::Link | Modifier::LinkURLWrapper)
         );
     }
 }
