@@ -24,6 +24,9 @@ enum LinkExtraLinkBuilder {
 }
 
 impl LinkTracker {
+    pub fn carriage_return(&mut self) {
+        self.offset = 0;
+    }
     pub fn track(&mut self, node: &mdfrier::Span) {
         let span_width = node.content.width() as u16;
         if self.link_builder == LinkExtraLinkBuilder::None
@@ -51,9 +54,16 @@ impl LinkTracker {
             // Push all LinkURL spans into URL.
             url.push_str(&node.content);
         } else if node.modifiers.is_link_modifier(MdModifier::LinkURLWrapper)
-            && let LinkExtraLinkBuilder::StartEndUrl(start, end, url) =
-                std::mem::take(&mut self.link_builder)
+            && matches!(
+                self.link_builder,
+                LinkExtraLinkBuilder::StartEndUrl(_, _, _)
+            )
         {
+            let LinkExtraLinkBuilder::StartEndUrl(start, end, url) =
+                std::mem::take(&mut self.link_builder)
+            else {
+                unreachable!("invariant by matches macro");
+            };
             // Exit URL, can build the LinkExtra::Link now.
             self.extras
                 .push(LineExtra::Link(SourceContent::from(&*url), start, end));

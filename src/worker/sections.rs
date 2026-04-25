@@ -170,6 +170,7 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
             .into_iter()
             .map(|line| {
                 let link_tracker_inner = Rc::clone(&link_tracker);
+                link_tracker_inner.borrow_mut().carriage_return();
                 let lines = render_line(
                     line,
                     self.theme,
@@ -351,7 +352,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn md_link_with_code_block_parses_as_section_with_one_link() {
         let sections = parse_sections("[example `code`](https://example.org/)\n");
         assert_eq!(sections.len(), 1);
@@ -359,11 +359,8 @@ mod tests {
         let SectionContent::Lines(lines) = &sections[0].content else {
             panic!("expected SectionContent::Lines");
         };
-        assert_eq!(lines.len(), 1, "one line");
-        assert!(
-            matches!(lines[0].1.as_slice(), [LineExtra::Link(_, _, _)]),
-            "one link"
-        );
+        assert_eq!(lines.len(), 1);
+        assert!(matches!(lines[0].1.as_slice(), [LineExtra::Link(_, _, _)]),);
     }
 
     #[test]
@@ -421,6 +418,32 @@ mod tests {
         assert_eq!(
             link_extras,
             vec![&SourceContent::from("http://example.com/link")]
+        );
+    }
+
+    #[test]
+    fn multiple_links() {
+        let markdown = r#"Here goes [link one](http://example.com/link1), here goes [link two](http://example.com/link2).  
+Definitely on another line (soft-break) goes [link three](http://example.com/link3).  
+That's all."#;
+
+        let sections = parse_sections(markdown);
+
+        assert_eq!(1, sections.len());
+        let SectionContent::Lines(lines) = &sections[0].content else {
+            panic!("expected SectionContent::Lines");
+        };
+
+        assert_eq!(
+            lines[0].1,
+            vec![
+                LineExtra::Link("http://example.com/link1".into(), 10, 18),
+                LineExtra::Link("http://example.com/link2".into(), 54, 62),
+            ]
+        );
+        assert_eq!(
+            lines[1].1,
+            vec![LineExtra::Link("http://example.com/link3".into(), 45, 55),]
         );
     }
 }
