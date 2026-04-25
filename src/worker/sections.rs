@@ -234,7 +234,7 @@ mod tests {
 
     #[ctor::ctor]
     fn init_logger() {
-        #[expect(clippy::let_underscore_untyped)]
+        #[expect(clippy::let_underscore_untyped, clippy::unwrap_used)]
         let _ = flexi_logger::Logger::try_with_env()
             .unwrap()
             .start()
@@ -392,36 +392,15 @@ mod tests {
             .collect();
 
         log::debug!("TEST LOG");
-        dbg!(&lines);
         assert_eq!(link_extras.len(), 1);
         assert_eq!(link_extras[0].as_ref(), url,);
     }
 
     #[test]
-    fn extract_links_multiple_spans_same_url() {
-        // let line = ratatui::text::Line::from(vec![Span::from("text with "), Span::from("code")]);
-        //
-        // let url = SourceContent::from("https://example.com/target");
-        // let tags = vec![Tag::Link(0, url.clone()), Tag::Link(1, url.clone())];
-        //
-        // let link_extras = extract_links(&line, tags);
-        //
-        // assert_eq!(link_extras.len(), 2);
-        //
-        // for extra in &link_extras {
-        // let LineExtra::Link(extra_url, _, _) = extra else {
-        // panic!("Expected LineExtra::Link");
-        // };
-        // assert_eq!(extra_url.as_ref(), url.as_ref(),);
-        // }
-    }
-
-    #[test]
     fn nested_image_link() {
-        let markdown =
-            format!("[![test image](http://example.com/image.png)](http://example.com/link)");
+        let markdown = "[![test image](http://example.com/image.png)](http://example.com/link)";
 
-        let sections = parse_sections(&markdown);
+        let sections = parse_sections(markdown);
 
         let SectionContent::Lines(lines) = &sections[0].content else {
             panic!("expected SectionContent::Lines");

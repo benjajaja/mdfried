@@ -1071,7 +1071,7 @@ mod tests {
         let first = MdIterator::new(tree, &mut inline_parser, source)
             .next()
             .unwrap();
-        let MdContent::Paragraph(MdParagraph { spans, .. }) = first.content else {
+        let MdContent::Paragraph(MdParagraph { spans }) = first.content else {
             panic!("expected paragraph");
         };
         assert_eq!(spans[0], Span::new("![".to_owned(), Modifier::Image));
@@ -1102,7 +1102,7 @@ mod tests {
         let first = MdIterator::new(tree, &mut inline_parser, source)
             .next()
             .unwrap();
-        let MdContent::Paragraph(MdParagraph { spans, .. }) = first.content else {
+        let MdContent::Paragraph(MdParagraph { spans }) = first.content else {
             panic!("expected paragraph");
         };
         assert_eq!(spans[0], Span::new("![".to_owned(), Modifier::Image));
@@ -1140,7 +1140,7 @@ mod tests {
         let first = MdIterator::new(tree, &mut inline_parser, source)
             .next()
             .unwrap();
-        let MdContent::Paragraph(MdParagraph { spans, .. }) = first.content else {
+        let MdContent::Paragraph(MdParagraph { spans }) = first.content else {
             panic!("expected paragraph");
         };
         assert_eq!(

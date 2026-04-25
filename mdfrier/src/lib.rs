@@ -675,42 +675,42 @@ Should be split up nicely.
             lines[0].spans,
             vec![
                 Span::new(
-                    "[".to_string(),
+                    "[".to_owned(),
                     Modifier::Link | Modifier::LinkDescriptionWrapper,
                 ),
                 Span::new(
-                    "![".to_string(),
+                    "![".to_owned(),
                     Modifier::Link | Modifier::LinkDescription | Modifier::Image,
                 ),
                 Span::new(
-                    "test image".to_string(),
+                    "test image".to_owned(),
                     Modifier::Link | Modifier::LinkDescription | Modifier::Image,
                 ),
                 Span::new(
-                    "](".to_string(),
+                    "](".to_owned(),
                     Modifier::Link | Modifier::LinkDescription | Modifier::Image,
                 ),
                 Span::new(
-                    "http://example.com/image.png".to_string(),
+                    "http://example.com/image.png".to_owned(),
                     Modifier::Link
                         | Modifier::LinkDescription
                         | Modifier::LinkURL
                         | Modifier::Image,
                 ),
                 Span::new(
-                    ")".to_string(),
+                    ")".to_owned(),
                     Modifier::Link | Modifier::LinkDescription | Modifier::Image,
                 ),
                 Span::new(
-                    "]".to_string(),
+                    "]".to_owned(),
                     Modifier::Link | Modifier::LinkDescriptionWrapper,
                 ),
-                Span::new("(".to_string(), Modifier::Link | Modifier::LinkURLWrapper,),
+                Span::new("(".to_owned(), Modifier::Link | Modifier::LinkURLWrapper,),
                 Span::new(
-                    "http://example.com/link".to_string(),
+                    "http://example.com/link".to_owned(),
                     Modifier::Link | Modifier::LinkURL,
                 ),
-                Span::new(")".to_string(), Modifier::Link | Modifier::LinkURLWrapper,),
+                Span::new(")".to_owned(), Modifier::Link | Modifier::LinkURLWrapper,),
             ]
         );
     }
