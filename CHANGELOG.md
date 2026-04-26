@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+- Display image-load error inline.
+- Nested image in link, e.g. `[![image desc](http://image.url)](http://link.url)`.
+- General link-tracking overhaul.
+
 ## [0.19.5] - 2026-04-20
 
 ### Added
