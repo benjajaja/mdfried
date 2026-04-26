@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+- Cursor Positioning: if there is an active cursor, input `zt`, `zz`, or `zb` to position the 
+  cursor (link or search match) at the top, center, or bottom of the viewport respectively.
+
 ### Fixed
 - Display image-load error inline.
 - Nested image in link, e.g. `[![image desc](http://image.url)](http://link.url)`.

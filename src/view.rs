@@ -231,6 +231,13 @@ pub fn view(model: &Model, frame: &mut Frame) {
             frame.render_widget(searchbar, Rect::new(0, frame_area.height - 1, width, 1));
             frame.set_cursor_position((width, frame_area.height - 1));
         }
+        InputQueue::CursorPositioningCommands => {
+            let line = Line::from(Span::from("z").fg(Color::Indexed(32)));
+            let width = line.width() as u16;
+            let searchbar = Paragraph::new(line);
+            frame.render_widget(searchbar, Rect::new(0, frame_area.height - 1, width, 1));
+            frame.set_cursor_position((width, frame_area.height - 1));
+        }
     }
 }
 

@@ -46,6 +46,7 @@ pub enum InputQueue {
     None,
     MovementCount(NonZero<u16>),
     Search(String),
+    CursorPositioningCommands,
 }
 impl InputQueue {
     // Convenience for model "cursor_find" method. Consumes the input, resets self to
@@ -476,6 +477,20 @@ impl Model {
     pub fn theme(&self) -> &Theme {
         &self.config.theme
     }
+
+    pub fn position_cursor(&mut self, positioning: CursorPositioning) {
+        if let Some(pointer_y) = self.cursor.pointer().and_then(|p| self.document.get_y(p)) {
+            let (from, to) = self.visible_lines();
+            let by = match positioning {
+                CursorPositioning::Top => pointer_y as i32 - from as i32,
+                CursorPositioning::Center => pointer_y as i32 - (from + to) as i32 / 2,
+                CursorPositioning::Bottom => pointer_y as i32 - to as i32,
+            };
+            self.scroll_by(by);
+        } else {
+            log::error!("jump_to_pointer without cursor / pointer");
+        }
+    }
 }
 
 #[derive(Default, Debug, PartialEq, Clone, Copy)]
@@ -511,6 +526,23 @@ impl DocumentId {
 impl Display for DocumentId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "D{}.{}", self.id, self.reload_id,)
+    }
+}
+
+pub enum CursorPositioning {
+    Top,
+    Center,
+    Bottom,
+}
+
+impl From<char> for CursorPositioning {
+    fn from(value: char) -> Self {
+        match value {
+            't' => CursorPositioning::Top,
+            'z' => CursorPositioning::Center,
+            'b' => CursorPositioning::Bottom,
+            _ => unreachable!("CursorPositioning from char must be 't', 'z', or 'b'"),
+        }
     }
 }
 

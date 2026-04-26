@@ -12,7 +12,7 @@ use crate::{
     Error,
     cursor::{Cursor, CursorPointer},
     document::{LineExtra, SectionContent},
-    model::{InputQueue, Model},
+    model::{CursorPositioning, InputQueue, Model},
 };
 
 pub enum PollResult {
@@ -95,7 +95,25 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
                 InputQueue::Search(_) => {
                     panic!("invariant is_ascii_digit while in search");
                 }
+                InputQueue::CursorPositioningCommands => {
+                    model.input_queue = InputQueue::None;
+                }
             }
+        }
+        // z starts "cursor positioning commands", like vim.
+        KeyCode::Char(x)
+            if x == 'z'
+                && model.input_queue == InputQueue::None
+                && model.cursor != Cursor::None =>
+        {
+            model.input_queue = InputQueue::CursorPositioningCommands;
+        }
+        KeyCode::Char(x)
+            if (x == 'z' || x == 't' || x == 'b')
+                && model.input_queue == InputQueue::CursorPositioningCommands =>
+        {
+            model.position_cursor(CursorPositioning::from(x));
+            model.input_queue = InputQueue::None;
         }
         // Ways to quit
         KeyCode::Char('q') => {
@@ -161,6 +179,7 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
         // Others
         KeyCode::Char('r') => {
             model.reload(model.screen_size)?;
+            model.input_queue = InputQueue::None;
             return Ok(PollResult::SkipRender);
         }
         KeyCode::Char('/') => {
@@ -228,10 +247,13 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
                 model.input_queue = InputQueue::None;
                 model.cursor = Cursor::None;
             }
+            InputQueue::CursorPositioningCommands => {
+                model.input_queue = InputQueue::None;
+            }
         },
         KeyCode::Backspace => match &mut model.input_queue {
             // Edit input queue.
-            InputQueue::None => {}
+            InputQueue::None | InputQueue::CursorPositioningCommands => {}
             InputQueue::MovementCount(count) => {
                 let value = count.get();
                 if value > 10 {
