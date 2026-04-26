@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.6] - 2026-04-26
+
 ### Added
 - Cursor Positioning: if there is an active cursor, input `zt`, `zz`, or `zb` to position the 
   cursor (link or search match) at the top, center, or bottom of the viewport respectively.
