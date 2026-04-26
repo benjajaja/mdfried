@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Removed
+- mdfrier::ratatui::Tag
+- Span::get_source_content
+  Removed source_content field entirely, the URL of a link should be reconstructed by scanning over
+  the Link* modifiers instead.
+- Span::link constructor
+
+### Changed
+- mdfrier::ratatui::render_line takes additional `hide_url` arg.
+
 ## [0.3.2] - 2026-04-20
 
 ## [0.3.1] - 2026-04-10

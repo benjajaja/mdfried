@@ -2,28 +2,27 @@
 
 mdfrier - Deep fry markdown for [mdfried](https://crates.io/crates/mdfried).
 
-This crate parses markdown with tree-sitter-md into wrapped lines for a fixed width styled
-output.
+## Goals
 
-This isn't as straightforward as wrapping the source and then highlighting syntax, because the
-wrapping relies on markdown context. The process is:
+1. Render markdown for terminals, as close to source as possible.
+   Remove some style decorators such as asterisks for bold or italics, replace or enhance them with
+   style markers.
+2. Wrap lines for the terminal width in their "block" context.
+   It is necessary to track the "context" of "blocks" such as lists / list items, blockquotes,
+   codeblocks, to render with the correct intention of the source markdown.
+3. Produce an intermediate representation that can be used by *anything* that renders to terminals.
+   * Spans: Text-spans with modifiers.
+   * Lines: Spans wrapped as lines.
+   * Sections: Typically separated by headings.
+4. Produce [ratatui](https://ratatui.rs) widgets with the `ratatui` feature.
+   For convenience, directly map the intermediate output to ratatui widgets (ratatui `Spans`).
 
-1. Parse into raw lines with nodes
-2. Map the node's markdown symbols (optionally, because we want to strip e.g. `*` when
-   highlighting with color later)
-3. Wrap the lines of nodes to a maximum width
-4. ???
-
-At step 4, the users of this library will typically convert the wrapped lines of nodes with
-their style information to whatever the target is: ANSI escape sequences, or whatever some
-their library expects.
-
-There is a `ratatui` feature that enables the [`ratatui`] module, which does exactly this, for
-[ratatui](https://ratatui.rs).
+## Customization
 
 The [`Mapper`] trait controls decorator symbols (e.g., blockquote bar, link brackets).
 The optional `ratatui` feature provides the [`ratatui::Theme`] trait that combines [`Mapper`]
-with [`ratatui::style::Style`](https://docs.rs/ratatui/latest/ratatui/style/struct.Style.html) conversion.
+with [`ratatui::style::Style`](https://docs.rs/ratatui/latest/ratatui/style/struct.Style.html) 
+conversion.
 
 ## Examples
 

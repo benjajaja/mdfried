@@ -262,6 +262,7 @@
             [
               nixfmt
               cargo-release
+              cargo-semver-checks
               cargo-flamegraph
               chafa
               glib.dev # for glib-2.0.pc (chafa dependency)
