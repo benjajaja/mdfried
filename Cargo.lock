@@ -1941,7 +1941,7 @@ dependencies = [
 
 [[package]]
 name = "mdfrier"
-version = "0.3.2"
+version = "1.0.0"
 dependencies = [
  "bitflags 2.10.0",
  "ctor",

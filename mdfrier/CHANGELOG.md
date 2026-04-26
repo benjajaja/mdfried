@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-04-26
+
 ### Removed
 - mdfrier::ratatui::Tag
 - Span::get_source_content
