@@ -10,11 +10,14 @@ use std::{
 use itertools::Either;
 
 use cosmic_text::{Attrs, Buffer, Family, Metrics, Shaping};
-use image::{DynamicImage, GenericImage as _, ImageFormat, ImageReader, Rgba, RgbaImage, imageops};
+use image::{
+    DynamicImage, GenericImage as _, ImageFormat, ImageReader, Rgba, RgbaImage,
+    imageops::FilterType,
+};
 use mdfrier::{MarkdownLink, SourceContent};
 use ratatui::{layout::Rect, text::Line};
 
-use ratatui_image::{Resize, picker::Picker, protocol::Protocol};
+use ratatui_image::{FontSize, Resize, picker::Picker, protocol::Protocol};
 use regex::{Match, Regex};
 use reqwest::{
     Client,
@@ -78,7 +81,12 @@ impl Document {
     }
 
     /// Update a specific image line within a section with loaded image data.
-    pub fn update_image(&mut self, section_id: SectionID, link: MarkdownLink, proto: Protocol) {
+    pub fn update_image(
+        &mut self,
+        section_id: SectionID,
+        link: MarkdownLink,
+        protos: Vec<Protocol>,
+    ) {
         let Some(section) = self.sections.iter_mut().find(|s| s.id == section_id) else {
             log::error!("update_image: section #{section_id} not found");
             return;
@@ -86,8 +94,8 @@ impl Document {
 
         *section = Section {
             id: section_id,
-            height: proto.area().height,
-            content: SectionContent::Image(link, proto),
+            height: protos.len() as u16,
+            content: SectionContent::Image(link, protos),
         };
     }
 
@@ -428,7 +436,7 @@ pub struct Section {
 }
 
 pub enum SectionContent {
-    Image(MarkdownLink, Protocol),
+    Image(MarkdownLink, Vec<Protocol>),
     ImagePlaceholder(MarkdownLink, Vec<(Line<'static>, Vec<LineExtra>)>),
     Header(String, u8, Option<Protocol>),
     HeaderPlaceholder(String, u8, Vec<(Line<'static>, Vec<LineExtra>)>),
@@ -789,21 +797,64 @@ pub async fn image_section(
 
         let max_width: u16 = (max_height * 3 / 2).min(width);
 
-        let proto = picker.new_protocol(
-            dyn_img,
-            Rect::new(0, 0, max_width, max_height),
-            Resize::Fit(None),
-        )?;
+        let dyn_img = resize(&picker, dyn_img, max_width, max_height);
 
-        let height = proto.area().height;
+        let (slices, image_size) = slice(dyn_img, &picker.font_size());
+        let row_count = slices.len() as u16;
+        let mut row_size = image_size;
+        row_size.height /= row_count;
+        let rows = slices
+            .into_iter()
+            .map(|row| {
+                picker
+                    .new_protocol(row, row_size, Resize::Fit(None))
+                    .map_err(Error::from)
+            })
+            .collect::<Result<Vec<Protocol>, Error>>()?;
+
         Ok::<Section, Error>(Section {
             id,
-            height,
-            content: SectionContent::Image(link, proto),
+            height: rows.len() as u16,
+            content: SectionContent::Image(link, rows),
         })
     })
     .await??;
     Ok(section)
+}
+
+fn resize(picker: &Picker, dyn_img: DynamicImage, max_width: u16, max_height: u16) -> DynamicImage {
+    let font_size = picker.font_size();
+    let source = ratatui_image::protocol::ImageSource::new(dyn_img, font_size, Rgba([0, 0, 0, 0]));
+
+    let max_area = Rect::new(0, 0, max_width, max_height);
+    let needs_resize =
+        Resize::Fit(None).needs_resize(&source, font_size, source.desired, max_area, false);
+    if let Some(area) = needs_resize {
+        let width = (area.width * font_size.0) as u32;
+        let height = (area.height * font_size.1) as u32;
+        source.image.resize(width, height, FilterType::Nearest)
+    } else {
+        source.image
+    }
+}
+
+fn slice(image: DynamicImage, font_size: &FontSize) -> (Vec<DynamicImage>, Rect) {
+    let height = image.height();
+    let width = image.width();
+
+    let row_count = (height as f64 / font_size.1 as f64).ceil() as u16;
+    let mut rows = Vec::new();
+
+    let font_height = font_size.1 as u32;
+    for i in 0..row_count {
+        let y = i as u32 * font_height;
+        let row_height = font_height.min(height - y);
+        let row = image.crop_imm(0, y, width, row_height);
+        rows.push(row);
+    }
+
+    let col_count = (width as f64 / font_size.0 as f64).ceil() as u16;
+    (rows, Rect::new(0, 0, col_count, row_count))
 }
 
 fn deep_fry(mut dyn_img: DynamicImage) -> DynamicImage {
@@ -814,8 +865,8 @@ fn deep_fry(mut dyn_img: DynamicImage) -> DynamicImage {
 
     let down_width = (width as f32 * 0.9) as u32;
     let down_height = (height as f32 * 0.8) as u32;
-    dyn_img = dyn_img.resize(down_width, down_height, imageops::FilterType::Gaussian);
-    dyn_img = dyn_img.resize(width, height, imageops::FilterType::Nearest);
+    dyn_img = dyn_img.resize(down_width, down_height, FilterType::Gaussian);
+    dyn_img = dyn_img.resize(width, height, FilterType::Nearest);
 
     let mut deep_fried = dyn_img.to_rgba8();
     let mut seed: i32 = 42;

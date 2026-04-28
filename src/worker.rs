@@ -116,13 +116,13 @@ pub fn worker_thread(
                                     section_id,
                                     link,
                                 ) => {
-                                    if let Some(proto) = image_cache.images.remove(&link.url) {
+                                    if let Some(protos) = image_cache.images.remove(&link.url) {
                                         log::debug!("image cache hit: {}", link.url);
                                         event_tx.send(Event::ImageLoaded(
                                             document_id,
                                             *section_id,
                                             link.clone(),
-                                            proto,
+                                            protos,
                                         ))?;
                                     } else {
                                         uncached_image_events.push(event);
@@ -204,14 +204,14 @@ fn process_image_events(
                     .await
                     {
                         Ok(section) => {
-                            let SectionContent::Image(link, proto) = section.content else {
+                            let SectionContent::Image(link, protos) = section.content else {
                                 unreachable!("image_section should return SectionContent::Image");
                             };
                             task_tx.send(Event::ImageLoaded(
                                 document_id,
                                 section_id,
                                 link,
-                                proto,
+                                protos,
                             ))?
                         }
                         Err(Error::ImageLoad(url, error)) => {
@@ -250,7 +250,7 @@ fn process_image_events(
 
 #[derive(Default)]
 pub struct ImageCache {
-    pub images: HashMap<String, Protocol>,
+    pub images: HashMap<String, Vec<Protocol>>,
     pub headers: HashMap<(String, u8), Vec<Protocol>>,
 }
 impl ImageCache {

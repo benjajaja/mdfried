@@ -120,15 +120,17 @@ pub fn view(model: &Model, frame: &mut Frame) {
                     y += LINE_HEIGHT as i32;
                 }
             }
-            SectionContent::Image(_, proto) => {
-                // TODO: kitty can actually render partially, but this should probably be improved
-                // on ratatui-image, so that we can also render partially at the top of the frame.
-                let can_render = (y as u16) < inner_area.bottom() - proto.area().height;
-                if y >= 0 && can_render {
-                    let img = Image::new(proto);
-                    render_lines(img, section.height, y as u16, inner_area, frame);
+            SectionContent::Image(_, protos) => {
+                for proto in protos {
+                    // TODO: kitty can actually render partially, but this should probably be improved
+                    // on ratatui-image, so that we can also render partially at the top of the frame.
+                    let can_render = (y as u16) < inner_area.bottom() - proto.area().height;
+                    if y >= 0 && can_render {
+                        let img = Image::new(proto);
+                        render_lines(img, section.height, y as u16, inner_area, frame);
+                    }
+                    y += proto.area().height as i32;
                 }
-                y += proto.area().height as i32;
             }
             SectionContent::ImagePlaceholder(_, lines) => {
                 for (line, _extras) in lines.iter() {

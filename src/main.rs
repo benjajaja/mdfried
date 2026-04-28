@@ -301,7 +301,7 @@ pub enum Event {
     NewDocument(DocumentId),
     ParseDone(DocumentId, Option<SectionID>), // Only signals "parsing done", not "images ready"!
     Parsed(DocumentId, Section),
-    ImageLoaded(DocumentId, SectionID, MarkdownLink, Protocol),
+    ImageLoaded(DocumentId, SectionID, MarkdownLink, Vec<Protocol>),
     ImageFailed(DocumentId, SectionID, String, String),
     HeaderLoaded(DocumentId, SectionID, Vec<(String, u8, Protocol)>),
     FileChanged,
