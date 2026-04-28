@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.7] - 2026-04-28
+
 ### Fixed
 - Custom header color not resetting and affecting following text in kitty.
 
