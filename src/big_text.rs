@@ -100,6 +100,12 @@ impl<'a> BigText<'a> {
             symbol.extend(chunk);
             write!(symbol, "\x1b\\").expect("write to string");
         }
+
+        if self.color.is_some() {
+            // Reset color
+            write!(symbol, "\x1b[0m").expect("write to string");
+        }
+
         symbol
     }
 }
