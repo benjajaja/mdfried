@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use mdfrier::Mapper as _;
-use ratatui_image::Image;
+use ratatui_image::{Image, protocol::Protocol};
 
 use crate::{
     big_text::BigText,
@@ -120,18 +120,46 @@ pub fn view(model: &Model, frame: &mut Frame) {
                     y += LINE_HEIGHT as i32;
                 }
             }
-            SectionContent::Image(_, ProtocolWrapper::Sliced(protos)) => {
-                for proto in protos {
-                    // TODO: kitty can actually render partially, but this should probably be improved
-                    // on ratatui-image, so that we can also render partially at the top of the frame.
-                    let can_render = (y as u16) < inner_area.bottom() - proto.area().height;
-                    if y >= 0 && can_render {
-                        let img = Image::new(proto);
-                        render_lines(img, section.height, y as u16, inner_area, frame);
+            SectionContent::Image(_markdown_link, proto_wrapper) => match proto_wrapper {
+                ProtocolWrapper::Sliced(protos) => {
+                    for proto in protos {
+                        let can_render = (y as u16) < inner_area.bottom() - proto.area().height;
+                        if y >= 0 && can_render {
+                            let img = Image::new(proto);
+                            render_lines(img, section.height, y as u16, inner_area, frame);
+                        }
+                        y += proto.area().height as i32;
                     }
-                    y += proto.area().height as i32;
                 }
-            }
+                ProtocolWrapper::Kitty(proto) => {
+                    if y < 0 {
+                        let Protocol::Kitty(kitty) = proto else {
+                            unreachable!("ProtocolWrapper can only have kitty");
+                        };
+                        let start = y.abs() as u16;
+
+                        let ranged_kitty = Protocol::Kitty(kitty.skip_lines(start));
+
+                        let img = Image::new(&ranged_kitty);
+                        let mut widget_area = inner_area;
+                        widget_area.height =
+                            widget_area.height.min(section.height) - y.abs() as u16;
+
+                        frame.render_widget(img, widget_area);
+
+                        y += proto.area().height as i32;
+                    } else {
+                        let img = Image::new(proto);
+                        let mut widget_area = inner_area;
+                        widget_area.y += y.max(0) as u16;
+                        widget_area.height =
+                            (inner_area.height - (y as u16) - 1).min(proto.area().height);
+
+                        frame.render_widget(img, widget_area);
+                        y += proto.area().height as i32;
+                    }
+                }
+            },
             SectionContent::ImagePlaceholder(_, lines) => {
                 for (line, _extras) in lines.iter() {
                     if y < 0 {

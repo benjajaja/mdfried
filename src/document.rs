@@ -17,7 +17,11 @@ use image::{
 use mdfrier::{MarkdownLink, SourceContent};
 use ratatui::{layout::Rect, text::Line};
 
-use ratatui_image::{FontSize, Resize, picker::Picker, protocol::Protocol};
+use ratatui_image::{
+    FontSize, Resize,
+    picker::{Picker, ProtocolType},
+    protocol::Protocol,
+};
 use regex::{Match, Regex};
 use reqwest::{
     Client,
@@ -537,11 +541,13 @@ impl Display for SectionContent {
 
 pub enum ProtocolWrapper {
     Sliced(Vec<Protocol>),
+    Kitty(Protocol),
 }
 impl ProtocolWrapper {
     fn height(&self) -> u16 {
         match self {
             ProtocolWrapper::Sliced(protos) => protos.len() as u16,
+            ProtocolWrapper::Kitty(proto) => proto.area().height,
         }
     }
 }
@@ -806,28 +812,45 @@ pub async fn image_section(
             dyn_img = deep_fry(dyn_img);
         }
 
+        let protocol_type = picker.protocol_type();
         let max_width: u16 = (max_height * 3 / 2).min(width);
+        match protocol_type {
+            ProtocolType::Kitty => {
+                let proto = picker.new_protocol(
+                    dyn_img,
+                    Rect::new(0, 0, max_width, max_height),
+                    Resize::Fit(None),
+                )?;
 
-        let dyn_img = resize(&picker, dyn_img, max_width, max_height);
+                Ok::<Section, Error>(Section {
+                    id,
+                    height: proto.area().height,
+                    content: SectionContent::Image(link, ProtocolWrapper::Kitty(proto)),
+                })
+            }
+            _ => {
+                let dyn_img = resize(&picker, dyn_img, max_width, max_height);
 
-        let (slices, image_size) = slice(dyn_img, &picker.font_size());
-        let row_count = slices.len() as u16;
-        let mut row_size = image_size;
-        row_size.height /= row_count;
-        let rows = slices
-            .into_iter()
-            .map(|row| {
-                picker
-                    .new_protocol(row, row_size, Resize::Fit(None))
-                    .map_err(Error::from)
-            })
-            .collect::<Result<Vec<Protocol>, Error>>()?;
+                let (slices, image_size) = slice(dyn_img, &picker.font_size());
+                let row_count = slices.len() as u16;
+                let mut row_size = image_size;
+                row_size.height /= row_count;
+                let rows = slices
+                    .into_iter()
+                    .map(|row| {
+                        picker
+                            .new_protocol(row, row_size, Resize::Fit(None))
+                            .map_err(Error::from)
+                    })
+                    .collect::<Result<Vec<Protocol>, Error>>()?;
 
-        Ok::<Section, Error>(Section {
-            id,
-            height: rows.len() as u16,
-            content: SectionContent::Image(link, ProtocolWrapper::Sliced(rows)),
-        })
+                Ok::<Section, Error>(Section {
+                    id,
+                    height: rows.len() as u16,
+                    content: SectionContent::Image(link, ProtocolWrapper::Sliced(rows)),
+                })
+            }
+        }
     })
     .await??;
     Ok(section)
