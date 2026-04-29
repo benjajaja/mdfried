@@ -28,7 +28,7 @@ use tokio::{runtime::Builder, sync::RwLock};
 use crate::{
     Cmd, Event, Protocol,
     config::Theme,
-    document::{SectionContent, header_images, header_sections, image_section},
+    document::{ProtocolWrapper, SectionContent, header_images, header_sections, image_section},
     error::Error,
     model::DocumentId,
     setup::FontRenderer,
@@ -250,7 +250,7 @@ fn process_image_events(
 
 #[derive(Default)]
 pub struct ImageCache {
-    pub images: HashMap<String, Vec<Protocol>>,
+    pub images: HashMap<String, ProtocolWrapper>,
     pub headers: HashMap<(String, u8), Vec<Protocol>>,
 }
 impl ImageCache {

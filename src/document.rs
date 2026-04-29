@@ -85,7 +85,7 @@ impl Document {
         &mut self,
         section_id: SectionID,
         link: MarkdownLink,
-        protos: Vec<Protocol>,
+        protos: ProtocolWrapper,
     ) {
         let Some(section) = self.sections.iter_mut().find(|s| s.id == section_id) else {
             log::error!("update_image: section #{section_id} not found");
@@ -94,7 +94,7 @@ impl Document {
 
         *section = Section {
             id: section_id,
-            height: protos.len() as u16,
+            height: protos.height(),
             content: SectionContent::Image(link, protos),
         };
     }
@@ -436,7 +436,7 @@ pub struct Section {
 }
 
 pub enum SectionContent {
-    Image(MarkdownLink, Vec<Protocol>),
+    Image(MarkdownLink, ProtocolWrapper),
     ImagePlaceholder(MarkdownLink, Vec<(Line<'static>, Vec<LineExtra>)>),
     Header(String, u8, Option<Protocol>),
     HeaderPlaceholder(String, u8, Vec<(Line<'static>, Vec<LineExtra>)>),
@@ -531,6 +531,17 @@ impl Display for SectionContent {
             Self::Lines(lines) => write!(f, "Line({lines:?})"),
             Self::Header(text, tier, _) => write!(f, "Header({text}, {tier})"),
             Self::HeaderPlaceholder(_, _, lines) => write!(f, "HeaderPlaceholder({lines:?})"),
+        }
+    }
+}
+
+pub enum ProtocolWrapper {
+    Sliced(Vec<Protocol>),
+}
+impl ProtocolWrapper {
+    fn height(&self) -> u16 {
+        match self {
+            ProtocolWrapper::Sliced(protos) => protos.len() as u16,
         }
     }
 }
@@ -815,7 +826,7 @@ pub async fn image_section(
         Ok::<Section, Error>(Section {
             id,
             height: rows.len() as u16,
-            content: SectionContent::Image(link, rows),
+            content: SectionContent::Image(link, ProtocolWrapper::Sliced(rows)),
         })
     })
     .await??;

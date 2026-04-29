@@ -14,7 +14,7 @@ use ratatui_image::Image;
 use crate::{
     big_text::BigText,
     cursor::{Cursor, CursorPointer},
-    document::{LineExtra, SectionContent},
+    document::{LineExtra, ProtocolWrapper, SectionContent},
     model::{InputQueue, Model},
 };
 
@@ -120,7 +120,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
                     y += LINE_HEIGHT as i32;
                 }
             }
-            SectionContent::Image(_, protos) => {
+            SectionContent::Image(_, ProtocolWrapper::Sliced(protos)) => {
                 for proto in protos {
                     // TODO: kitty can actually render partially, but this should probably be improved
                     // on ratatui-image, so that we can also render partially at the top of the frame.

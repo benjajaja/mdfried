@@ -38,7 +38,7 @@ use setup::{SetupResult, setup_graphics};
 
 use crate::{
     config::Config,
-    document::{Section, SectionID},
+    document::{ProtocolWrapper, Section, SectionID},
     error::Error,
     keybindings::PollResult,
     model::{DocumentId, Model},
@@ -301,7 +301,7 @@ pub enum Event {
     NewDocument(DocumentId),
     ParseDone(DocumentId, Option<SectionID>), // Only signals "parsing done", not "images ready"!
     Parsed(DocumentId, Section),
-    ImageLoaded(DocumentId, SectionID, MarkdownLink, Vec<Protocol>),
+    ImageLoaded(DocumentId, SectionID, MarkdownLink, ProtocolWrapper),
     ImageFailed(DocumentId, SectionID, String, String),
     HeaderLoaded(DocumentId, SectionID, Vec<(String, u8, Protocol)>),
     FileChanged,
