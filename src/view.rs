@@ -9,12 +9,12 @@ use ratatui::{
 };
 
 use mdfrier::Mapper as _;
-use ratatui_image::{Image, protocol::Protocol};
+use ratatui_image::{Image, sliced::SlicedImage};
 
 use crate::{
     big_text::BigText,
     cursor::{Cursor, CursorPointer},
-    document::{LineExtra, ProtocolWrapper, SectionContent},
+    document::{LineExtra, SectionContent},
     model::{InputQueue, Model},
 };
 
@@ -120,46 +120,13 @@ pub fn view(model: &Model, frame: &mut Frame) {
                     y += LINE_HEIGHT as i32;
                 }
             }
-            SectionContent::Image(_markdown_link, proto_wrapper) => match proto_wrapper {
-                ProtocolWrapper::Sliced(protos) => {
-                    for proto in protos {
-                        let can_render = (y as u16) < inner_area.bottom() - proto.area().height;
-                        if y >= 0 && can_render {
-                            let img = Image::new(proto);
-                            render_lines(img, section.height, y as u16, inner_area, frame);
-                        }
-                        y += proto.area().height as i32;
-                    }
-                }
-                ProtocolWrapper::Kitty(proto) => {
-                    if y < 0 {
-                        let Protocol::Kitty(kitty) = proto else {
-                            unreachable!("ProtocolWrapper can only have kitty");
-                        };
-                        let start = y.abs() as u16;
-
-                        let ranged_kitty = Protocol::Kitty(kitty.skip_lines(start));
-
-                        let img = Image::new(&ranged_kitty);
-                        let mut widget_area = inner_area;
-                        widget_area.height =
-                            widget_area.height.min(section.height) - y.abs() as u16;
-
-                        frame.render_widget(img, widget_area);
-
-                        y += proto.area().height as i32;
-                    } else {
-                        let img = Image::new(proto);
-                        let mut widget_area = inner_area;
-                        widget_area.y += y.max(0) as u16;
-                        widget_area.height =
-                            (inner_area.height - (y as u16) - 1).min(proto.area().height);
-
-                        frame.render_widget(img, widget_area);
-                        y += proto.area().height as i32;
-                    }
-                }
-            },
+            SectionContent::Image(_markdown_link, sliced_proto, size) => {
+                // TODO: just fix up inner_area at once
+                let mut inner_area = inner_area;
+                inner_area.height -= 1;
+                frame.render_widget(SlicedImage::new(sliced_proto, *size, y as i16), inner_area);
+                y += size.height as i32;
+            }
             SectionContent::ImagePlaceholder(_, lines) => {
                 for (line, _extras) in lines.iter() {
                     if y < 0 {
@@ -182,7 +149,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
                         render_lines(big_text, 2, y as u16, inner_area, frame);
                     }
                 }
-                y += 2;
+                y += section.height as i32;
             }
             SectionContent::HeaderPlaceholder(_, _, lines) => {
                 for (line, _) in lines.iter() {

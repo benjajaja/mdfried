@@ -15,13 +15,12 @@ use image::{
     imageops::FilterType,
 };
 use mdfrier::{MarkdownLink, SourceContent};
-use ratatui::{layout::Rect, text::Line};
-
-use ratatui_image::{
-    FontSize, Resize,
-    picker::{Picker, ProtocolType},
-    protocol::Protocol,
+use ratatui::{
+    layout::{Rect, Size},
+    text::Line,
 };
+
+use ratatui_image::{Resize, picker::Picker, protocol::Protocol, sliced::SlicedProtocol};
 use regex::{Match, Regex};
 use reqwest::{
     Client,
@@ -89,7 +88,7 @@ impl Document {
         &mut self,
         section_id: SectionID,
         link: MarkdownLink,
-        protos: ProtocolWrapper,
+        (proto, size): (SlicedProtocol, Size),
     ) {
         let Some(section) = self.sections.iter_mut().find(|s| s.id == section_id) else {
             log::error!("update_image: section #{section_id} not found");
@@ -98,8 +97,8 @@ impl Document {
 
         *section = Section {
             id: section_id,
-            height: protos.height(),
-            content: SectionContent::Image(link, protos),
+            height: size.height,
+            content: SectionContent::Image(link, proto, size),
         };
     }
 
@@ -131,15 +130,15 @@ impl Document {
         let mut cache = ImageCache::default();
         for section in &mut self.sections {
             match &mut section.content {
-                SectionContent::Image(url, _) => {
+                SectionContent::Image(url, _, _) => {
                     let url = url.clone();
-                    let SectionContent::Image(link, proto) = std::mem::replace(
+                    let SectionContent::Image(link, proto, size) = std::mem::replace(
                         &mut section.content,
                         SectionContent::ImagePlaceholder(url, vec![]),
                     ) else {
                         unreachable!();
                     };
-                    cache.images.insert(link.url.clone(), proto);
+                    cache.images.insert(link.url.clone(), (proto, size));
                     section.height = 1;
                 }
                 SectionContent::Header(text, tier, proto) => {
@@ -440,7 +439,7 @@ pub struct Section {
 }
 
 pub enum SectionContent {
-    Image(MarkdownLink, ProtocolWrapper),
+    Image(MarkdownLink, SlicedProtocol, Size),
     ImagePlaceholder(MarkdownLink, Vec<(Line<'static>, Vec<LineExtra>)>),
     Header(String, u8, Option<Protocol>),
     HeaderPlaceholder(String, u8, Vec<(Line<'static>, Vec<LineExtra>)>),
@@ -494,7 +493,7 @@ impl PartialEq for SectionContent {
 impl Debug for SectionContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Image(url, _) => f.debug_tuple(format!("Image({url:?})").as_str()).finish(),
+            Self::Image(url, _, _) => f.debug_tuple(format!("Image({url:?})").as_str()).finish(),
             Self::ImagePlaceholder(url, _) => f
                 .debug_tuple(format!("ImagePlaceholder({url:?})").as_str())
                 .finish(),
@@ -526,7 +525,7 @@ impl Debug for SectionContent {
 impl Display for SectionContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Image(url, protocol) => {
+            Self::Image(url, protocol, _) => {
                 write!(f, "Image({url:?}, {:?})", protocol.type_id())
             }
             Self::ImagePlaceholder(url, _) => {
@@ -535,19 +534,6 @@ impl Display for SectionContent {
             Self::Lines(lines) => write!(f, "Line({lines:?})"),
             Self::Header(text, tier, _) => write!(f, "Header({text}, {tier})"),
             Self::HeaderPlaceholder(_, _, lines) => write!(f, "HeaderPlaceholder({lines:?})"),
-        }
-    }
-}
-
-pub enum ProtocolWrapper {
-    Sliced(Vec<Protocol>),
-    Kitty(Protocol),
-}
-impl ProtocolWrapper {
-    fn height(&self) -> u16 {
-        match self {
-            ProtocolWrapper::Sliced(protos) => protos.len() as u16,
-            ProtocolWrapper::Kitty(proto) => proto.area().height,
         }
     }
 }
@@ -562,7 +548,7 @@ impl Section {
 impl Display for Section {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.content {
-            SectionContent::Image(_, _) => write!(f, "<image>"),
+            SectionContent::Image(_, _, _) => write!(f, "<image>"),
             SectionContent::ImagePlaceholder(_, _) => write!(f, "<image-placeholder>"),
             SectionContent::Lines(lines) => {
                 for (i, (line, _)) in lines.iter().enumerate() {
@@ -812,83 +798,26 @@ pub async fn image_section(
             dyn_img = deep_fry(dyn_img);
         }
 
-        let protocol_type = picker.protocol_type();
         let max_width: u16 = (max_height * 3 / 2).min(width);
-        match protocol_type {
-            ProtocolType::Kitty => {
-                let proto = picker.new_protocol(
-                    dyn_img,
-                    Rect::new(0, 0, max_width, max_height),
-                    Resize::Fit(None),
-                )?;
+        let font_size = picker.font_size();
+        let size = {
+            let w = dyn_img.width().div_ceil(font_size.0 as u32) as u16;
+            let h = dyn_img.height().div_ceil(font_size.1 as u32) as u16;
+            let scale = (max_width as f32 / w as f32)
+                .min(max_height as f32 / h as f32)
+                .min(1.0);
+            Size::new((w as f32 * scale) as u16, (h as f32 * scale) as u16)
+        };
 
-                Ok::<Section, Error>(Section {
-                    id,
-                    height: proto.area().height,
-                    content: SectionContent::Image(link, ProtocolWrapper::Kitty(proto)),
-                })
-            }
-            _ => {
-                let dyn_img = resize(&picker, dyn_img, max_width, max_height);
-
-                let (slices, image_size) = slice(dyn_img, &picker.font_size());
-                let row_count = slices.len() as u16;
-                let mut row_size = image_size;
-                row_size.height /= row_count;
-                let rows = slices
-                    .into_iter()
-                    .map(|row| {
-                        picker
-                            .new_protocol(row, row_size, Resize::Fit(None))
-                            .map_err(Error::from)
-                    })
-                    .collect::<Result<Vec<Protocol>, Error>>()?;
-
-                Ok::<Section, Error>(Section {
-                    id,
-                    height: rows.len() as u16,
-                    content: SectionContent::Image(link, ProtocolWrapper::Sliced(rows)),
-                })
-            }
-        }
+        let sliced = SlicedProtocol::new(&picker, dyn_img, size)?;
+        Ok::<Section, Error>(Section {
+            id,
+            height: size.height,
+            content: SectionContent::Image(link, sliced, size),
+        })
     })
     .await??;
     Ok(section)
-}
-
-fn resize(picker: &Picker, dyn_img: DynamicImage, max_width: u16, max_height: u16) -> DynamicImage {
-    let font_size = picker.font_size();
-    let source = ratatui_image::protocol::ImageSource::new(dyn_img, font_size, Rgba([0, 0, 0, 0]));
-
-    let max_area = Rect::new(0, 0, max_width, max_height);
-    let needs_resize =
-        Resize::Fit(None).needs_resize(&source, font_size, source.desired, max_area, false);
-    if let Some(area) = needs_resize {
-        let width = (area.width * font_size.0) as u32;
-        let height = (area.height * font_size.1) as u32;
-        source.image.resize(width, height, FilterType::Nearest)
-    } else {
-        source.image
-    }
-}
-
-fn slice(image: DynamicImage, font_size: &FontSize) -> (Vec<DynamicImage>, Rect) {
-    let height = image.height();
-    let width = image.width();
-
-    let row_count = (height as f64 / font_size.1 as f64).ceil() as u16;
-    let mut rows = Vec::new();
-
-    let font_height = font_size.1 as u32;
-    for i in 0..row_count {
-        let y = i as u32 * font_height;
-        let row_height = font_height.min(height - y);
-        let row = image.crop_imm(0, y, width, row_height);
-        rows.push(row);
-    }
-
-    let col_count = (width as f64 / font_size.0 as f64).ceil() as u16;
-    (rows, Rect::new(0, 0, col_count, row_count))
 }
 
 fn deep_fry(mut dyn_img: DynamicImage) -> DynamicImage {

@@ -202,7 +202,7 @@ impl Model {
                     }
 
                     debug_assert!(
-                        !matches!(section.content, SectionContent::Image(_, _),),
+                        !matches!(section.content, SectionContent::Image(_, _, _),),
                         "unexpected Event::Parsed with Image: {:?}",
                         section.content
                     );

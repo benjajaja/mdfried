@@ -21,14 +21,15 @@ use std::{
 };
 
 use mdfrier::MdFrier;
-use ratatui_image::picker::Picker;
+use ratatui::layout::Size;
+use ratatui_image::{picker::Picker, sliced::SlicedProtocol};
 use reqwest::Client;
 use tokio::{runtime::Builder, sync::RwLock};
 
 use crate::{
     Cmd, Event, Protocol,
     config::Theme,
-    document::{ProtocolWrapper, SectionContent, header_images, header_sections, image_section},
+    document::{SectionContent, header_images, header_sections, image_section},
     error::Error,
     model::DocumentId,
     setup::FontRenderer,
@@ -76,7 +77,7 @@ pub fn worker_thread(
                                 SectionContent::Lines(_) => {
                                     event_tx.send(Event::Parsed(document_id, section))?;
                                 }
-                                SectionContent::Image(_, _) => {
+                                SectionContent::Image(_, _,_) => {
                                     unreachable!("SectionIterator produced Image");
                                 }
                                 SectionContent::ImagePlaceholder(link, _) => {
@@ -204,14 +205,14 @@ fn process_image_events(
                     .await
                     {
                         Ok(section) => {
-                            let SectionContent::Image(link, protos) = section.content else {
+                            let SectionContent::Image(link, protos, size) = section.content else {
                                 unreachable!("image_section should return SectionContent::Image");
                             };
                             task_tx.send(Event::ImageLoaded(
                                 document_id,
                                 section_id,
                                 link,
-                                protos,
+                                (protos, size),
                             ))?
                         }
                         Err(Error::ImageLoad(url, error)) => {
@@ -250,7 +251,7 @@ fn process_image_events(
 
 #[derive(Default)]
 pub struct ImageCache {
-    pub images: HashMap<String, ProtocolWrapper>,
+    pub images: HashMap<String, (SlicedProtocol, Size)>,
     pub headers: HashMap<(String, u8), Vec<Protocol>>,
 }
 impl ImageCache {
