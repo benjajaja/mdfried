@@ -9,7 +9,10 @@ use ratatui::{
 };
 
 use mdfrier::Mapper as _;
-use ratatui_image::{Image, sliced::SlicedImage};
+use ratatui_image::{
+    Image,
+    sliced::{SignedPosition, SlicedImage},
+};
 
 use crate::{
     big_text::BigText,
@@ -124,7 +127,10 @@ pub fn view(model: &Model, frame: &mut Frame) {
                 // TODO: just fix up inner_area at once
                 let mut inner_area = inner_area;
                 inner_area.height -= 1;
-                frame.render_widget(SlicedImage::new(sliced_proto, *size, y as i16), inner_area);
+                frame.render_widget(
+                    SlicedImage::new(sliced_proto, SignedPosition { x: 0, y: y as i16 }),
+                    inner_area,
+                );
                 y += size.height as i32;
             }
             SectionContent::ImagePlaceholder(_, lines) => {

@@ -15,12 +15,9 @@ use image::{
     imageops::FilterType,
 };
 use mdfrier::{MarkdownLink, SourceContent};
-use ratatui::{
-    layout::{Rect, Size},
-    text::Line,
-};
+use ratatui::{layout::Size, text::Line};
 
-use ratatui_image::{Resize, picker::Picker, protocol::Protocol, sliced::SlicedProtocol};
+use ratatui_image::{FontSize, Resize, picker::Picker, protocol::Protocol, sliced::SlicedProtocol};
 use regex::{Match, Regex};
 use reqwest::{
     Client,
@@ -112,7 +109,7 @@ impl Document {
             .into_iter()
             .map(|(text, tier, proto)| {
                 log::debug!("update_header: {text}");
-                let height = proto.area().height;
+                let height = proto.size().height;
                 Section {
                     id: section_id,
                     height,
@@ -617,11 +614,14 @@ pub fn header_images(
     deep_fry_meme: bool,
 ) -> Result<Vec<(String, u8, DynamicImage)>, Error> {
     const HEADER_ROW_COUNT: u16 = 2;
-    let (font_width, font_height) = font_renderer.font_size;
+    let FontSize {
+        width: font_width,
+        height: font_height,
+    } = font_renderer.font_size;
 
     let tier_scale = f32::from(12 - tier) / 12.0_f32;
 
-    let line_height = f32::from(font_height * HEADER_ROW_COUNT);
+    let line_height = f32::from(font_renderer.font_size.height * HEADER_ROW_COUNT);
     let font_size = line_height * tier_scale;
     let metrics = Metrics::new(font_size, line_height);
 
@@ -716,7 +716,7 @@ pub fn header_sections(
         }
         let proto = picker.new_protocol(
             dyn_img,
-            Rect::new(0, 0, width, HEADER_ROW_COUNT),
+            Size::new(width, HEADER_ROW_COUNT),
             Resize::Fit(None),
         )?;
         protos.push((text, tier, proto));
@@ -799,17 +799,14 @@ pub async fn image_section(
         }
 
         let max_width: u16 = (max_height * 3 / 2).min(width);
-        let font_size = picker.font_size();
-        let size = {
-            let w = dyn_img.width().div_ceil(font_size.0 as u32) as u16;
-            let h = dyn_img.height().div_ceil(font_size.1 as u32) as u16;
-            let scale = (max_width as f32 / w as f32)
-                .min(max_height as f32 / h as f32)
-                .min(1.0);
-            Size::new((w as f32 * scale) as u16, (h as f32 * scale) as u16)
-        };
 
-        let sliced = SlicedProtocol::new(&picker, dyn_img, size)?;
+        let size = Resize::Fit(None).size_for(
+            &dyn_img,
+            picker.font_size(),
+            Size::new(max_width, max_height),
+        );
+
+        let sliced = SlicedProtocol::new(&picker, dyn_img, Some(size))?;
         Ok::<Section, Error>(Section {
             id,
             height: size.height,
