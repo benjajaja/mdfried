@@ -160,7 +160,12 @@ pub fn view(model: &Model, frame: &mut Frame) {
                         y += 1;
                         continue; // skip this line.
                     }
-                    let p = Paragraph::new(line.clone());
+                    let line = if let Some(header_color) = model.theme().header_color {
+                        line.clone().fg(header_color)
+                    } else {
+                        line.clone()
+                    };
+                    let p = Paragraph::new(line);
                     render_lines(p, 1, y as u16, inner_area, frame);
                     y += 1;
                 }

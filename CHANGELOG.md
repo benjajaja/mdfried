@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Custom header color was not being set on "plain" headers.
+
 ## [0.19.7] - 2026-04-28
 
 ### Fixed
