@@ -3,6 +3,7 @@ mod fontpicker;
 pub mod notification;
 
 use cosmic_text::{Color, FontSystem, SwashCache};
+use image::Rgba;
 use ratatui_image::{
     FontSize,
     picker::{Capability, Picker, ProtocolType, cap_parser::QueryStdioOptions},
@@ -21,6 +22,7 @@ pub struct FontRenderer {
     pub font_system: FontSystem,
     pub font_color: Color,
     pub swash_cache: SwashCache,
+    pub background_color: Option<Rgba<u8>>,
 }
 
 impl FontRenderer {
@@ -30,6 +32,7 @@ impl FontRenderer {
         font_name: String,
         font_size: FontSize,
         font_color: Option<Color>,
+        background_color: Option<Rgba<u8>>,
     ) -> Self {
         FontRenderer {
             font_size,
@@ -37,6 +40,7 @@ impl FontRenderer {
             font_system,
             font_color: font_color.unwrap_or_else(|| Color::rgba(255, 255, 255, 255)),
             swash_cache,
+            background_color,
         }
     }
 }
@@ -57,15 +61,25 @@ pub fn setup_graphics(
     no_cap_checks: bool,
     debug_override_protocol_type: Option<ProtocolType>,
 ) -> Result<SetupResult, Error> {
-    let mut picker = if no_cap_checks {
-        Picker::halfblocks()
+    let (mut picker, background_color) = if no_cap_checks {
+        (Picker::halfblocks(), None)
     } else {
         print!("Detecting supported graphics protocols...");
-        let mut options = QueryStdioOptions::default();
-        options.text_sizing_protocol = true;
-        let picker = Picker::from_query_stdio_with_options(options)?;
+        let picker = Picker::from_query_stdio_with_options(QueryStdioOptions {
+            text_sizing_protocol: true,
+            terminal_background_color_osc: true,
+            ..Default::default()
+        })?;
         println!(" {:?}.", picker.protocol_type());
-        picker
+        let mut bg = None;
+        if picker.protocol_type() == ProtocolType::Sixel {
+            for cap in picker.capabilities() {
+                if let Capability::Background(r, g, b) = cap {
+                    bg = Some(Rgba::from([*r, *g, *b, 255]));
+                }
+            }
+        }
+        (picker, bg)
     };
 
     let has_text_size_protocol = picker
@@ -153,6 +167,7 @@ pub fn setup_graphics(
                     _ => Color::rgba(255, 255, 255, 255),
                 })
             }),
+            background_color,
         )),
     ))
 }

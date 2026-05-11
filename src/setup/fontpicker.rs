@@ -49,6 +49,7 @@ pub fn interactive_font_picker(
         String::new(),
         picker.font_size(),
         None,
+        None,
     );
 
     println!("{} system fonts detected.", lowercase_fonts.len());

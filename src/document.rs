@@ -11,8 +11,8 @@ use itertools::Either;
 
 use cosmic_text::{Attrs, Buffer, Family, Metrics, Shaping};
 use image::{
-    DynamicImage, GenericImage as _, ImageFormat, ImageReader, Rgba, RgbaImage,
-    imageops::FilterType,
+    DynamicImage, GenericImage as _, GenericImageView as _, ImageFormat, ImageReader, Pixel as _,
+    Rgba, RgbaImage, imageops::FilterType,
 };
 use mdfrier::{MarkdownLink, SourceContent};
 use ratatui::{layout::Size, text::Line};
@@ -649,14 +649,18 @@ pub fn header_images(
     buffer.shape_until_scroll(&mut font_renderer.font_system, false);
 
     // Make one image per shaped line.
-    let run_count = buffer.layout_runs().collect::<Vec<_>>().len();
+    let layout_runs = buffer.layout_runs().collect::<Vec<_>>();
+    let run_count = layout_runs.len();
     let mut dyn_imgs = Vec::with_capacity(run_count);
     let img_height = u32::from(font_height * 2);
     let img_width = u32::from(width * font_width);
-    for layout_run in buffer.layout_runs() {
-        const RGBA_BG: [u8; 4] = [0, 0, 0, 0];
-        let img: RgbaImage =
-            RgbaImage::from_pixel(img_width, img_height, Rgba::<u8>::from(RGBA_BG));
+    const DEFAULT_RGBA_BG: [u8; 4] = [0, 0, 0, 0];
+    let background_color = font_renderer
+        .background_color
+        .unwrap_or_else(|| Rgba::<u8>::from(DEFAULT_RGBA_BG));
+
+    for layout_run in layout_runs {
+        let img: RgbaImage = RgbaImage::from_pixel(img_width, img_height, background_color);
         let dyn_img = DynamicImage::ImageRgba8(img);
         dyn_imgs.push((layout_run.text.into(), tier, dyn_img));
     }
@@ -693,7 +697,19 @@ pub fn header_images(
 
             // Adjust picked image's Y coord offset.
             let y_offset: u32 = index as u32 * img_height;
-            dyn_img.put_pixel(x as u32, y as u32 - y_offset, color.as_rgba().into());
+
+            if font_renderer.background_color.is_some() {
+                // Blend the pixels in with background color.
+                let px = x as u32;
+                let py = y as u32 - y_offset;
+                let fg: Rgba<u8> = color.as_rgba().into();
+                let mut bg = dyn_img.get_pixel(px, py);
+                bg.blend(&fg);
+                dyn_img.put_pixel(px, py, bg);
+            } else {
+                // Just write on the fully transparent image.
+                dyn_img.put_pixel(x as u32, y as u32 - y_offset, color.as_rgba().into());
+            }
         },
     );
 
