@@ -2,8 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+- Partially render images, cropping when partially outside of viewport.
+  This gives a much smoother experience when navigating a document, images no longer pop suddenly
+  into the view.
+- Smooth header images with Sixels.
+  Query terminal background color, use as blended background for sixel header images.
+
 ### Fixed
 - Custom header color was not being set on "plain" headers.
+- Wrapping logic was off for any text following formatted spans.
 
 ## [0.19.7] - 2026-04-28
 
