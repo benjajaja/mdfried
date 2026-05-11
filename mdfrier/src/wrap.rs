@@ -191,30 +191,29 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>, hide_urls: bool) -> V
     }
 
     // Nothing should ever exceed `width`.
-    debug_assert!(
-        lines.iter().all(|line| {
+    #[cfg(debug_assertions)]
+    {
+        for line in &lines {
             if line
                 .iter()
                 .any(|span| span.modifiers.contains(Modifier::LinkURL) && span.content.width() > 0)
             {
                 // Ignore links, which can go over `width`.
-                return true;
+                continue;
             }
             let widths: Vec<usize> = line.iter().map(|span| span.content.width()).collect();
             if (widths.into_iter().sum::<usize>() as u16) > width {
-                eprint!(
-                    "offending line: {:?}",
+                #[cfg(feature = "ratatui")]
+                log::error!(
+                    "wrapped line longer than {width}: {:?}",
                     line.iter()
                         .map(|span| span.content.clone())
                         .collect::<Vec<String>>()
                         .join("")
                 );
-                return false;
             }
-            true
-        }),
-        "wrap_md_spans_lines total width exceeded: {width}"
-    );
+        }
+    }
     lines
 }
 

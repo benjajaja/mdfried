@@ -19,7 +19,10 @@ use std::{
     fs::{self, File},
     io::{self, Read as _},
     path::{Path, PathBuf},
-    sync::mpsc::{self},
+    sync::{
+        OnceLock,
+        mpsc::{self},
+    },
 };
 
 use clap::{ArgMatches, arg, command, value_parser};
@@ -50,6 +53,8 @@ use crate::{
 
 const OK_END: &str = " ok.";
 
+static VERSION: OnceLock<String> = OnceLock::new();
+
 fn main() -> io::Result<()> {
     let mut cmd = command!() // requires `cargo` feature
         .arg(arg!(-d --"deep-fry" "Extra deep fried images").value_parser(value_parser!(bool)))
@@ -73,6 +78,11 @@ fn main() -> io::Result<()> {
                 .value_parser(value_parser!(PathBuf)),
         );
     let matches = cmd.get_matches_mut();
+
+    if let Some(version) = cmd.get_version() {
+        #[expect(unused_must_use)]
+        VERSION.set(version.to_owned());
+    }
 
     match main_with_args(&matches) {
         Err(Error::Usage(msg)) => {

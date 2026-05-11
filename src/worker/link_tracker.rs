@@ -75,7 +75,6 @@ impl LinkTracker {
     pub fn extras(&mut self) -> Vec<LineExtra> {
         let mut extras = Vec::new();
         swap(&mut self.extras, &mut extras);
-        log::debug!("LinkTracker extras: {extras:?}");
         extras
     }
 }

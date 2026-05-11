@@ -10,7 +10,8 @@ use std::{
 use mdfrier::SourceContent;
 use ratatui::{
     layout::{Rect, Size},
-    text::Line,
+    style::{Color, Stylize as _},
+    text::{Line, Span},
     widgets::Padding,
 };
 use regex::RegexBuilder;
@@ -220,7 +221,7 @@ impl Model {
                     }
                     self.document.update_image(section_id, link, protos);
                 }
-                Event::ImageFailed(document_id, section_id, url, error) => {
+                Event::ImageFailed(document_id, section_id, _url, error) => {
                     if !self.document_id.is_same_document(&document_id) {
                         log::debug!("stale event, ignoring");
                         continue;
@@ -229,7 +230,15 @@ impl Model {
                         id: section_id,
                         height: 2,
                         content: SectionContent::Lines(vec![
-                            (Line::from(format!("[{url}: {error}]")), vec![]),
+                            (
+                                Line::from(vec![
+                                    Span::from("["),
+                                    Span::from(error),
+                                    Span::from("]"),
+                                ])
+                                .fg(Color::DarkGray),
+                                vec![],
+                            ),
                             (Line::from(""), vec![]),
                         ]),
                     }]);

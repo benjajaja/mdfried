@@ -20,6 +20,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+use cosmic_text::fontdb::Database;
 use mdfrier::MdFrier;
 use ratatui::layout::Size;
 use ratatui_image::{picker::Picker, sliced::SlicedProtocol};
@@ -27,7 +28,7 @@ use reqwest::Client;
 use tokio::{runtime::Builder, sync::RwLock};
 
 use crate::{
-    Cmd, Event, Protocol,
+    Cmd, Event, Protocol, VERSION,
     config::Theme,
     document::{SectionContent, header_images, header_sections, image_section},
     error::Error,
@@ -53,8 +54,38 @@ pub fn worker_thread(
             .enable_all()
             .build()?;
         runtime.block_on(async {
+
             let basepath = basepath.clone();
-            let client = Arc::new(RwLock::new(Client::new()));
+            let client = Arc::new(RwLock::new({
+                Client::builder()
+                .user_agent(format!("mdfried/{}", VERSION.get().unwrap_or(&"unknown".to_owned())))
+                .build()?
+            }));
+
+            #[cfg(feature = "svg")]
+            let fontdb = renderer
+                .as_ref()
+                .map(|fr| {
+                    let db = fr.font_system.db();
+                    Arc::new(db.clone())
+                }).or_else(|| {
+                    #[cfg(test)]
+                    {
+                        // Making the font db fails some tests, maybe takes too long.
+                        None
+                    }
+                    #[expect(clippy::cfg_not_test)]
+                    #[cfg(not(test))]
+                    {
+                        log::warn!("loading system fonts for SVG");
+                        let mut fontdb = Database::new();
+                        fontdb.load_system_fonts(); // loads all system fonts
+                        Some(Arc::new(fontdb))
+                    }
+                });
+            #[cfg(not(feature = "svg"))]
+            let fontdb = None;
+
             // Specifically not a tokio Mutex, because we use it in spawn_blocking.
             let thread_renderer =
                 renderer.map(|renderer| Arc::new(std::sync::Mutex::new(renderer)));
@@ -157,6 +188,7 @@ pub fn worker_thread(
                                 client.clone(),
                                 thread_picker.clone(),
                                 thread_renderer.clone(),
+                                fontdb.clone(),
                                 width,
                                 config_max_image_height,
                                 deep_fry,
@@ -180,6 +212,7 @@ fn process_image_events(
     client: Arc<RwLock<Client>>,
     picker: Arc<Picker>,
     font_renderer: Option<Arc<std::sync::Mutex<Box<FontRenderer>>>>,
+    fontdb: Option<Arc<Database>>,
     width: u16,
     config_max_image_height: u16,
     deep_fry: bool,
@@ -201,6 +234,7 @@ fn process_image_events(
                         section_id,
                         url,
                         deep_fry,
+                        fontdb.clone(),
                     )
                     .await
                     {

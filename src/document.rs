@@ -9,7 +9,7 @@ use std::{
 
 use itertools::Either;
 
-use cosmic_text::{Attrs, Buffer, Family, Metrics, Shaping};
+use cosmic_text::{Attrs, Buffer, Family, Metrics, Shaping, fontdb::Database};
 use image::{
     DynamicImage, GenericImage as _, GenericImageView as _, ImageFormat, ImageReader, Pixel as _,
     Rgba, RgbaImage, imageops::FilterType,
@@ -645,6 +645,7 @@ pub fn header_images(
         }),
         &attrs,
         Shaping::Advanced,
+        None,
     );
     buffer.shape_until_scroll(&mut font_renderer.font_system, false);
 
@@ -750,10 +751,12 @@ pub async fn image_section(
     id: SectionID,
     link: MarkdownLink,
     deep_fry_meme: bool,
+    fontdb: Option<Arc<Database>>,
 ) -> Result<Section, Error> {
     enum ImageSource {
         Bytes(Vec<u8>, ImageFormat),
         Path(String),
+        DynamicImage(DynamicImage),
     }
     let url = &link.url;
     let image_source = if url.starts_with("https://") || url.starts_with("http://") {
@@ -772,22 +775,48 @@ pub async fn image_section(
             .headers()
             .get(CONTENT_TYPE)
             .and_then(|h| h.to_str().ok());
-        let format = match ct {
-            Some("image/jpeg") => Ok(ImageFormat::Jpeg),
-            Some("image/png") => Ok(ImageFormat::Png),
-            Some("image/webp") => Ok(ImageFormat::WebP),
-            Some("image/gif") => Ok(ImageFormat::Gif),
-            Some(ct) => Err(Error::ImageLoad(
-                url.to_owned(),
-                format!("unhandled content-type {ct}"),
-            )),
-            None => Err(Error::ImageLoad(
+
+        let Some(ct) = ct else {
+            return Err(Error::ImageLoad(
                 url.to_owned(),
                 "no content-type".to_owned(),
-            )),
-        }?;
+            ));
+        };
 
-        ImageSource::Bytes(response.bytes().await?.to_vec(), format)
+        // e.g. "image/svg+xml;charest=utf-8", but varies.
+        if ct.starts_with("image/svg+xml") {
+            #[cfg(feature = "svg")]
+            {
+                let Some(fontdb) = fontdb else {
+                    return Err(Error::ImageLoad(
+                        url.clone(),
+                        "svg feature enabled but no fontdb at runtime".to_owned(),
+                    ));
+                };
+                let bytes = response.bytes().await?.to_vec();
+                let dyn_img = svg_to_png(&bytes, fontdb)?;
+                ImageSource::DynamicImage(dyn_img)
+            }
+            #[cfg(not(feature = "svg"))]
+            return Err(Error::ImageLoad(
+                url.clone(),
+                "svg feature not enabled".to_owned(),
+            ));
+        } else {
+            let format = match ct {
+                "image/jpeg" => Ok(ImageFormat::Jpeg),
+                "image/png" => Ok(ImageFormat::Png),
+                "image/webp" => Ok(ImageFormat::WebP),
+                "image/gif" => Ok(ImageFormat::Gif),
+                ct => Err(Error::ImageLoad(
+                    url.to_owned(),
+                    format!("unhandled content-type {ct}"),
+                )),
+            }?;
+
+            let bytes = response.bytes().await?.to_vec();
+            ImageSource::Bytes(bytes, format)
+        }
     } else {
         let path: String = match basepath {
             Some(basepath) if url.starts_with("./") => basepath
@@ -808,6 +837,7 @@ pub async fn image_section(
                 ImageReader::with_format(std::io::Cursor::new(bytes), format).decode()?
             }
             ImageSource::Path(path) => ImageReader::open(path)?.decode()?,
+            ImageSource::DynamicImage(dyn_img) => dyn_img,
         };
 
         if deep_fry_meme {
@@ -831,6 +861,29 @@ pub async fn image_section(
     })
     .await??;
     Ok(section)
+}
+
+#[cfg(feature = "svg")]
+fn svg_to_png(bytes: &[u8], fontdb: Arc<Database>) -> Result<DynamicImage, Error> {
+    use resvg::{tiny_skia, usvg};
+
+    let options = usvg::Options {
+        fontdb,
+        ..Default::default()
+    };
+    let tree = usvg::Tree::from_data(bytes, &options)
+        .map_err(|err| Error::ImageLoad("(svg)".to_owned(), format!("{err}")))?;
+    let size = tree.size().to_int_size();
+    let mut pixmap = tiny_skia::Pixmap::new(size.width(), size.height()).ok_or(
+        Error::ImageLoad("(svg)".to_owned(), "could not allocate pixmap".to_owned()),
+    )?;
+    resvg::render(&tree, tiny_skia::Transform::default(), &mut pixmap.as_mut());
+    let rgba =
+        RgbaImage::from_raw(size.width(), size.height(), pixmap.take()).ok_or(Error::ImageLoad(
+            "(svg)".to_owned(),
+            "could create RBGA image from pixmap".to_owned(),
+        ))?;
+    Ok(DynamicImage::ImageRgba8(rgba))
 }
 
 fn deep_fry(mut dyn_img: DynamicImage) -> DynamicImage {

@@ -8,6 +8,7 @@
   into the view.
 - Smooth header images with Sixels.
   Query terminal background color, use as blended background for sixel header images.
+- Render SVG images, can be disabled with the `svg` feature.
 
 ### Fixed
 - Custom header color was not being set on "plain" headers.

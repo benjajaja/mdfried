@@ -58,8 +58,8 @@ impl fmt::Display for Error {
             Error::Thread(msg) => write!(f, "Thread error: {msg}"),
             Error::ImageLoad(url, error) => write!(f, "Image error {url}: {error}"),
             Error::Notify(err) => write!(f, "Watch error: {err}"),
-            Error::Generic(msg) => write!(f, "Generic error: {msg}"),
             Error::MarkdownParse => write!(f, "Markdown parsing failed"),
+            Error::Generic(msg) => write!(f, "Generic error: {msg}"),
         }
     }
 }
