@@ -466,7 +466,7 @@ Quote break.
     - [ ] Open a pull request
     - [x] @mentions, #refs, [links](), **formatting**, and <del>tags</del> supported
     - [x] list syntax required (any unordered or ordered list supported)
-    - [ ] this is a complete item
+    - [ ] this is a complete item with a long line that should definitely 100% get wrapped at some point
     - [ ] this is an incomplete item
 + Very easy!
 "#;

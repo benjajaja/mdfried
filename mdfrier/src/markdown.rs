@@ -635,8 +635,7 @@ impl MdParagraph {
             "hard_line_break" | "soft_break" => {
                 // GFM hard line break (two trailing spaces + newline) or soft break
                 self.spans
-                    // TODO Modifier::Code seems incorrect here
-                    .push(Span::new(String::new(), extra.union(Modifier::Code)));
+                    .push(Span::new(String::new(), extra.union(Modifier::NewLine)));
                 return;
             }
             "[" | "]" => Modifier::LinkDescriptionWrapper,

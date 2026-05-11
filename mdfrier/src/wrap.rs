@@ -115,67 +115,71 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>, hide_urls: bool) -> V
             .sum::<usize>() as u16;
         let would_overflow = line_width + span_width > width;
         if would_overflow {
+            // Noe: this *was* something weird about moving links that would exceed `width`
+            // together with their surrounding parens.
             let starting_new_line = !line.is_empty();
-            if starting_new_line {
-                // Keep opening "(" with the URL, not on previous line
-                let move_paren = line.last().is_some_and(|last| {
-                    last.modifiers.contains(Modifier::LinkURLWrapper) && last.content == "("
-                });
-                let moved_paren = if move_paren { line.pop() } else { None };
 
-                lines.push(std::mem::take(&mut line));
-                line_width = 0;
+            // Split once with "remaining width" (`width - line_width`), to append the first part
+            // onto the current line (if any, otherwise would just make a new line).
+            let options = Options::new((width - line_width) as usize)
+                .break_words(true)
+                .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation);
+            let parts: Vec<_> = wrap(&mdspan.content, options).into_iter().collect();
+            let Some(first_part) = parts.first() else {
+                continue;
+            };
+            let first_content = first_part.as_ref();
+            line.push(Span::new(first_content.to_owned(), mdspan.modifiers));
+            lines.push(std::mem::take(&mut line));
+            line_width = 0;
 
-                if let Some(paren) = moved_paren {
-                    line.push(paren);
-                    line_width = 1;
+            // Now split again on the remaining content of the span, with the full `width`.
+            let rest = {
+                let orig = mdspan.content.as_str();
+                let first_end =
+                    first_part.as_ptr() as usize + first_part.len() - orig.as_ptr() as usize;
+                debug_assert!(
+                    orig.is_char_boundary(first_end),
+                    "pointer arithmetic ndexing into string must be at UTF-8 boundaries"
+                );
+                #[expect(clippy::string_slice)]
+                orig[first_end..].trim_start()
+            };
+            let options = Options::new(width as usize)
+                .break_words(true)
+                .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation);
+            let parts: Vec<_> = wrap(rest, options).into_iter().collect();
+
+            let num_parts = parts.len();
+            let ends_with_space = mdspan.content.ends_with(' ');
+            let mut copied_newline = false;
+            for (i, part) in parts.into_iter().enumerate() {
+                let is_last = i == num_parts - 1;
+                let is_first = i == 0;
+                let mut part_content: String = if is_last && ends_with_space {
+                    let mut s = String::with_capacity(part.len() + 1);
+                    s.push_str(&part);
+                    s.push(' ');
+                    s
+                } else {
+                    part.into_owned()
+                };
+                if is_first && starting_new_line && !mdspan.modifiers.contains(Modifier::NewLine) {
+                    trim_start_inplace(&mut part_content);
                 }
-            }
-            if span_width > width {
-                let options = Options::new(width as usize)
-                    .break_words(true)
-                    .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation);
-                let parts: Vec<_> = wrap(&mdspan.content, options).into_iter().collect();
-                let num_parts = parts.len();
-                let ends_with_space = mdspan.content.ends_with(' ');
-                let mut copied_newline = false;
-                for (i, part) in parts.into_iter().enumerate() {
-                    let is_last = i == num_parts - 1;
-                    let is_first = i == 0;
-                    let mut part_content: String = if is_last && ends_with_space {
-                        let mut s = String::with_capacity(part.len() + 1);
-                        s.push_str(&part);
-                        s.push(' ');
-                        s
-                    } else {
-                        part.into_owned()
-                    };
-                    if is_first
-                        && starting_new_line
-                        && !mdspan.modifiers.contains(Modifier::NewLine)
-                    {
-                        trim_start_inplace(&mut part_content);
-                    }
-                    let part_width = part_content.width() as u16;
-                    if line_width + part_width > width {
-                        lines.push(std::mem::take(&mut line));
-                        line_width = 0;
-                    }
-                    let mut modifiers = mdspan.modifiers;
-                    if !copied_newline {
-                        copied_newline = true;
-                    } else {
-                        modifiers.remove(Modifier::NewLine);
-                    }
-                    line.push(Span::new(part_content, modifiers));
-                    line_width += part_width;
+                let part_width = part_content.width() as u16;
+                if line_width + part_width > width {
+                    lines.push(std::mem::take(&mut line));
+                    line_width = 0;
                 }
-            } else {
-                let mut mdspan = mdspan;
-                if starting_new_line && !mdspan.modifiers.contains(Modifier::NewLine) {
-                    trim_start_inplace(&mut mdspan.content);
+                let mut modifiers = mdspan.modifiers;
+                if !copied_newline {
+                    copied_newline = true;
+                } else {
+                    modifiers.remove(Modifier::NewLine);
                 }
-                line.push(mdspan);
+                line.push(Span::new(part_content, modifiers));
+                line_width += part_width;
             }
         } else {
             line.push(mdspan);
@@ -186,6 +190,31 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>, hide_urls: bool) -> V
         lines.push(line);
     }
 
+    // Nothing should ever exceed `width`.
+    debug_assert!(
+        lines.iter().all(|line| {
+            if line
+                .iter()
+                .any(|span| span.modifiers.contains(Modifier::LinkURL) && span.content.width() > 0)
+            {
+                // Ignore links, which can go over `width`.
+                return true;
+            }
+            let widths: Vec<usize> = line.iter().map(|span| span.content.width()).collect();
+            if (widths.into_iter().sum::<usize>() as u16) > width {
+                eprint!(
+                    "offending line: {:?}",
+                    line.iter()
+                        .map(|span| span.content.clone())
+                        .collect::<Vec<String>>()
+                        .join("")
+                );
+                return false;
+            }
+            true
+        }),
+        "wrap_md_spans_lines total width exceeded: {width}"
+    );
     lines
 }
 
@@ -242,6 +271,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
+    // We are not doing the special "don't break URLs but move the surrounding parens into the URL
+    // line" anymore.
     fn link_wrapping() {
         let mdspans = vec![
             Span::with("[", Modifier::LinkDescriptionWrapper),

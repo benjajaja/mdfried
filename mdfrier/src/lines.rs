@@ -884,6 +884,8 @@ fn table_to_lines<M: Mapper>(
 #[cfg(test)]
 #[expect(clippy::unwrap_used)]
 mod tests {
+    use crate::DefaultMapper;
+
     use super::*;
     use pretty_assertions::assert_eq;
     use tree_sitter::Parser;
@@ -1005,6 +1007,67 @@ mod tests {
                     ),
                     Span::with("", Modifier::Link | Modifier::LinkDescriptionWrapper),
                 ],
+                kind: LineKind::Paragraph,
+            }
+        );
+    }
+
+    #[test]
+    fn bold_italics_cause_line_wrap_bugfix() {
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
+        let source = r#"
+I have searched far **and** wide but I have *yet* to come across a show that would leave me so emotionally invested and at the end devastated. The reasons for this I have yet to understand and this blog post is meant to explore them. Who knows where my keyboard will take us."#;
+        let tree = parser.parse(source, None).unwrap();
+        let iter = MdIterator::new(tree, &mut inline_parser, source);
+
+        let line_iter = LineIterator::new(iter, 80, &DefaultMapper {});
+        let lines: Vec<Line> = line_iter.collect();
+        assert_eq!(4, lines.len());
+        assert_eq!(
+            lines[0],
+            Line {
+                spans: vec![
+                    Span::with("I have searched far ", Modifier::default()),
+                    Span::with("**", Modifier::StrongEmphasisWrapper),
+                    Span::with("and", Modifier::StrongEmphasis),
+                    Span::with("**", Modifier::StrongEmphasisWrapper),
+                    Span::with(" wide but I have ", Modifier::default()),
+                    Span::with("*", Modifier::EmphasisWrapper),
+                    Span::with("yet", Modifier::Emphasis),
+                    Span::with("*", Modifier::EmphasisWrapper),
+                    Span::with(" to come across a show that", Modifier::default()),
+                ],
+                kind: LineKind::Paragraph,
+            }
+        );
+        assert_eq!(
+            lines[1],
+            Line {
+                spans: vec![Span::with(
+                    "would leave me so emotionally invested and at the end devastated. The reasons",
+                    Modifier::default()
+                ),],
+                kind: LineKind::Paragraph,
+            }
+        );
+        assert_eq!(
+            lines[2],
+            Line {
+                spans: vec![Span::with(
+                    "for this I have yet to understand and this blog post is meant to explore them.",
+                    Modifier::default()
+                ),],
+                kind: LineKind::Paragraph,
+            }
+        );
+        assert_eq!(
+            lines[3],
+            Line {
+                spans: vec![Span::with(
+                    "Who knows where my keyboard will take us.",
+                    Modifier::default()
+                ),],
                 kind: LineKind::Paragraph,
             }
         );

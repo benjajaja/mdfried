@@ -435,6 +435,10 @@ That's all."#;
         };
 
         assert_eq!(
+            lines[0].0.to_string(),
+            String::from("Here goes link one, here goes link two."),
+        );
+        assert_eq!(
             lines[0].1,
             vec![
                 LineExtra::Link("http://example.com/link1".into(), 10, 18),
