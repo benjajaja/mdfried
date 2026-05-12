@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Fix wrapping: wrap once by remaining line width, then with full width.
+
 ## [1.0.0] - 2026-04-26
 
 ### Removed
