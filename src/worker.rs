@@ -56,11 +56,14 @@ pub fn worker_thread(
         runtime.block_on(async {
 
             let basepath = basepath.clone();
-            let client = Arc::new(RwLock::new({
+            let client = Arc::new(RwLock::new(
                 Client::builder()
-                .user_agent(format!("mdfried/{}", VERSION.get().unwrap_or(&"unknown".to_owned())))
-                .build()?
-            }));
+                    .user_agent(format!(
+                        "mdfried/{}",
+                        VERSION.get().unwrap_or(&"unknown".to_owned())
+                    ))
+                    .build()?
+            ));
 
             #[cfg(feature = "svg")]
             let fontdb = renderer
@@ -77,7 +80,9 @@ pub fn worker_thread(
                     #[expect(clippy::cfg_not_test)]
                     #[cfg(not(test))]
                     {
-                        log::warn!("loading system fonts for SVG");
+                        if !theme.has_text_size_protocol.unwrap_or_default() {
+                            log::warn!("loading system fonts for SVG despite not using text-size-protocol");
+                        }
                         let mut fontdb = Database::new();
                         fontdb.load_system_fonts(); // loads all system fonts
                         Some(Arc::new(fontdb))

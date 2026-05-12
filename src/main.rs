@@ -16,7 +16,7 @@ use std::os::fd::IntoRawFd as _;
 
 use std::{
     fmt::Display,
-    fs::{self, File},
+    fs::read_to_string,
     io::{self, Read as _},
     path::{Path, PathBuf},
     sync::{
@@ -74,8 +74,7 @@ fn main() -> io::Result<()> {
                 .value_parser(value_parser!(bool)),
         )
         .arg(
-            arg!([path] "The markdown file path, or '-', or omit, for stdin")
-                .value_parser(value_parser!(PathBuf)),
+            arg!([source] "The markdown source.\nCan be a file path, a URL, a github repo in \"github:[owner]/[repo]\" format, or '-' or omit, for stdin")
         );
     let matches = cmd.get_matches_mut();
 
@@ -130,32 +129,29 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     debug::init_logger(*matches.get_one("log-to-stderr").unwrap_or(&false))?;
 
-    let path = matches.get_one::<PathBuf>("path");
+    let source: Option<String> = matches.get_one::<String>("source").cloned();
 
-    let (text, basepath) = match path {
-        Some(path) if path.as_os_str() == "-" => {
+    let (text, file_path, basepath) = match source {
+        Some(source) if source == "-" => {
             let mut text = String::new();
             print!("Reading stdin...");
             io::stdin().read_to_string(&mut text)?;
             println!("{OK_END}");
-            (text, None)
+            (text, None, None)
         }
         None => {
             if io::stdin().is_tty() {
                 return Err(Error::Usage(Some(
-                    "no path nor '-', and stdin is a tty (not a pipe)",
+                    "no source nor '-', and stdin is a tty (not a pipe)",
                 )));
             }
             let mut text = String::new();
             print!("Reading stdin...");
             io::stdin().read_to_string(&mut text)?;
             println!("{OK_END}");
-            (text, None)
+            (text, None, None)
         }
-        Some(path) => (
-            fs::read_to_string(path)?,
-            path.parent().map(Path::to_path_buf),
-        ),
+        Some(source) => open_source(&source)?,
     };
 
     if text.is_empty() {
@@ -173,7 +169,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         // Calls some libc, not sure if this could be done otherwise.
         unsafe {
             // Attempt to open /dev/tty which will give us a new stdin
-            let tty = File::open("/dev/tty")?;
+            let tty = std::fs::File::open("/dev/tty")?;
 
             // Get the file descriptor for /dev/tty
             let tty_fd = tty.into_raw_fd();
@@ -219,7 +215,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let deep_fry = *matches.get_one("deep-fry").unwrap_or(&false);
 
     let watchmode_path = if *matches.get_one("watch").unwrap_or(&false) {
-        path.cloned()
+        file_path.clone()
     } else {
         None
     };
@@ -253,7 +249,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     terminal.clear()?;
 
     let terminal_size = terminal.size()?;
-    let model = Model::new(path.cloned(), cmd_tx, event_rx, terminal.size()?, config);
+    let model = Model::new(file_path, cmd_tx, event_rx, terminal.size()?, config);
     model.open(terminal_size, text)?;
 
     let debouncer = if let Some(path) = watchmode_path {
@@ -389,6 +385,68 @@ fn run(terminal: &mut DefaultTerminal, mut model: Model) -> Result<(), Error> {
             })?;
         }
     }
+}
+
+fn open_source(source: &str) -> Result<(String, Option<PathBuf>, Option<PathBuf>), Error> {
+    use ghrepo::GHRepo;
+    use url::Url;
+
+    log::debug!("source: {source:?}");
+    use core::str::FromStr as _;
+    if let Some(handle) = source.strip_prefix("github:")
+        && let Ok(repo) = GHRepo::from_str(handle)
+    {
+        // We only want to try github if the user explicitly prefixed with "github:...".
+        // Otherwise a path like "dir/file.md" would be a valid GHRepo and cause a useless request.
+        let owner = repo.owner();
+        let name = repo.name();
+        let client = reqwest::blocking::Client::builder()
+            .user_agent(format!(
+                "mdfried/{}",
+                VERSION.get().unwrap_or(&"unknown".to_owned())
+            ))
+            .build()?;
+        for branch in ["master", "main"] {
+            let url = format!(
+                "https://raw.githubusercontent.com/{owner}/{name}/refs/heads/{branch}/README.md"
+            );
+            log::info!("trying github URL: {url}");
+            print!("Fetching URL {url}...");
+            let response = client.get(&url).send()?;
+            if response.status().is_success() {
+                println!("{OK_END}");
+                return Ok((response.text()?, None, None));
+            } else {
+                println!("error.");
+            }
+        }
+        return Err(Error::Io(io::Error::other(format!(
+            "failed to request https://raw.githubusercontent.com/{owner}/{name}/refs/heads/[master|main]/README.md"
+        ))));
+    } else if let Ok(url) = Url::parse(source) {
+        log::info!("requesting URL: {url}");
+        print!("Fetching URL {url}...");
+        let client = reqwest::blocking::Client::builder()
+            .user_agent(format!(
+                "mdfried/{}",
+                VERSION.get().unwrap_or(&"unknown".to_owned())
+            ))
+            .build()?;
+        let response = client.get(url.as_ref()).send()?;
+        if response.status().is_success() {
+            println!("{OK_END}");
+            return Ok((response.text()?, None, None));
+        } else {
+            println!("error.");
+            return Err(Error::Io(io::Error::other(format!(
+                "failed to request {url}"
+            ))));
+        }
+    }
+
+    let path = PathBuf::from(source);
+    let basepath = path.parent().map(Path::to_path_buf);
+    Ok((read_to_string(&path)?, Some(path), basepath))
 }
 
 #[cfg(test)]
