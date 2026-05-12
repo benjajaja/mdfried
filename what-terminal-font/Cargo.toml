@@ -1,6 +1,6 @@
 [package]
 name = "what-terminal-font"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["Benjamin Große <ste3ls@gmail.com>"]
 description = "A crate to detect terminal font"
