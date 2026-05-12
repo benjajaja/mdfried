@@ -495,9 +495,9 @@ impl Debug for SectionContent {
                 .debug_tuple(format!("ImagePlaceholder({url:?})").as_str())
                 .finish(),
             Self::Lines(lines) => {
-                let mut tuple = f.debug_tuple("Line");
+                let mut tuple = &mut f.debug_tuple("Line");
                 for (line, extra) in lines {
-                    let mut tuple = tuple.field(line);
+                    tuple = tuple.field(line);
                     if !extra.is_empty() {
                         tuple = tuple.field(extra);
                     }
@@ -506,9 +506,9 @@ impl Debug for SectionContent {
             }
             Self::Header(text, tier, _) => f.debug_tuple("Header").field(text).field(tier).finish(),
             Self::HeaderPlaceholder(_, _, lines) => {
-                let mut tuple = f.debug_tuple("HeaderPlaceholder");
+                let mut tuple = &mut f.debug_tuple("HeaderPlaceholder");
                 for (line, extra) in lines {
-                    let mut tuple = tuple.field(line);
+                    tuple = tuple.field(line);
                     if !extra.is_empty() {
                         tuple = tuple.field(extra);
                     }
