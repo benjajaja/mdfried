@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-05-12
+
 ### Added
 - Partially render images, cropping when partially outside of viewport.
   This gives a much smoother experience when navigating a document, images no longer pop suddenly
