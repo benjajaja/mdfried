@@ -44,7 +44,13 @@ impl LinkTracker {
                 .is_link_modifier(MdModifier::LinkDescriptionWrapper)
         {
             // Exit link description before this span.
-            self.link_builder = LinkExtraLinkBuilder::StartEnd(start, self.offset);
+            if self.offset > start {
+                self.link_builder = LinkExtraLinkBuilder::StartEnd(start, self.offset);
+            } else {
+                log::error!("LinkExtraLinkBuilder::Start(start) > offset");
+                // TODO: this needs fixing!
+                self.link_builder = LinkExtraLinkBuilder::None;
+            }
         } else if let LinkExtraLinkBuilder::StartEnd(start, end) = self.link_builder
             && node.modifiers.is_link_modifier(MdModifier::LinkURLWrapper)
         {

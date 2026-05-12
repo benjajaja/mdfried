@@ -17,8 +17,9 @@ use std::os::fd::IntoRawFd as _;
 use std::{
     fmt::Display,
     fs::read_to_string,
-    io::{self, Read as _},
+    io::{self, Read as _, Write as _},
     path::{Path, PathBuf},
+    process::{Command, Stdio},
     sync::{
         OnceLock,
         mpsc::{self},
@@ -38,6 +39,7 @@ use ratatui::{
 
 use mdfrier::MarkdownLink;
 use ratatui_image::{picker::ProtocolType, protocol::Protocol, sliced::SlicedProtocol};
+use reqwest::header::CONTENT_TYPE;
 use setup::{SetupResult, setup_graphics};
 
 use crate::{
@@ -131,6 +133,9 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     let source: Option<String> = matches.get_one::<String>("source").cloned();
 
+    let mut user_config = config::load_or_ask()?;
+    let config = Config::from(user_config.clone());
+
     let (text, file_path, basepath) = match source {
         Some(source) if source == "-" => {
             let mut text = String::new();
@@ -151,15 +156,12 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             println!("{OK_END}");
             (text, None, None)
         }
-        Some(source) => open_source(&source)?,
+        Some(source) => open_source(&source, config.url_transform_command.clone())?,
     };
 
     if text.is_empty() {
         return Err(Error::Usage(Some("no input or empty")));
     }
-
-    let mut user_config = config::load_or_ask()?;
-    let config = Config::from(user_config.clone());
 
     #[cfg(not(windows))]
     if !io::stdin().is_tty() {
@@ -387,7 +389,10 @@ fn run(terminal: &mut DefaultTerminal, mut model: Model) -> Result<(), Error> {
     }
 }
 
-fn open_source(source: &str) -> Result<(String, Option<PathBuf>, Option<PathBuf>), Error> {
+fn open_source(
+    source: &str,
+    url_transform_command: Option<String>,
+) -> Result<(String, Option<PathBuf>, Option<PathBuf>), Error> {
     use ghrepo::GHRepo;
     use url::Url;
 
@@ -435,6 +440,44 @@ fn open_source(source: &str) -> Result<(String, Option<PathBuf>, Option<PathBuf>
         let response = client.get(url.as_ref()).send()?;
         if response.status().is_success() {
             println!("{OK_END}");
+            log::debug!(
+                "have url_transform_command? {}, content_type: {:?}",
+                url_transform_command.is_some(),
+                response.headers().get(CONTENT_TYPE)
+            );
+            if let Some(url_transform_command) = url_transform_command
+                && let Some(content_type) = response.headers().get(CONTENT_TYPE)
+                && content_type
+                    .to_str()
+                    .map_err(|err| {
+                        Error::Io(io::Error::other(format!("content-type error: {err}")))
+                    })?
+                    .starts_with("text/html")
+            {
+                let mut child = Command::new("sh")
+                    .arg("-c")
+                    .arg(url_transform_command)
+                    .env("URL", url.as_ref())
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .spawn()?;
+
+                let Some(stdin) = child.stdin.as_mut() else {
+                    return Err(Error::Io(io::Error::other(
+                        "url_transform_command pipe error",
+                    )));
+                };
+                stdin.write_all(response.text()?.as_bytes())?;
+
+                let output = child.wait_with_output()?;
+
+                return Ok((
+                    String::from_utf8(output.stdout)
+                        .map_err(|_err| Error::Io(io::Error::other("response not utf-8")))?,
+                    None,
+                    None,
+                ));
+            }
             return Ok((response.text()?, None, None));
         } else {
             println!("error.");

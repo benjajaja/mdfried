@@ -18,6 +18,7 @@ pub struct Config {
     pub watch_debounce_milliseconds: u64,
     pub enable_mouse_capture: bool,
     pub debug_override_protocol_type: Option<ProtocolType>,
+    pub url_transform_command: Option<String>,
     pub theme: Theme,
 }
 
@@ -29,6 +30,7 @@ impl From<UserConfig> for Config {
             watch_debounce_milliseconds: uc.watch_debounce_milliseconds.unwrap_or(100),
             enable_mouse_capture: uc.enable_mouse_capture.unwrap_or(false),
             debug_override_protocol_type: uc.debug_override_protocol_type,
+            url_transform_command: uc.url_transform_command,
             theme: uc.theme.unwrap_or_else(|| Theme {
                 hide_urls: Some(true),
                 ..Default::default()
@@ -46,6 +48,7 @@ pub struct UserConfig {
     pub watch_debounce_milliseconds: Option<u64>,
     pub enable_mouse_capture: Option<bool>,
     pub debug_override_protocol_type: Option<ProtocolType>,
+    pub url_transform_command: Option<String>,
     pub theme: Option<Theme>,
 }
 
@@ -369,7 +372,8 @@ pub fn print_default() -> Result<(), Error> {
         max_image_height: Some(config.max_image_height),
         watch_debounce_milliseconds: Some(config.watch_debounce_milliseconds),
         enable_mouse_capture: Some(config.enable_mouse_capture),
-        debug_override_protocol_type: config.debug_override_protocol_type,
+        debug_override_protocol_type: None,
+        url_transform_command: Some("readable | html2text".to_owned()),
         theme: Some(Theme::defaults_for_print()),
     };
 
