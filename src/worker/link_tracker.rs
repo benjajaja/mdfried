@@ -169,4 +169,10 @@ mod tests {
             LineExtra::Link(SourceContent::from("url"), 1, 20)
         );
     }
+
+    #[test]
+    #[ignore]
+    fn track_wrapped_link() {
+        // TODO: let LinkTracker operate on multiple lines.
+    }
 }

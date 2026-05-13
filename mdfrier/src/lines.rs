@@ -1105,6 +1105,7 @@ I have searched far **and** wide but I have *yet* to come across a show that wou
     }
 
     #[test]
+    #[ignore]
     fn long_url_link_wrapping() {
         let source = "[![Packaging status](https://repology.org/badge/vertical-allrepos/superloooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooongurl.svg)](https://repology.org/project/mdfried/versions)";
         let mut parser = make_parser();

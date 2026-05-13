@@ -146,7 +146,8 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>, hide_urls: bool) -> V
                 continue;
             };
             let first_content = first_part.as_ref();
-            line.push(Span::new(first_content.to_owned(), mdspan.modifiers));
+            let first_span = Span::new(first_content.to_owned(), mdspan.modifiers);
+            line.push(first_span);
             lines.push(std::mem::take(&mut line));
             line_width = 0;
 
