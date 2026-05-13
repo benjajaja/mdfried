@@ -210,6 +210,9 @@
               partitions = 1;
               partitionType = "count";
               cargoNextestExtraArgs = "--workspace";
+              env = {
+                RUST_LOG = "debug";
+              };
             }
           );
         };
