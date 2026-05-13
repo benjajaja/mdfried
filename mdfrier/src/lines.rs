@@ -641,10 +641,18 @@ fn wrapped_to_lines<M: Mapper>(
                 .collect()
         };
 
-        let is_only_image = wrapped_line
-            .spans
-            .iter()
-            .all(|span| span.modifiers.contains(Modifier::Image));
+        // Really only replace an image line if it is just a full image on its own line.
+        // This excludes images that have been wrapped.
+        let is_only_image = wrapped_line.spans.len() == 5
+            && (wrapped_line.spans[0].modifiers == Modifier::Image
+                || wrapped_line.spans[0].modifiers == Modifier::Image | Modifier::NewLine)
+            && wrapped_line.spans[0].content == "!["
+            && wrapped_line.spans[1].modifiers == (Modifier::Image | Modifier::LinkDescription)
+            && wrapped_line.spans[2].modifiers == Modifier::Image
+            && wrapped_line.spans[2].content == "]("
+            && wrapped_line.spans[3].modifiers == (Modifier::Image | Modifier::LinkURL)
+            && wrapped_line.spans[4].modifiers == Modifier::Image
+            && wrapped_line.spans[4].content == ")";
         // Create text line
         if !is_only_image && !wrapped_line.spans.is_empty() {
             let mut spans = nesting_to_prefix_spans(line_nesting, mapper);
@@ -1076,7 +1084,7 @@ I have searched far **and** wide but I have *yet* to come across a show that wou
     }
 
     #[test]
-    fn long_link_wrapping() {
+    fn long_line_link_wrapping() {
         let source = "blalalalallalabbalallalaa [![Packaging status](https://repology.org/badge/vertical-allrepos/mdfried.svg)](https://repology.org/project/mdfried/versions)";
         let mut parser = make_parser();
         let mut inline_parser = make_inline_parser();
@@ -1092,6 +1100,43 @@ I have searched far **and** wide but I have *yet* to come across a show that wou
                 "![Loading...](https://repology.org/badge/vertical-allrepos/mdfried.svg)",
                 "(https://repology.org/project/mdfried/versions)",
             ],
+            Line::to_strings(&lines),
+        );
+    }
+
+    #[test]
+    fn long_url_link_wrapping() {
+        let source = "[![Packaging status](https://repology.org/badge/vertical-allrepos/superloooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooongurl.svg)](https://repology.org/project/mdfried/versions)";
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
+        let tree = parser.parse(source, None).unwrap();
+        let iter = MdIterator::new(tree, &mut inline_parser, source);
+
+        let line_iter = LineIterator::new(iter, 100, &DefaultMapper {});
+        let lines: Vec<Line> = line_iter.collect();
+        assert_eq!(
+            vec![
+                "[![Packaging status](",
+                "https://repology.org/badge/vertical-allrepos/superloooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooongurl.svg)]",
+                "![Loading...](https://repology.org/badge/vertical-allrepos/mdfried.svg)",
+                "(https://repology.org/project/mdfried/versions)",
+            ],
+            Line::to_strings(&lines),
+        );
+    }
+
+    #[test]
+    fn is_only_image() {
+        let source = "![image desc](https://image.com)";
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
+        let tree = parser.parse(source, None).unwrap();
+        let iter = MdIterator::new(tree, &mut inline_parser, source);
+
+        let line_iter = LineIterator::new(iter, 100, &DefaultMapper {});
+        let lines: Vec<Line> = line_iter.collect();
+        assert_eq!(
+            vec!["![image desc](https://image.com)"],
             Line::to_strings(&lines),
         );
     }
