@@ -954,7 +954,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn line_iterator_clean_links_nested_image() {
         let mut parser = make_parser();
         let mut inline_parser = make_inline_parser();
@@ -1006,6 +1005,9 @@ mod tests {
                         Modifier::Link | Modifier::LinkDescription | Modifier::Image
                     ),
                     Span::with("", Modifier::Link | Modifier::LinkDescriptionWrapper),
+                    Span::with("", Modifier::Link | Modifier::LinkURLWrapper),
+                    Span::with("http://example.com", Modifier::Link | Modifier::LinkURL,),
+                    Span::with("", Modifier::Link | Modifier::LinkURLWrapper),
                 ],
                 kind: LineKind::Paragraph,
             }
@@ -1070,6 +1072,27 @@ I have searched far **and** wide but I have *yet* to come across a show that wou
                 ),],
                 kind: LineKind::Paragraph,
             }
+        );
+    }
+
+    #[test]
+    fn long_link_wrapping() {
+        let source = "blalalalallalabbalallalaa [![Packaging status](https://repology.org/badge/vertical-allrepos/mdfried.svg)](https://repology.org/project/mdfried/versions)";
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
+        let tree = parser.parse(source, None).unwrap();
+        let iter = MdIterator::new(tree, &mut inline_parser, source);
+
+        let line_iter = LineIterator::new(iter, 100, &DefaultMapper {});
+        let lines: Vec<Line> = line_iter.collect();
+        assert_eq!(
+            vec![
+                "blalalalallalabbalallalaa [![Packaging status](",
+                "https://repology.org/badge/vertical-allrepos/mdfried.svg)]",
+                "![Loading...](https://repology.org/badge/vertical-allrepos/mdfried.svg)",
+                "(https://repology.org/project/mdfried/versions)",
+            ],
+            Line::to_strings(&lines),
         );
     }
 }

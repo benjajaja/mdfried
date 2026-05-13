@@ -100,6 +100,8 @@ mod wrap;
 #[cfg(feature = "ratatui")]
 pub mod ratatui;
 
+use std::fmt::Display;
+
 use tree_sitter::Parser;
 
 pub use lines::LineIterator;
@@ -147,13 +149,42 @@ pub enum LineKind {
     Blank,
 }
 
+#[cfg(test)]
+impl Display for Line {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}",
+            self.spans
+                .iter()
+                .map(|s| s.content.clone())
+                .collect::<Vec<String>>()
+                .join("")
+        )
+    }
+}
+
+#[cfg(test)]
+impl Line {
+    fn to_strings<T>(lines: T) -> Vec<String>
+    where
+        T: IntoIterator,
+        T::Item: Display,
+    {
+        lines
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct MarkdownLink {
     pub url: String,
     pub description: String,
 }
 
-impl std::fmt::Display for MarkdownLink {
+impl Display for MarkdownLink {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "[{}]({})", self.description, self.url)
     }
@@ -163,7 +194,7 @@ impl std::fmt::Display for MarkdownLink {
 #[derive(Debug)]
 pub struct MarkdownParseError;
 
-impl std::fmt::Display for MarkdownParseError {
+impl Display for MarkdownParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Failed to parse markdown")
     }

@@ -80,6 +80,7 @@ pub fn wrap_md_spans(
         .collect()
 }
 
+// Also used by table cell wrapping.
 pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>, hide_urls: bool) -> Vec<Vec<Span>> {
     let mut lines: Vec<Vec<Span>> = Vec::new();
     let mut line: Vec<Span> = Vec::new();
@@ -113,7 +114,23 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>, hide_urls: bool) -> V
             .filter(|span| !hide_urls || !span.modifiers.is_link_url())
             .map(UnicodeWidthStr::width)
             .sum::<usize>() as u16;
-        let would_overflow = line_width + span_width > width;
+        let mut would_overflow = line_width + span_width > width;
+        if would_overflow && mdspan.modifiers.contains(Modifier::LinkURL) {
+            let move_paren = line.last().is_some_and(|last| {
+                last.modifiers.contains(Modifier::LinkURLWrapper) && last.content == "("
+            });
+            if move_paren && let Some(paren) = line.pop() {
+                lines.push(std::mem::take(&mut line));
+                line.push(paren);
+                line_width = 1;
+            } else {
+                // The last span was not "(", could be a fused "](" from an image.
+                // Ignore but do move this LinkURL into its own line to try to avoid breaking.
+                lines.push(std::mem::take(&mut line));
+                line_width = 0;
+            }
+            would_overflow = line_width + span_width > width;
+        }
         if would_overflow {
             // Noe: this *was* something weird about moving links that would exceed `width`
             // together with their surrounding parens.
@@ -270,7 +287,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     // We are not doing the special "don't break URLs but move the surrounding parens into the URL
     // line" anymore.
     fn link_wrapping() {
