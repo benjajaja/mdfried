@@ -449,24 +449,31 @@ mod tests {
     // Poll until parsed and no pending images.
     #[track_caller]
     fn poll_parsed(model: &mut Model) {
-        let mut fuse = 1_000_000;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
         loop {
             let (_, parse_done, _) = model.process_events().unwrap();
             if parse_done {
                 break;
             }
-            fuse -= 1;
-            if fuse == 0 {
-                panic!("fuse exhausted");
-            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out waiting for process_events to be done"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
         log::debug!("poll_parsed completed");
     }
 
     // Poll until parsed and no pending images.
     fn poll_images_done(model: &mut Model) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
         while model.has_pending_images() {
             model.process_events().unwrap();
+            assert!(
+                std::time::Instant::now() < deadline,
+                "timed out waiting for has_pending_images to be done"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
         log::debug!("poll_done completed");
     }
