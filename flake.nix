@@ -209,6 +209,7 @@
               inherit cargoArtifacts;
               partitions = 1;
               partitionType = "count";
+              cargoNextestCommand = "RUST_LOG=debug cargo nextest";
               cargoNextestExtraArgs = "--workspace";
               env = {
                 RUST_LOG = "debug";

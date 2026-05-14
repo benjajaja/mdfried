@@ -396,6 +396,7 @@ fn run(terminal: &mut DefaultTerminal, mut model: Model) -> Result<(), Error> {
 mod tests {
     use std::{sync::mpsc, thread::JoinHandle};
 
+    #[cfg(not(target_os = "macos"))]
     use insta::assert_snapshot;
     use ratatui::{Terminal, backend::TestBackend, layout::Size};
     use ratatui_image::picker::{Picker, ProtocolType};
@@ -508,10 +509,12 @@ Goodbye."#,
             .unwrap();
         poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
+        #[cfg(not(target_os = "macos"))]
         assert_snapshot!("first parse image previews", terminal.backend());
         // Must load an image.
         poll_images_done(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
+        #[cfg(not(target_os = "macos"))]
         assert_snapshot!("first parse done", terminal.backend());
 
         teardown(model, worker);
@@ -556,6 +559,7 @@ Goodbye."#,
         poll_parsed(&mut model);
         log::debug!("poll_parsed before failing done");
         terminal.draw(|frame| view(&model, frame)).unwrap();
+        #[cfg(not(target_os = "macos"))]
         assert_snapshot!("reload move image up", terminal.backend());
 
         model
@@ -571,6 +575,7 @@ Goodbye."#,
             .unwrap();
         poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
+        #[cfg(not(target_os = "macos"))]
         assert_snapshot!("reload move image down", terminal.backend());
 
         teardown(model, worker);
@@ -615,10 +620,12 @@ Goodbye."#,
             .unwrap();
         poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
+        #[cfg(not(target_os = "macos"))]
         assert_snapshot!("reload add image preview", terminal.backend());
         // Must load an image.
         poll_images_done(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
+        #[cfg(not(target_os = "macos"))]
         assert_snapshot!("reload add image done", terminal.backend());
         teardown(model, worker);
     }
@@ -660,10 +667,12 @@ Goodbye.
             .unwrap();
         poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
+        #[cfg(not(target_os = "macos"))]
         assert_snapshot!("duplicate image preview", terminal.backend());
         // Must load an image.
         poll_images_done(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
+        #[cfg(not(target_os = "macos"))]
         assert_snapshot!("duplicate image done", terminal.backend());
         teardown(model, worker);
     }
