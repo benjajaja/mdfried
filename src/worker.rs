@@ -56,14 +56,24 @@ pub fn worker_thread(
         runtime.block_on(async {
 
             let basepath = basepath.clone();
-            let client = Arc::new(RwLock::new(
-                Client::builder()
-                    .user_agent(format!(
-                        "mdfried/{}",
-                        VERSION.get().unwrap_or(&"unknown".to_owned())
-                    ))
-                    .build()?
+            let builder = Client::builder().user_agent(format!(
+                "mdfried/{}",
+                VERSION.get().unwrap_or(&"unknown".to_owned())
             ));
+
+            // Attempt to mitigate a test failure on darwin.
+            // `system-configuration` is traced to reqwest via:
+            //     cargo tree -i system-configuration --target all
+            // The tests shouldn't be doing any requests, so the client building here would be the
+            // most likely source of that panic.
+            // ```
+            // thread '<unnamed>' (103071) panicked at /nix/build/nix-5646-2352996470/mdfried-0.20.1-vendor/source-registry-0/system-configuration-0.5.1/src/dynamic_store.rs:154:1:
+            // Attempted to create a NULL object.
+            // ```
+            #[cfg(test)]
+            let builder = builder.no_proxy();
+
+            let client = Arc::new(RwLock::new(builder.build()?));
 
             #[cfg(feature = "svg")]
             let fontdb = renderer
