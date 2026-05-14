@@ -941,6 +941,15 @@ mod tests {
         *,
     };
 
+    #[ctor::ctor]
+    fn init_logger() {
+        #[expect(clippy::let_underscore_untyped, clippy::unwrap_used)]
+        let _ = flexi_logger::Logger::try_with_env()
+            .unwrap()
+            .start()
+            .inspect_err(|err| eprint!("test logger setup failed: {err}"));
+    }
+
     #[test]
     fn widgestsources_update() {
         let mut ws = Document::default();
@@ -1019,12 +1028,6 @@ mod tests {
     #[test]
     #[expect(clippy::unwrap_used)]
     fn get_y() {
-        #[expect(clippy::let_underscore_untyped)]
-        let _ = flexi_logger::Logger::try_with_env()
-            .unwrap()
-            .start()
-            .inspect_err(|err| eprint!("test logger setup failed: {err}"));
-
         let mut doc = Document::default();
         doc.push(Section {
             id: 1,

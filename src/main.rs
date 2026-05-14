@@ -406,13 +406,16 @@ mod tests {
         worker::worker_thread,
     };
 
-    fn setup(config: Config) -> (Model, JoinHandle<Result<(), Error>>, Size) {
-        #[expect(clippy::let_underscore_untyped)]
+    #[ctor::ctor]
+    fn init_logger() {
+        #[expect(clippy::let_underscore_untyped, clippy::unwrap_used)]
         let _ = flexi_logger::Logger::try_with_env()
             .unwrap()
             .start()
             .inspect_err(|err| eprint!("test logger setup failed: {err}"));
+    }
 
+    fn setup(config: Config) -> (Model, JoinHandle<Result<(), Error>>, Size) {
         let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
         let (event_tx, event_rx) = mpsc::channel::<Event>();
 
