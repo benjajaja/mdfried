@@ -30,7 +30,6 @@ pub struct Model {
     pub scroll: u16,
     pub cursor: Cursor,
     pub input_queue: InputQueue,
-    pub log_snapshot: Option<flexi_logger::Snapshot>,
     pub screen_size: Size,
     document: Document,
     document_id: DocumentId,
@@ -95,7 +94,6 @@ impl Model {
             document: Document::default(),
             cmd_tx,
             event_rx,
-            log_snapshot: None,
             document_id: DocumentId::default(),
         }
     }
@@ -585,7 +583,6 @@ mod tests {
             document: Document::default(),
             cmd_tx,
             event_rx,
-            log_snapshot: None,
             document_id: DocumentId::default(),
         }
     }

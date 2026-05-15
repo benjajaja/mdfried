@@ -23,20 +23,10 @@ use crate::{
 
 pub fn view(model: &Model, frame: &mut Frame) {
     let frame_area = frame.area();
-    let mut block = Block::new();
     let padding = model.block_padding(frame_area);
-    block = block.padding(padding);
+    let block = Block::new().padding(padding);
 
-    let inner_area = if model.log_snapshot.is_some() {
-        let mut half_area_left = frame_area;
-        half_area_left.width /= 2;
-        let mut fixed_padding = padding;
-        fixed_padding.right = 0;
-        block = block.padding(fixed_padding);
-        block.inner(half_area_left)
-    } else {
-        block.inner(frame_area)
-    };
+    let inner_area = block.inner(frame_area);
 
     frame.render_widget(block, frame_area);
 

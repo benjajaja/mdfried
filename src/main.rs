@@ -378,10 +378,6 @@ fn run(terminal: &mut DefaultTerminal, mut model: Model) -> Result<(), Error> {
         if (had_events || had_input) && !skip_render && !had_reload {
             terminal.draw(|frame| {
                 view(&model, frame);
-                if let Some(snapshot) = &mut model.log_snapshot {
-                    debug::update_snapshot(snapshot);
-                    debug::render_snapshot(snapshot, frame);
-                }
             })?;
         }
     }

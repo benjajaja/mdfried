@@ -186,12 +186,6 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
             model.input_queue = InputQueue::Search(String::new());
             model.cursor = Cursor::Search(String::new(), None);
         }
-        KeyCode::F(11) => {
-            model.log_snapshot = match model.log_snapshot {
-                None => Some(flexi_logger::Snapshot::new()),
-                Some(_) => None,
-            };
-        }
         KeyCode::Enter if matches!(model.input_queue, InputQueue::Search(_)) => {
             // Exit search...
             model.input_queue = InputQueue::None;
