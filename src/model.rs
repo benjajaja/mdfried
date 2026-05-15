@@ -292,6 +292,26 @@ impl Model {
     }
 
     pub fn open_link(&mut self, url: String) -> Result<(), Error> {
+        if let Some(header_reference) = url.strip_prefix("#") {
+            let mut pointer = None;
+            for Section { id, content, .. } in self.document.iter() {
+                if let SectionContent::Header(text, _, _) = content {
+                    // Is this `#kebab-case` the only scheme? Probably not.
+                    if text.to_lowercase().replace(' ', "-") == header_reference {
+                        pointer = Some(CursorPointer { id: *id, index: 0 });
+                    }
+                }
+            }
+            // This will put the id in the pointer, and `#something-something` in the status.
+            self.cursor = Cursor::Search(url, pointer);
+            // Actually jump to the section.
+            self.jump_to_pointer();
+            // Scroll one more line because headers need two lines to render.
+            // TODO: check if neither text-sizing-protocol nor image-headers.
+            self.scroll_by(1);
+            return Ok(());
+        }
+
         let url_as_path = Path::new(&url);
         if url_as_path.extension() == Some(std::ffi::OsStr::new("md"))
             && fs::exists(url_as_path).unwrap_or_default()
