@@ -107,16 +107,16 @@ impl Model {
         self.screen_size = screen_size;
         if let Some(original_file_path) = &self.original_file_path {
             let text = fs::read_to_string(original_file_path)?;
-            self.reparse(screen_size, text)?;
+            self.reparse(text)?;
         }
         Ok(())
     }
 
-    pub fn open(&self, screen_size: Size, text: String) -> Result<(), Error> {
-        self.parse(self.document_id.open(), screen_size, text, None)
+    pub fn open(&self, text: String) -> Result<(), Error> {
+        self.parse(self.document_id.open(), text, None)
     }
 
-    pub fn reparse(&mut self, screen_size: Size, text: String) -> Result<(), Error> {
+    pub fn reparse(&mut self, text: String) -> Result<(), Error> {
         log::info!("reparse");
         let image_cache = self.document.take_image_protocols();
         let cache = if image_cache.is_empty() {
@@ -124,17 +124,16 @@ impl Model {
         } else {
             Some(image_cache)
         };
-        self.parse(self.document_id.reload(), screen_size, text, cache)
+        self.parse(self.document_id.reload(), text, cache)
     }
 
     fn parse(
         &self,
         next_document_id: DocumentId,
-        screen_size: Size,
         mut text: String,
         image_cache: Option<ImageCache>,
     ) -> Result<(), Error> {
-        let inner_width = self.inner_width(screen_size.width);
+        let inner_width = self.config.padding.calculate_width(self.screen_size.width);
         if !text.ends_with('\n') {
             // mdfrier needs this, either because of its own limitation or something with
             // tree-sitter-md. Doesn't really matter as long as we're reading a file.
@@ -145,12 +144,10 @@ impl Model {
         Ok(())
     }
 
-    pub fn inner_width(&self, screen_width: u16) -> u16 {
-        self.config.padding.calculate_width(screen_width)
-    }
-
-    pub fn inner_height(&self, screen_height: u16) -> u16 {
-        self.config.padding.calculate_height(screen_height)
+    pub fn inner_height(&self) -> u16 {
+        self.config
+            .padding
+            .calculate_height(self.screen_size.height)
     }
 
     pub fn block_padding(&self, area: Rect) -> Padding {
@@ -283,16 +280,14 @@ impl Model {
 
         self.scroll = min(
             new_scroll,
-            self.total_lines()
-                .saturating_sub(self.inner_height(self.screen_size.height))
-                + 1,
+            self.total_lines().saturating_sub(self.inner_height()) + 1,
         );
     }
 
     pub fn visible_lines(&self) -> (i16, i16) {
         let start_y = self.scroll as i16;
         // We don't render the last line, so sub one extra:
-        let end_y = start_y + self.inner_height(self.screen_size.height) as i16 - 2;
+        let end_y = start_y + self.inner_height() as i16 - 2;
         (start_y, end_y)
     }
 
@@ -313,7 +308,7 @@ impl Model {
             // * scroll
             // * cursor
             // * ???
-            return self.open(self.screen_size, text);
+            return self.open(text);
         }
 
         if let Err(err) = open::that(&url) {
@@ -845,7 +840,7 @@ mod tests {
         let mut y: i16 = 0 - (model.scroll as i16);
         for source in model.document.iter() {
             y += source.height as i16;
-            if y >= model.inner_height(model.screen_size.height) as i16 - 1 {
+            if y >= model.inner_height() as i16 - 1 {
                 last_rendered = Some(source);
                 break;
             }

@@ -63,7 +63,7 @@ pub fn poll(had_events: bool, model: &mut Model) -> Result<PollResult, Error> {
 
 fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> {
     // TODO: adjust padding or whatever properly
-    let page_scroll_count = model.inner_height(model.screen_size.height) as i32 - 2;
+    let page_scroll_count = model.inner_height() as i32 - 2;
 
     match key.code {
         // Search-input mode captures any `KeyCode::Char(_)`.

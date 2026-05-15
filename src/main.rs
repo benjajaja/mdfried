@@ -250,7 +250,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     let terminal_size = terminal.size()?;
     let model = Model::new(file_path, cmd_tx, event_rx, terminal.size()?, config);
-    model.open(terminal_size, text)?;
+    model.open(text)?;
 
     let debouncer = if let Some(path) = watchmode_path {
         log::info!("watching file");
@@ -482,10 +482,8 @@ mod tests {
             Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
 
         model
-            .open(
-                screen_size,
-                String::from(
-                    r#"# Hello
+            .open(String::from(
+                r#"# Hello
 This is a *test* markdown document.
 Another line of same paragraph.
 ![image](./assets/NixOS.png)
@@ -495,8 +493,7 @@ Some text
 
 # Last bit
 Goodbye."#,
-                ),
-            )
+            ))
             .unwrap();
         poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
@@ -523,29 +520,23 @@ Goodbye."#,
             Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
 
         model
-            .open(
-                screen_size,
-                String::from(
-                    r#"# Hello
+            .open(String::from(
+                r#"# Hello
 This is a test markdown document.
 ![image](./assets/NixOS.png)
 Goodbye."#,
-                ),
-            )
+            ))
             .unwrap();
         poll_parsed(&mut model);
         poll_images_done(&mut model);
 
         model
-            .reparse(
-                screen_size,
-                String::from(
-                    r#"# Hello
+            .reparse(String::from(
+                r#"# Hello
 ![image](./assets/NixOS.png)
 This is a test markdown document.
 Goodbye."#,
-                ),
-            )
+            ))
             .unwrap();
         poll_parsed(&mut model);
         log::debug!("poll_parsed before failing done");
@@ -554,15 +545,12 @@ Goodbye."#,
         assert_snapshot!("reload move image up", terminal.backend());
 
         model
-            .reparse(
-                screen_size,
-                String::from(
-                    r#"# Hello
+            .reparse(String::from(
+                r#"# Hello
 This is a test markdown document.
 ![image](./assets/NixOS.png)
 Goodbye."#,
-                ),
-            )
+            ))
             .unwrap();
         poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
@@ -584,30 +572,24 @@ Goodbye."#,
             Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
 
         model
-            .open(
-                screen_size,
-                String::from(
-                    r#"# Hello
+            .open(String::from(
+                r#"# Hello
 This is a test markdown document.
 ![image](./assets/NixOS.png)
 Goodbye."#,
-                ),
-            )
+            ))
             .unwrap();
         poll_parsed(&mut model);
         poll_images_done(&mut model);
 
         model
-            .reparse(
-                screen_size,
-                String::from(
-                    r#"# Hello
+            .reparse(String::from(
+                r#"# Hello
 This is a test markdown document.
 ![image](./assets/NixOS.png)
 ![image](./assets/you_fried.png)
 Goodbye."#,
-                ),
-            )
+            ))
             .unwrap();
         poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
@@ -633,28 +615,22 @@ Goodbye."#,
             Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
 
         model
-            .open(
-                screen_size,
-                String::from(
-                    r#"# Hello
+            .open(String::from(
+                r#"# Hello
 ![image](./assets/NixOS.png)
 Goodbye."#,
-                ),
-            )
+            ))
             .unwrap();
         poll_parsed(&mut model);
         poll_images_done(&mut model);
 
         model
-            .reparse(
-                screen_size,
-                String::from(
-                    r#"# Hello
+            .reparse(String::from(
+                r#"# Hello
 ![image A](./assets/NixOS.png)
 Goodbye.
 ![image B](./assets/NixOS.png)"#,
-                ),
-            )
+            ))
             .unwrap();
         poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
