@@ -3,8 +3,8 @@ use unicode_width::UnicodeWidthStr as _;
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Stylize as _},
-    text::{Line, Span, Text},
+    style::{Color, Stylize},
+    text::{Line, Span},
     widgets::{Block, Paragraph, Widget},
 };
 
@@ -80,62 +80,25 @@ pub fn view(model: &Model, frame: &mut Frame) {
                             for (i, extra) in extras.iter().enumerate() {
                                 if let LineExtra::Link(url, start, end, lines_count) = extra {
                                     if url.as_ptr() == selected.as_ptr() {
-                                        let start = if let Some(previous_lines_count) = lines_count
-                                            && *previous_lines_count > 0
-                                        {
-                                            for previous_lines_idx in
-                                                (0..*previous_lines_count).rev()
-                                            {
-                                                let max_line_end =
-                                                    model.inner_width(frame_area.width);
-                                                let (start, end) = if previous_lines_idx == 0 {
-                                                    (*start, max_line_end)
-                                                } else {
-                                                    (0, max_line_end)
-                                                };
-
-                                                let previous_line_y =
-                                                    if previous_lines_idx as i32 >= y {
-                                                        break;
-                                                    } else {
-                                                        (y - (previous_lines_idx as i32 + 1)) as u16
-                                                    };
-
-                                                let Some(previous_line) = line_idx
-                                                    .checked_sub(previous_lines_idx)
-                                                    .and_then(|i| lines.get(i))
-                                                else {
-                                                    log::error!(
-                                                        "LineExtra::Link with multiline out of bounds"
-                                                    );
-                                                    break;
-                                                };
-                                                let display_text = extract_line_content(
-                                                    &previous_line.0,
-                                                    start,
-                                                    end,
-                                                );
-                                                let (link_overlay, width) =
-                                                    link_overlay_widget(start, end, display_text);
-                                                let x = frame_area.x + padding.left + start;
-                                                let area = Rect::new(x, previous_line_y, width, 1);
-                                                frame.render_widget(link_overlay, area);
-                                            }
-                                            0
-                                        } else {
-                                            *start
-                                        };
-
-                                        let display_text = extract_line_content(line, start, *end);
-                                        let (link_overlay, width) =
-                                            link_overlay_widget(start, *end, display_text);
-                                        let x = frame_area.x + padding.left + start;
-                                        let area = Rect::new(x, line_y, width, 1);
-                                        frame.render_widget(link_overlay, area);
-
+                                        let mut last_start = 0;
+                                        for (link_overlay, area) in link_overlays(
+                                            line,
+                                            *start,
+                                            *end,
+                                            lines_count,
+                                            line_idx,
+                                            lines,
+                                            padding.left,
+                                            model.inner_width(frame_area.width),
+                                            line_y,
+                                            frame.area(),
+                                        ) {
+                                            frame.render_widget(link_overlay, area);
+                                            last_start = area.x;
+                                        }
                                         // Position cursor on the actual selected link
                                         if *id == section.id && *index == flat_index + i {
-                                            cursor_positioned = Some((x, line_y));
+                                            cursor_positioned = Some((last_start, line_y));
                                         }
                                     }
                                 }
@@ -303,11 +266,69 @@ fn render_lines<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, f:
     f.render_widget(widget, widget_area);
 }
 
-fn link_overlay_widget<'a, T: Into<Text<'a>>>(
+#[expect(clippy::too_many_arguments)]
+fn link_overlays<'a>(
+    line: &Line<'a>,
     start: u16,
     end: u16,
-    display_text: T,
-) -> (Paragraph<'a>, u16) {
+    lines_count: &Option<usize>,
+    line_idx: usize,
+    lines: &[(Line<'a>, Vec<LineExtra>)],
+    padding_left: u16,
+    max_line_end: u16,
+    line_y: u16,
+    frame_area: Rect,
+) -> Vec<(Paragraph<'a>, Rect)> {
+    let mut overlays = Vec::new();
+
+    let start = if let Some(previous_lines_count) = lines_count
+        && *previous_lines_count > 0
+    {
+        for previous_lines_idx in (0..*previous_lines_count).rev() {
+            let (start, end) = if previous_lines_idx == previous_lines_count - 1 {
+                (start, max_line_end)
+            } else {
+                (0, max_line_end)
+            };
+
+            let previous_line_y = if previous_lines_idx as u16 >= line_y {
+                break;
+            } else {
+                line_y - (previous_lines_idx as u16 + 1)
+            };
+
+            let Some(previous_line) = line_idx
+                .checked_sub(previous_lines_idx + 1)
+                .and_then(|i| lines.get(i))
+            else {
+                log::error!("LineExtra::Link with multiline out of bounds");
+                break;
+            };
+            let display_text = extract_line_content(&previous_line.0, start, end);
+            let (link_overlay, width) = link_overlay_widget(start, end, display_text);
+            let x = frame_area.x + padding_left + start;
+            let area = Rect::new(x, previous_line_y, width, 1);
+            overlays.push((link_overlay, area));
+        }
+        0
+    } else {
+        start
+    };
+
+    if !(start == 0 && end == 0) {
+        // Links may end at 0-0 if the closing bracket "]" is at the beginning of a line.
+        // Just skip the overlay, although that line is the "anchor" for other purposes.
+        let display_text = extract_line_content(line, start, end);
+        let (link_overlay, width) = link_overlay_widget(start, end, display_text);
+        let x = frame_area.x + padding_left + start;
+        let area = Rect::new(x, line_y, width, 1);
+        overlays.push((link_overlay, area));
+    }
+
+    overlays
+}
+
+fn link_overlay_widget<'a>(start: u16, end: u16, display_text: Line<'a>) -> (Paragraph<'a>, u16) {
     let width = end - start;
     let link_overlay = Paragraph::new(display_text)
         .fg(Color::Indexed(15))
@@ -317,13 +338,19 @@ fn link_overlay_widget<'a, T: Into<Text<'a>>>(
 
 /// Extract text content from a Line.
 /// The start and end positions must be exactly at the boundaries of the spans.
-fn extract_line_content(line: &Line, start: u16, end: u16) -> String {
-    debug_assert!(end > start, "extract_line_content expects start > end");
+fn extract_line_content<'a>(line: &Line<'a>, start: u16, end: u16) -> Line<'a> {
+    debug_assert!(
+        end > start,
+        "extract_line_content expects start > end: {start}-{end}"
+    );
     let mut pos: u16 = 0;
-    let mut content = String::new();
+    let mut content = Line::default();
     for span in &line.spans {
         if pos >= start {
-            content.push_str(&span.content);
+            let mut link_span = span.clone();
+            link_span.style.fg = None;
+            link_span.style.bg = None;
+            content.push_span(link_span);
         }
 
         let span_width = span.content.width() as u16;
@@ -334,4 +361,62 @@ fn extract_line_content(line: &Line, start: u16, end: u16) -> String {
         }
     }
     content
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn simple_link_overlays() {
+        let lines = vec![
+            (
+                Line::from(vec![Span::from("prefix "), Span::from("link desc")]),
+                vec![],
+            ),
+            (
+                Line::from(vec![Span::from("link cont"), Span::from(" suffix")]),
+                vec![],
+            ),
+        ];
+        let start = 7;
+        let end = 9;
+        let lines_count = Some(1);
+        let line_idx = 1;
+        let line = &lines[line_idx].0;
+        let padding_left = 10;
+        let max_line_end = 100;
+        let line_y = 1;
+        let frame_area = Rect::new(0, 0, 120, 50);
+        let overlays = link_overlays(
+            line,
+            start,
+            end,
+            &lines_count,
+            line_idx,
+            &lines,
+            padding_left,
+            max_line_end,
+            line_y,
+            frame_area,
+        );
+        assert_eq!(
+            overlays,
+            vec![
+                (
+                    Paragraph::new(Line::from(Span::from("link desc")))
+                        .fg(Color::Indexed(15))
+                        .bg(Color::Indexed(32)),
+                    Rect::new(17, 0, 93, 1)
+                ),
+                (
+                    Paragraph::new(Line::from(Span::from("link cont")))
+                        .fg(Color::Indexed(15))
+                        .bg(Color::Indexed(32)),
+                    Rect::new(10, 1, 9, 1)
+                )
+            ]
+        );
+    }
 }
