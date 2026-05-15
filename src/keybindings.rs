@@ -210,7 +210,7 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
                         for (_, extras) in lines {
                             if remaining < extras.len() {
                                 return match &extras[remaining] {
-                                    LineExtra::Link(url, _, _) => Some(url.clone()),
+                                    LineExtra::Link(url, ..) => Some(url.clone()),
                                     _ => None,
                                 };
                             }

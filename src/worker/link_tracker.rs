@@ -12,24 +12,54 @@ use crate::document::LineExtra;
 /// where "start" and "end" are the respective positions in the [`mdfrier::Line`].
 pub struct LinkTracker {
     offset: u16,
+    // line_count: usize,
     extras: Vec<LineExtra>,
     link_builder: LinkExtraLinkBuilder,
+    debug: bool,
 }
 
 #[derive(Debug, Default, PartialEq)]
 enum LinkExtraLinkBuilder {
     #[default]
     None,
-    Start(u16),
-    StartEnd(u16, u16),
-    StartEndUrl(u16, u16, String),
+    Start {
+        start: u16,
+        lines: usize,
+    },
+    StartEnd {
+        start: u16,
+        end: u16,
+        lines: usize,
+    },
+    StartEndUrl {
+        start: u16,
+        end: u16,
+        lines: usize,
+        url: String,
+    },
 }
 
 impl LinkTracker {
+    pub fn debug() -> LinkTracker {
+        LinkTracker {
+            debug: true,
+            ..Default::default()
+        }
+    }
     pub fn carriage_return(&mut self) {
+        if self.debug {
+            log::debug!("carriage_return on: {:?}", self.link_builder);
+        }
         self.offset = 0;
+        // Only increase line count if we haven't reached "end" yet.
+        if let LinkExtraLinkBuilder::Start { lines, .. } = &mut self.link_builder {
+            *lines += 1;
+        }
     }
     pub fn track(&mut self, node: &mdfrier::Span) {
+        if self.debug {
+            log::debug!("track: {:?}", node.modifiers);
+        }
         let span_width = node.content.width() as u16;
         if self.link_builder == LinkExtraLinkBuilder::None
             && node
@@ -37,51 +67,73 @@ impl LinkTracker {
                 .is_link_modifier(MdModifier::LinkDescriptionWrapper)
         {
             // Enter link description at next span.
-            self.link_builder = LinkExtraLinkBuilder::Start(self.offset + span_width);
-        } else if let LinkExtraLinkBuilder::Start(start) = self.link_builder
+            self.link_builder = LinkExtraLinkBuilder::Start {
+                start: self.offset + span_width,
+                lines: 0,
+            };
+        } else if let LinkExtraLinkBuilder::Start { start, lines } = self.link_builder
             && node
                 .modifiers
                 .is_link_modifier(MdModifier::LinkDescriptionWrapper)
         {
             // Exit link description before this span.
-            if self.offset > start {
-                self.link_builder = LinkExtraLinkBuilder::StartEnd(start, self.offset);
-            } else {
-                log::error!("LinkExtraLinkBuilder::Start(start) > offset");
-                // TODO: this needs fixing!
-                self.link_builder = LinkExtraLinkBuilder::None;
-            }
-        } else if let LinkExtraLinkBuilder::StartEnd(start, end) = self.link_builder
+            self.link_builder = LinkExtraLinkBuilder::StartEnd {
+                start,
+                end: self.offset,
+                lines,
+            };
+        } else if let LinkExtraLinkBuilder::StartEnd { start, end, lines } = self.link_builder
             && node.modifiers.is_link_modifier(MdModifier::LinkURLWrapper)
         {
             // Enter link URL next span.
-            self.link_builder = LinkExtraLinkBuilder::StartEndUrl(start, end, String::new());
-        } else if let LinkExtraLinkBuilder::StartEndUrl(_, _, url) = &mut self.link_builder
+            self.link_builder = LinkExtraLinkBuilder::StartEndUrl {
+                start,
+                end,
+                lines,
+                url: String::new(),
+            };
+        } else if let LinkExtraLinkBuilder::StartEndUrl { url, .. } = &mut self.link_builder
             && node.modifiers.is_link_url()
         {
             // Push all LinkURL spans into URL.
             url.push_str(&node.content);
         } else if node.modifiers.is_link_modifier(MdModifier::LinkURLWrapper)
-            && matches!(
-                self.link_builder,
-                LinkExtraLinkBuilder::StartEndUrl(_, _, _)
-            )
+            && matches!(self.link_builder, LinkExtraLinkBuilder::StartEndUrl { .. })
         {
-            let LinkExtraLinkBuilder::StartEndUrl(start, end, url) =
-                std::mem::take(&mut self.link_builder)
+            let LinkExtraLinkBuilder::StartEndUrl {
+                start,
+                end,
+                lines,
+                url,
+            } = std::mem::take(&mut self.link_builder)
             else {
+                // We need to "take if matches", so we can't put the destructure in the `if` above.
                 unreachable!("invariant by matches macro");
             };
             // Exit URL, can build the LinkExtra::Link now.
-            self.extras
-                .push(LineExtra::Link(SourceContent::from(&*url), start, end));
+            self.exit(start, end, lines, url.as_str());
         }
         self.offset += span_width;
+
+        if self.debug {
+            log::debug!("state: {:?}", self.link_builder);
+        }
     }
     pub fn extras(&mut self) -> Vec<LineExtra> {
         let mut extras = Vec::new();
         swap(&mut self.extras, &mut extras);
+        if self.debug {
+            log::debug!("extras: {extras:?}");
+        }
         extras
+    }
+    fn exit(&mut self, start: u16, end: u16, lines: usize, url: &str) {
+        if self.debug {
+            log::debug!("exit: {start}-{end}, {url}");
+        }
+        let lines = if lines == 0 { None } else { Some(lines) };
+        self.extras
+            .push(LineExtra::Link(SourceContent::from(url), start, end, lines));
     }
 }
 
@@ -90,6 +142,15 @@ mod tests {
     use super::*;
     use mdfrier::Span;
     use pretty_assertions::assert_eq;
+
+    #[ctor::ctor]
+    fn init_logger() {
+        #[expect(clippy::let_underscore_untyped, clippy::unwrap_used)]
+        let _ = flexi_logger::Logger::try_with_env()
+            .unwrap()
+            .start()
+            .inspect_err(|err| eprint!("test logger setup failed: {err}"));
+    }
 
     fn test_link(description: &str, url: &str) -> Vec<Span> {
         vec![
@@ -119,17 +180,20 @@ mod tests {
 
     #[test]
     fn track_link() {
-        let mut tracker = LinkTracker::default();
+        let mut tracker = LinkTracker::debug();
         for span in test_link("desc", "url") {
             tracker.track(&span);
         }
         let extras = tracker.extras();
-        assert_eq!(extras[0], LineExtra::Link(SourceContent::from("url"), 1, 5));
+        assert_eq!(
+            extras[0],
+            LineExtra::Link(SourceContent::from("url"), 1, 5, None)
+        );
     }
 
     #[test]
     fn track_nested_image() {
-        let mut tracker = LinkTracker::default();
+        let mut tracker = LinkTracker::debug();
         let mut spans = test_link("desc", "url");
         spans.splice(
             1..2,
@@ -166,13 +230,119 @@ mod tests {
         let extras = tracker.extras();
         assert_eq!(
             extras[0],
-            LineExtra::Link(SourceContent::from("url"), 1, 20)
+            LineExtra::Link(SourceContent::from("url"), 1, 20, None)
         );
     }
 
     #[test]
-    #[ignore]
     fn track_wrapped_link() {
-        // TODO: let LinkTracker operate on multiple lines.
+        let mut tracker = LinkTracker::debug();
+
+        tracker.track(&Span::new(
+            "[".to_owned(),
+            MdModifier::Link | MdModifier::LinkDescriptionWrapper,
+        ));
+        tracker.track(&Span::new(
+            "desc".to_owned(),
+            MdModifier::Link | MdModifier::LinkDescription,
+        ));
+        tracker.carriage_return();
+
+        tracker.track(&Span::new(
+            "cont".to_owned(),
+            MdModifier::Link | MdModifier::LinkDescription,
+        ));
+        tracker.track(&Span::new(
+            "]".to_owned(),
+            MdModifier::Link | MdModifier::LinkDescriptionWrapper,
+        ));
+        tracker.track(&Span::new(
+            "(".to_owned(),
+            MdModifier::Link | MdModifier::LinkURLWrapper,
+        ));
+        tracker.carriage_return();
+
+        tracker.track(&Span::new(
+            "url".to_owned(),
+            MdModifier::Link | MdModifier::LinkURL,
+        ));
+        tracker.track(&Span::new(
+            ")".to_owned(),
+            MdModifier::Link | MdModifier::LinkURLWrapper,
+        ));
+
+        let extras = tracker.extras();
+        assert_eq!(
+            extras[0],
+            LineExtra::Link(SourceContent::from("url"), 1, 4, Some(1)),
+        );
+    }
+
+    #[test]
+    fn track_multiple_wraps_link() {
+        let mut tracker = LinkTracker::debug();
+
+        tracker.track(&Span::new("nothing ".to_owned(), MdModifier::default()));
+
+        tracker.track(&Span::new(
+            "[".to_owned(),
+            MdModifier::Link | MdModifier::LinkDescriptionWrapper,
+        ));
+        tracker.track(&Span::new(
+            "desc1".to_owned(),
+            MdModifier::Link | MdModifier::LinkDescription,
+        ));
+        tracker.carriage_return();
+
+        tracker.track(&Span::new(
+            "desc2".to_owned(),
+            MdModifier::Link | MdModifier::LinkDescription,
+        ));
+        tracker.carriage_return();
+
+        tracker.track(&Span::new(
+            "desc3".to_owned(),
+            MdModifier::Link | MdModifier::LinkDescription,
+        ));
+
+        tracker.track(&Span::new(
+            "]".to_owned(),
+            MdModifier::Link | MdModifier::LinkDescriptionWrapper,
+        ));
+        tracker.track(&Span::new(
+            "(".to_owned(),
+            MdModifier::Link | MdModifier::LinkURLWrapper,
+        ));
+        tracker.carriage_return();
+
+        tracker.track(&Span::new(
+            "url-1/".to_owned(),
+            MdModifier::Link | MdModifier::LinkURL,
+        ));
+        tracker.carriage_return();
+
+        tracker.track(&Span::new(
+            "url-2".to_owned(),
+            MdModifier::Link | MdModifier::LinkURL,
+        ));
+        tracker.carriage_return();
+
+        tracker.track(&Span::new(
+            ")".to_owned(),
+            MdModifier::Link | MdModifier::LinkURLWrapper,
+        ));
+
+        let extras = tracker.extras();
+        // ```
+        // nothing [desc1
+        // desc2
+        // desc3]
+        // ```
+        // So we want: start at "[" 9, end at "]" 5, two lines "up", and correct URL
+        // reconstruction.
+        assert_eq!(
+            extras[0],
+            LineExtra::Link(SourceContent::from("url-1/url-2"), 9, 5, Some(2)),
+        );
     }
 }

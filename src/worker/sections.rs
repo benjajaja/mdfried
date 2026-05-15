@@ -164,7 +164,7 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
             });
         }
 
-        let link_tracker = Rc::new(RefCell::new(LinkTracker::default()));
+        let link_tracker = Rc::new(RefCell::new(LinkTracker::debug()));
 
         let rendered_lines: Vec<_> = lines
             .into_iter()
@@ -348,7 +348,7 @@ mod tests {
             panic!("expected SectionContent::Lines");
         };
         assert_eq!(lines.len(), 1, "one line");
-        assert!(matches!(lines[0].1.as_slice(), [LineExtra::Link(_, _, _)]),);
+        assert!(matches!(lines[0].1.as_slice(), [LineExtra::Link(..)]),);
     }
 
     #[test]
@@ -360,7 +360,7 @@ mod tests {
             panic!("expected SectionContent::Lines");
         };
         assert_eq!(lines.len(), 1);
-        assert!(matches!(lines[0].1.as_slice(), [LineExtra::Link(_, _, _)]),);
+        assert!(matches!(lines[0].1.as_slice(), [LineExtra::Link(..)]),);
     }
 
     #[test]
@@ -380,7 +380,7 @@ mod tests {
             .1
             .iter()
             .filter_map(|extra| {
-                if let LineExtra::Link(url, _, _) = extra {
+                if let LineExtra::Link(url, ..) = extra {
                     Some(url)
                 } else {
                     None
@@ -407,7 +407,7 @@ mod tests {
             .1
             .iter()
             .filter_map(|extra| {
-                if let LineExtra::Link(url, _, _) = extra {
+                if let LineExtra::Link(url, ..) = extra {
                     Some(url)
                 } else {
                     None
@@ -441,13 +441,18 @@ That's all."#;
         assert_eq!(
             lines[0].1,
             vec![
-                LineExtra::Link("http://example.com/link1".into(), 10, 18),
-                LineExtra::Link("http://example.com/link2".into(), 54, 62),
+                LineExtra::Link("http://example.com/link1".into(), 10, 18, None),
+                LineExtra::Link("http://example.com/link2".into(), 54, 62, None),
             ]
         );
         assert_eq!(
             lines[1].1,
-            vec![LineExtra::Link("http://example.com/link3".into(), 45, 55),]
+            vec![LineExtra::Link(
+                "http://example.com/link3".into(),
+                45,
+                55,
+                None
+            ),]
         );
     }
 }

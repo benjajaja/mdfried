@@ -420,8 +420,8 @@ pub enum FindTarget {
 impl FindTarget {
     fn matches(&self, extra: &LineExtra) -> bool {
         match self {
-            FindTarget::Link => matches!(extra, LineExtra::Link(_, _, _)),
-            FindTarget::Search => matches!(extra, LineExtra::SearchMatch(_, _, _)),
+            FindTarget::Link => matches!(extra, LineExtra::Link(..)),
+            FindTarget::Search => matches!(extra, LineExtra::SearchMatch(..)),
         }
     }
 }
@@ -573,15 +573,26 @@ impl Display for Section {
 }
 
 pub enum LineExtra {
-    Link(SourceContent, u16, u16),
+    /// URL, start, end, multiline_count
+    ///
+    /// The "multiline_count" means "how many lines up does the link actually start".
+    Link(SourceContent, u16, u16, Option<usize>),
+    /// start, end, text
     SearchMatch(usize, usize, String),
 }
 
 impl Debug for LineExtra {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LineExtra::Link(url, start, end) => {
-                write!(f, "Link({:?}, {}, {})", url, start, end)
+            LineExtra::Link(url, start, end, lines) => {
+                write!(
+                    f,
+                    "Link({:?}, {}, {}, {})",
+                    url,
+                    start,
+                    end,
+                    lines.unwrap_or_default()
+                )
             }
             LineExtra::SearchMatch(start, end, text) => {
                 write!(f, "SearchMatch({}, {}, {:?})", start, end, text)
@@ -594,8 +605,8 @@ impl Debug for LineExtra {
 impl PartialEq for LineExtra {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (LineExtra::Link(l0, l1, l2), LineExtra::Link(r0, r1, r2)) => {
-                l0 == r0 && l1 == r1 && l2 == r2
+            (LineExtra::Link(l0, l1, l2, l3), LineExtra::Link(r0, r1, r2, r3)) => {
+                l0 == r0 && l1 == r1 && l2 == r2 && l3 == r3
             }
             (LineExtra::SearchMatch(l0, l1, l2), LineExtra::SearchMatch(r0, r1, r2)) => {
                 l0 == r0 && l1 == r1 && l2 == r2
