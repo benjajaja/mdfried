@@ -11,7 +11,7 @@ use std::iter::Peekable;
 use std::rc::Rc;
 
 use mdfrier::ratatui::render_line;
-use mdfrier::{Line, LineKind, MarkdownLink};
+use mdfrier::{Line, LineKind, Mapper, MarkdownLink};
 use ratatui::text::Span;
 
 use super::link_tracker::LinkTracker;
@@ -164,7 +164,8 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
             });
         }
 
-        let link_tracker = Rc::new(RefCell::new(LinkTracker::debug()));
+        let hide_urls = Mapper::hide_urls(self.theme);
+        let link_tracker = Rc::new(RefCell::new(LinkTracker::default().hide_urls(hide_urls)));
 
         let rendered_lines: Vec<_> = lines
             .into_iter()
@@ -442,7 +443,7 @@ That's all."#;
             lines[0].1,
             vec![
                 LineExtra::Link("http://example.com/link1".into(), 10, 18, None),
-                LineExtra::Link("http://example.com/link2".into(), 54, 62, None),
+                LineExtra::Link("http://example.com/link2".into(), 30, 38, None),
             ]
         );
         assert_eq!(

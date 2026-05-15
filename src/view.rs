@@ -3,7 +3,7 @@ use unicode_width::UnicodeWidthStr as _;
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Stylize},
+    style::{Color, Stylize as _},
     text::{Line, Span},
     widgets::{Block, Paragraph, Widget},
 };

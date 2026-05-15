@@ -15,7 +15,7 @@ pub struct LinkTracker {
     // line_count: usize,
     extras: Vec<LineExtra>,
     link_builder: LinkExtraLinkBuilder,
-    debug: bool,
+    hide_urls: bool,
 }
 
 #[derive(Debug, Default, PartialEq)]
@@ -40,16 +40,12 @@ enum LinkExtraLinkBuilder {
 }
 
 impl LinkTracker {
-    pub fn debug() -> LinkTracker {
-        LinkTracker {
-            debug: true,
-            ..Default::default()
-        }
+    pub fn hide_urls(mut self, hide_urls: bool) -> LinkTracker {
+        self.hide_urls = hide_urls;
+        self
     }
+
     pub fn carriage_return(&mut self) {
-        if self.debug {
-            log::debug!("carriage_return on: {:?}", self.link_builder);
-        }
         self.offset = 0;
         // Only increase line count if we haven't reached "end" yet.
         if let LinkExtraLinkBuilder::Start { lines, .. } = &mut self.link_builder {
@@ -57,9 +53,6 @@ impl LinkTracker {
         }
     }
     pub fn track(&mut self, node: &mdfrier::Span) {
-        if self.debug {
-            log::debug!("track: {:?}", node.modifiers);
-        }
         let span_width = node.content.width() as u16;
         if self.link_builder == LinkExtraLinkBuilder::None
             && node
@@ -113,24 +106,20 @@ impl LinkTracker {
             // Exit URL, can build the LinkExtra::Link now.
             self.exit(start, end, lines, url.as_str());
         }
-        self.offset += span_width;
-
-        if self.debug {
-            log::debug!("state: {:?}", self.link_builder);
+        if self.hide_urls {
+            if !node.modifiers.is_link_url() {
+                self.offset += span_width;
+            }
+        } else {
+            self.offset += span_width;
         }
     }
     pub fn extras(&mut self) -> Vec<LineExtra> {
         let mut extras = Vec::new();
         swap(&mut self.extras, &mut extras);
-        if self.debug {
-            log::debug!("extras: {extras:?}");
-        }
         extras
     }
     fn exit(&mut self, start: u16, end: u16, lines: usize, url: &str) {
-        if self.debug {
-            log::debug!("exit: {start}-{end}, {url}");
-        }
         let lines = if lines == 0 { None } else { Some(lines) };
         self.extras
             .push(LineExtra::Link(SourceContent::from(url), start, end, lines));
@@ -180,7 +169,7 @@ mod tests {
 
     #[test]
     fn track_link() {
-        let mut tracker = LinkTracker::debug();
+        let mut tracker = LinkTracker::default();
         for span in test_link("desc", "url") {
             tracker.track(&span);
         }
@@ -193,7 +182,7 @@ mod tests {
 
     #[test]
     fn track_nested_image() {
-        let mut tracker = LinkTracker::debug();
+        let mut tracker = LinkTracker::default();
         let mut spans = test_link("desc", "url");
         spans.splice(
             1..2,
@@ -236,7 +225,7 @@ mod tests {
 
     #[test]
     fn track_wrapped_link() {
-        let mut tracker = LinkTracker::debug();
+        let mut tracker = LinkTracker::default();
 
         tracker.track(&Span::new(
             "[".to_owned(),
@@ -280,7 +269,7 @@ mod tests {
 
     #[test]
     fn track_multiple_wraps_link() {
-        let mut tracker = LinkTracker::debug();
+        let mut tracker = LinkTracker::default();
 
         tracker.track(&Span::new("nothing ".to_owned(), MdModifier::default()));
 
