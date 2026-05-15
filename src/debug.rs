@@ -30,6 +30,16 @@ pub fn init_logger(log_to_file: bool) -> Result<(), FlexiLoggerError> {
     Ok(())
 }
 
+#[cfg(test)]
+pub fn init_test_logger() {
+    #[expect(clippy::let_underscore_untyped, clippy::unwrap_used)]
+    let _ = Logger::try_with_env()
+        .unwrap()
+        .log_to_stderr()
+        .start()
+        .inspect_err(|err| eprintln!("test logger setup failed: {err}"));
+}
+
 fn markdown_format(
     w: &mut dyn Write,
     _now: &mut DeferredNow,

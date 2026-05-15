@@ -2045,8 +2045,6 @@ name = "mdfrier"
 version = "1.0.1"
 dependencies = [
  "bitflags 2.10.0",
- "ctor",
- "flexi_logger",
  "insta",
  "log",
  "pretty_assertions",

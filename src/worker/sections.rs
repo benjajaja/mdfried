@@ -236,11 +236,7 @@ mod tests {
 
     #[ctor::ctor]
     fn init_logger() {
-        #[expect(clippy::let_underscore_untyped, clippy::unwrap_used)]
-        let _ = flexi_logger::Logger::try_with_env()
-            .unwrap()
-            .start()
-            .inspect_err(|err| eprint!("test logger setup failed: {err}"));
+        crate::debug::init_test_logger();
     }
 
     #[expect(clippy::unwrap_used)]

@@ -898,15 +898,6 @@ mod tests {
     use pretty_assertions::assert_eq;
     use tree_sitter::Parser;
 
-    #[ctor::ctor]
-    fn init_logger() {
-        #[expect(clippy::let_underscore_untyped)]
-        let _ = flexi_logger::Logger::try_with_env()
-            .unwrap()
-            .start()
-            .inspect_err(|err| eprint!("test logger setup failed: {err}"));
-    }
-
     fn make_parser() -> Parser {
         let mut parser = Parser::new();
         parser

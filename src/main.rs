@@ -117,7 +117,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         }
         let msg = format!("{}", panic_hook.panic_report(panic_info));
         log::error!("Panic: {}", msg);
-        eprint!("{msg}");
+        eprintln!("{msg}");
         #[expect(clippy::exit)]
         std::process::exit(libc::EXIT_FAILURE);
     }));
@@ -408,11 +408,7 @@ mod tests {
 
     #[ctor::ctor]
     fn init_logger() {
-        #[expect(clippy::let_underscore_untyped, clippy::unwrap_used)]
-        let _ = flexi_logger::Logger::try_with_env()
-            .unwrap()
-            .start()
-            .inspect_err(|err| eprint!("test logger setup failed: {err}"));
+        crate::debug::init_test_logger();
     }
 
     fn setup(config: Config) -> (Model, JoinHandle<Result<(), Error>>, Size) {
