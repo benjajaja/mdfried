@@ -22,13 +22,13 @@ use crate::{
 };
 
 pub fn view(model: &Model, frame: &mut Frame) {
-    let frame_area = frame.area();
-    let padding = model.block_padding(frame_area);
-    let block = Block::new().padding(padding);
-
-    let inner_area = block.inner(frame_area);
-
-    frame.render_widget(block, frame_area);
+    let inner_area = {
+        let frame_area = frame.area();
+        let padding = model.block_padding(frame_area);
+        let block = Block::new().padding(padding);
+        frame.render_widget(&block, frame_area);
+        block.inner(frame_area)
+    };
 
     let mut cursor_positioned = None;
 
@@ -78,10 +78,8 @@ pub fn view(model: &Model, frame: &mut Frame) {
                                             lines_count,
                                             line_idx,
                                             lines,
-                                            padding.left,
-                                            model.inner_width(frame_area.width),
+                                            inner_area,
                                             line_y,
-                                            frame.area(),
                                         ) {
                                             frame.render_widget(link_overlay, area);
                                             last_start = area.x;
@@ -97,7 +95,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
                     } else if let Cursor::Search(_, pointer) = &model.cursor {
                         for (i, extra) in extras.iter().enumerate() {
                             if let LineExtra::SearchMatch(start, end, text) = extra {
-                                let x = frame_area.x + padding.left + (*start as u16);
+                                let x = inner_area.x + (*start as u16);
                                 let width = *end as u16 - *start as u16;
                                 let area = Rect::new(x, line_y, width, 1);
                                 let mut search_highlight_overlay = Paragraph::new(text.clone());
@@ -181,9 +179,10 @@ pub fn view(model: &Model, frame: &mut Frame) {
         }
     }
 
+    let status_line_y = inner_area.height - 1;
     match &model.input_queue {
         InputQueue::None => match &model.cursor {
-            Cursor::None => frame.set_cursor_position((0, frame_area.height - 1)),
+            Cursor::None => frame.set_cursor_position((0, status_line_y)),
             Cursor::Links(_) => {
                 let (fg, bg) = (Color::Indexed(15), Color::Indexed(32));
                 let line = if model.theme().hide_urls()
@@ -200,9 +199,9 @@ pub fn view(model: &Model, frame: &mut Frame) {
                 };
                 let width = line.width() as u16;
                 let searchbar = Paragraph::new(line);
-                frame.render_widget(searchbar, Rect::new(0, frame_area.height - 1, width, 1));
+                frame.render_widget(searchbar, Rect::new(0, status_line_y, width, 1));
                 if cursor_positioned.is_none() {
-                    frame.set_cursor_position((0, frame_area.height - 1));
+                    frame.set_cursor_position((0, status_line_y));
                 }
             }
             Cursor::Search(needle, _) => {
@@ -212,8 +211,8 @@ pub fn view(model: &Model, frame: &mut Frame) {
                 line.spans.push(needle);
                 let width = line.width() as u16;
                 let searchbar = Paragraph::new(line);
-                frame.render_widget(searchbar, Rect::new(0, frame_area.height - 1, width, 1));
-                frame.set_cursor_position((0, frame_area.height - 1));
+                frame.render_widget(searchbar, Rect::new(0, status_line_y, width, 1));
+                frame.set_cursor_position((0, status_line_y));
             }
         },
         InputQueue::Search(needle) => {
@@ -223,8 +222,8 @@ pub fn view(model: &Model, frame: &mut Frame) {
             line.spans.push(needle);
             let width = line.width() as u16;
             let searchbar = Paragraph::new(line);
-            frame.render_widget(searchbar, Rect::new(0, frame_area.height - 1, width, 1));
-            frame.set_cursor_position((width, frame_area.height - 1));
+            frame.render_widget(searchbar, Rect::new(0, status_line_y, width, 1));
+            frame.set_cursor_position((width, status_line_y));
         }
         InputQueue::MovementCount(movement_count) => {
             let movement_count = movement_count.get();
@@ -236,15 +235,15 @@ pub fn view(model: &Model, frame: &mut Frame) {
             line.spans.push(span);
             let width = line.width() as u16;
             let searchbar = Paragraph::new(line);
-            frame.render_widget(searchbar, Rect::new(0, frame_area.height - 1, width, 1));
-            frame.set_cursor_position((width, frame_area.height - 1));
+            frame.render_widget(searchbar, Rect::new(0, status_line_y, width, 1));
+            frame.set_cursor_position((width, status_line_y));
         }
         InputQueue::CursorPositioningCommands => {
             let line = Line::from(Span::from("z").fg(Color::Indexed(32)));
             let width = line.width() as u16;
             let searchbar = Paragraph::new(line);
-            frame.render_widget(searchbar, Rect::new(0, frame_area.height - 1, width, 1));
-            frame.set_cursor_position((width, frame_area.height - 1));
+            frame.render_widget(searchbar, Rect::new(0, status_line_y, width, 1));
+            frame.set_cursor_position((width, status_line_y));
         }
     }
 }
@@ -264,12 +263,12 @@ fn link_overlays<'a>(
     lines_count: &Option<usize>,
     line_idx: usize,
     lines: &[(Line<'a>, Vec<LineExtra>)],
-    padding_left: u16,
-    max_line_end: u16,
+    inner_area: Rect,
     line_y: u16,
-    frame_area: Rect,
 ) -> Vec<(Paragraph<'a>, Rect)> {
     let mut overlays = Vec::new();
+
+    let max_line_end = inner_area.width;
 
     let start = if let Some(previous_lines_count) = lines_count
         && *previous_lines_count > 0
@@ -296,7 +295,7 @@ fn link_overlays<'a>(
             };
             let display_text = extract_line_content(&previous_line.0, start, end);
             let (link_overlay, width) = link_overlay_widget(start, end, display_text);
-            let x = frame_area.x + padding_left + start;
+            let x = inner_area.x + start;
             let area = Rect::new(x, previous_line_y, width, 1);
             overlays.push((link_overlay, area));
         }
@@ -310,7 +309,7 @@ fn link_overlays<'a>(
         // Just skip the overlay, although that line is the "anchor" for other purposes.
         let display_text = extract_line_content(line, start, end);
         let (link_overlay, width) = link_overlay_widget(start, end, display_text);
-        let x = frame_area.x + padding_left + start;
+        let x = inner_area.x + start;
         let area = Rect::new(x, line_y, width, 1);
         overlays.push((link_overlay, area));
     }
@@ -375,10 +374,8 @@ mod tests {
         let lines_count = Some(1);
         let line_idx = 1;
         let line = &lines[line_idx].0;
-        let padding_left = 10;
-        let max_line_end = 100;
         let line_y = 1;
-        let frame_area = Rect::new(0, 0, 120, 50);
+        let inner_area = Rect::new(10, 0, 100, 50);
         let overlays = link_overlays(
             line,
             start,
@@ -386,10 +383,8 @@ mod tests {
             &lines_count,
             line_idx,
             &lines,
-            padding_left,
-            max_line_end,
+            inner_area,
             line_y,
-            frame_area,
         );
         assert_eq!(
             overlays,
