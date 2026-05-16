@@ -148,6 +148,7 @@ impl Model {
         self.config
             .padding
             .calculate_height(self.screen_size.height)
+            .saturating_sub(1) // Account for the status line at the bottom.
     }
 
     pub fn block_padding(&self, area: Rect) -> Padding {
@@ -280,14 +281,14 @@ impl Model {
 
         self.scroll = min(
             new_scroll,
-            self.total_lines().saturating_sub(self.inner_height()) + 1,
+            self.total_lines().saturating_sub(self.inner_height()),
         );
     }
 
     pub fn visible_lines(&self) -> (i16, i16) {
         let start_y = self.scroll as i16;
         // We don't render the last line, so sub one extra:
-        let end_y = start_y + self.inner_height() as i16 - 2;
+        let end_y = start_y + (self.inner_height() as i16).saturating_sub(1);
         (start_y, end_y)
     }
 
@@ -326,12 +327,8 @@ impl Model {
 
             self.cursor = Cursor::None;
             self.scroll = y as u16;
-            if remaining_document_height < self.inner_height() - 1 {
-                log::debug!(
-                    "remaining: {remaining_document_height} / {}",
-                    self.inner_height()
-                );
-                self.scroll -= self.inner_height() - 1 - remaining_document_height;
+            if remaining_document_height < self.inner_height() {
+                self.scroll -= self.inner_height() - remaining_document_height;
             }
             return Ok(());
         }
@@ -884,7 +881,7 @@ mod tests {
         let mut y: i16 = 0 - (model.scroll as i16);
         for source in model.document.iter() {
             y += source.height as i16;
-            if y >= model.inner_height() as i16 - 1 {
+            if y >= model.inner_height() as i16 {
                 last_rendered = Some(source);
                 break;
             }
