@@ -3,16 +3,55 @@ use std::{
     io::{self, Write as _},
     path::{Path, PathBuf},
     process::{Command, Stdio},
+    sync::{Arc, RwLock},
 };
 
+use ghrepo::GHRepo;
 use reqwest::header::CONTENT_TYPE;
+use url::Url;
 
 use crate::{OK_END, VERSION, error::Error};
+
+#[derive(Clone)]
+pub enum DocumentSource {
+    File {
+        path: PathBuf,
+        basepath: Option<PathBuf>,
+    },
+    Stdin,
+    Github {
+        repo: GHRepo,
+    },
+    HyperText {
+        url: Url,
+    },
+}
+
+#[derive(Clone)]
+pub struct SharedDocumentSource(pub Arc<RwLock<DocumentSource>>);
+
+impl SharedDocumentSource {
+    #[cfg(test)]
+    pub fn test() -> SharedDocumentSource {
+        SharedDocumentSource(Arc::new(RwLock::new(DocumentSource::Stdin)))
+    }
+
+    pub fn read(&self) -> Result<DocumentSource, String> {
+        self.0.read().map(|g| g.clone()).map_err(|e| e.to_string())
+    }
+}
+
+impl std::ops::Deref for SharedDocumentSource {
+    type Target = RwLock<DocumentSource>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 pub fn open_source(
     source: &str,
     url_transform_command: Option<String>,
-) -> Result<(String, Option<PathBuf>, Option<PathBuf>), Error> {
+) -> Result<(String, DocumentSource), Error> {
     use ghrepo::GHRepo;
     use url::Url;
 
@@ -39,7 +78,7 @@ pub fn open_source(
             let response = client.get(&url).send()?;
             if response.status().is_success() {
                 println!("{OK_END}");
-                return Ok((response.text()?, None, None));
+                return Ok((response.text()?, DocumentSource::Github { repo }));
             } else {
                 println!("error.");
             }
@@ -93,11 +132,10 @@ pub fn open_source(
                 return Ok((
                     String::from_utf8(output.stdout)
                         .map_err(|_err| Error::Io(io::Error::other("response not utf-8")))?,
-                    None,
-                    None,
+                    DocumentSource::HyperText { url },
                 ));
             }
-            return Ok((response.text()?, None, None));
+            return Ok((response.text()?, DocumentSource::HyperText { url }));
         } else {
             println!("error.");
             return Err(Error::Io(io::Error::other(format!(
@@ -108,5 +146,8 @@ pub fn open_source(
 
     let path = PathBuf::from(source);
     let basepath = path.parent().map(Path::to_path_buf);
-    Ok((read_to_string(&path)?, Some(path), basepath))
+    Ok((
+        read_to_string(&path)?,
+        DocumentSource::File { path, basepath },
+    ))
 }

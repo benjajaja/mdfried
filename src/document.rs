@@ -3,7 +3,6 @@ use std::{
     fmt::{Debug, Display},
     num::NonZero,
     ops::{Deref, DerefMut},
-    path::PathBuf,
     sync::Arc,
 };
 
@@ -26,7 +25,13 @@ use reqwest::{
 use tokio::sync::RwLock;
 use unicode_width::UnicodeWidthStr as _;
 
-use crate::{Error, cursor::CursorPointer, setup::FontRenderer, worker::ImageCache};
+use crate::{
+    Error,
+    cursor::CursorPointer,
+    setup::FontRenderer,
+    sources::{DocumentSource, SharedDocumentSource},
+    worker::ImageCache,
+};
 
 #[derive(Default)]
 pub struct Document {
@@ -762,7 +767,7 @@ pub async fn image_section(
     picker: &Arc<Picker>,
     max_height: u16,
     width: u16,
-    basepath: &Option<PathBuf>,
+    document_source: SharedDocumentSource,
     client: Arc<RwLock<Client>>,
     id: SectionID,
     link: MarkdownLink,
@@ -834,8 +839,11 @@ pub async fn image_section(
             ImageSource::Bytes(bytes, format)
         }
     } else {
-        let path: String = match basepath {
-            Some(basepath) if url.starts_with("./") => basepath
+        let path: String = match document_source.read() {
+            Ok(DocumentSource::File {
+                path,
+                basepath: Some(basepath),
+            }) if url.starts_with("./") => basepath
                 .join(url)
                 .to_str()
                 .map(String::from)

@@ -3,7 +3,7 @@ use std::{
     fmt::Display,
     fs,
     num::NonZero,
-    path::{Path, PathBuf},
+    path::Path,
     sync::mpsc::{Receiver, Sender},
 };
 
@@ -16,15 +16,16 @@ use ratatui::{
 };
 use regex::RegexBuilder;
 
-use crate::Event;
 use crate::{
     Cmd,
     config::{Config, PaddingConfig, Theme},
     cursor::{Cursor, CursorPointer},
     document::{Document, FindMode, FindTarget, LineExtra, Section, SectionContent},
     error::Error,
+    sources::DocumentSource,
     worker::ImageCache,
 };
+use crate::{Event, sources::SharedDocumentSource};
 
 pub struct Model {
     pub scroll: u16,
@@ -33,7 +34,7 @@ pub struct Model {
     pub screen_size: Size,
     document: Document,
     document_id: DocumentId,
-    original_file_path: Option<PathBuf>,
+    document_source: SharedDocumentSource,
     config: Config,
     cmd_tx: Sender<Cmd>,
     event_rx: Receiver<Event>,
@@ -78,14 +79,14 @@ impl InputQueue {
 
 impl Model {
     pub fn new(
-        original_file_path: Option<PathBuf>,
+        document_source: SharedDocumentSource,
         cmd_tx: Sender<Cmd>,
         event_rx: Receiver<Event>,
         screen_size: Size,
         config: Config,
     ) -> Model {
         Model {
-            original_file_path,
+            document_source,
             screen_size,
             config,
             scroll: 0,
@@ -105,8 +106,8 @@ impl Model {
 
     pub fn reload(&mut self, screen_size: Size) -> Result<(), Error> {
         self.screen_size = screen_size;
-        if let Some(original_file_path) = &self.original_file_path {
-            let text = fs::read_to_string(original_file_path)?;
+        if let Ok(DocumentSource::File { path, .. }) = &self.document_source.read() {
+            let text = fs::read_to_string(path)?;
             self.reparse(text)?;
         }
         Ok(())
@@ -606,6 +607,7 @@ mod tests {
         cursor::{Cursor, CursorPointer},
         document::{Document, LineExtra, Section, SectionContent},
         model::{InputQueue, Model},
+        sources::SharedDocumentSource,
     };
 
     /// Test model, 80x20 screen size.
@@ -613,7 +615,7 @@ mod tests {
         let (cmd_tx, _) = mpsc::channel::<Cmd>();
         let (_, event_rx) = mpsc::channel::<Event>();
         Model {
-            original_file_path: None,
+            document_source: SharedDocumentSource::test(),
             screen_size: (80, 20).into(),
             config: UserConfig::default().into(),
             scroll: 0,

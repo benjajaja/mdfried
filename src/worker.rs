@@ -12,7 +12,6 @@ pub mod sections;
 
 use std::{
     collections::HashMap,
-    path::PathBuf,
     sync::{
         Arc,
         mpsc::{Receiver, Sender},
@@ -34,12 +33,13 @@ use crate::{
     error::Error,
     model::DocumentId,
     setup::FontRenderer,
+    sources::SharedDocumentSource,
     worker::sections::{SectionEvent, SectionIterator},
 };
 
 #[expect(clippy::too_many_arguments)]
 pub fn worker_thread(
-    basepath: Option<PathBuf>,
+    document_source: SharedDocumentSource,
     picker: Picker,
     renderer: Option<Box<FontRenderer>>,
     theme: Theme,
@@ -55,7 +55,6 @@ pub fn worker_thread(
             .build()?;
         runtime.block_on(async {
 
-            let basepath = basepath.clone();
             let builder = Client::builder().user_agent(format!(
                 "mdfried/{}",
                 VERSION.get().unwrap_or(&"unknown".to_owned())
@@ -199,7 +198,7 @@ pub fn worker_thread(
                         if !uncached_image_events.is_empty() {
                             process_image_events(
                                 event_tx.clone(),
-                                basepath.clone(),
+                                document_source.clone(),
                                 client.clone(),
                                 thread_picker.clone(),
                                 thread_renderer.clone(),
@@ -223,7 +222,7 @@ pub fn worker_thread(
 #[expect(clippy::too_many_arguments)]
 fn process_image_events(
     task_tx: Sender<Event>,
-    basepath: Option<PathBuf>,
+    document_source: SharedDocumentSource,
     client: Arc<RwLock<Client>>,
     picker: Arc<Picker>,
     font_renderer: Option<Arc<std::sync::Mutex<Box<FontRenderer>>>>,
@@ -244,7 +243,7 @@ fn process_image_events(
                         &picker,
                         config_max_image_height,
                         width,
-                        &basepath,
+                        document_source.clone(),
                         client.clone(),
                         section_id,
                         url,

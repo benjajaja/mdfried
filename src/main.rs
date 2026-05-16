@@ -19,7 +19,7 @@ use std::{
     fmt::Display,
     io::{self, Read as _},
     sync::{
-        OnceLock,
+        Arc, OnceLock, RwLock,
         mpsc::{self},
     },
 };
@@ -45,7 +45,7 @@ use crate::{
     error::Error,
     keybindings::PollResult,
     model::{DocumentId, Model},
-    sources::open_source,
+    sources::{DocumentSource, SharedDocumentSource, open_source},
     view::view,
     watch::watch,
     worker::{ImageCache, worker_thread},
@@ -135,13 +135,13 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let mut user_config = config::load_or_ask()?;
     let config = Config::from(user_config.clone());
 
-    let (text, file_path, basepath) = match source {
+    let (text, document_source) = match source {
         Some(source) if source == "-" => {
             let mut text = String::new();
             print!("Reading stdin...");
             io::stdin().read_to_string(&mut text)?;
             println!("{OK_END}");
-            (text, None, None)
+            (text, DocumentSource::Stdin)
         }
         None => {
             if io::stdin().is_tty() {
@@ -153,7 +153,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             print!("Reading stdin...");
             io::stdin().read_to_string(&mut text)?;
             println!("{OK_END}");
-            (text, None, None)
+            (text, DocumentSource::Stdin)
         }
         Some(source) => open_source(&source, config.url_transform_command.clone())?,
     };
@@ -215,11 +215,15 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     let deep_fry = *matches.get_one("deep-fry").unwrap_or(&false);
 
-    let watchmode_path = if *matches.get_one("watch").unwrap_or(&false) {
-        file_path.clone()
+    let watchmode_path = if *matches.get_one("watch").unwrap_or(&false)
+        && let DocumentSource::File { path, .. } = &document_source
+    {
+        Some(path.clone())
     } else {
         None
     };
+
+    let document_source = SharedDocumentSource(Arc::new(RwLock::new(document_source)));
 
     let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
     let (event_tx, event_rx) = mpsc::channel::<Event>();
@@ -235,7 +239,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let mut worker_theme = config.theme.clone();
     worker_theme.has_text_size_protocol = Some(has_text_size_protocol);
     let cmd_thread = worker_thread(
-        basepath,
+        document_source.clone(),
         picker,
         renderer,
         worker_theme,
@@ -256,7 +260,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     terminal.clear()?;
 
     let terminal_size = terminal.size()?;
-    let model = Model::new(file_path, cmd_tx, event_rx, terminal.size()?, config);
+    let model = Model::new(document_source, cmd_tx, event_rx, terminal.size()?, config);
     model.open(text)?;
 
     let debouncer = if let Some(path) = watchmode_path {
@@ -402,6 +406,7 @@ mod tests {
         config::{Config, UserConfig},
         error::Error,
         model::Model,
+        sources::SharedDocumentSource,
         view::view,
         worker::worker_thread,
     };
@@ -419,8 +424,9 @@ mod tests {
         assert_eq!(picker.protocol_type(), ProtocolType::Halfblocks);
         let mut worker_theme = config.theme.clone();
         worker_theme.has_text_size_protocol = Some(true);
+        let document_source = SharedDocumentSource::test();
         let worker = worker_thread(
-            None,
+            document_source.clone(),
             picker,
             None,
             worker_theme,
@@ -432,7 +438,7 @@ mod tests {
 
         let screen_size = (80, 20).into();
 
-        let model = Model::new(None, cmd_tx, event_rx, screen_size, config);
+        let model = Model::new(document_source, cmd_tx, event_rx, screen_size, config);
         (model, worker, screen_size)
     }
 
