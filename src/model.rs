@@ -294,30 +294,45 @@ impl Model {
     pub fn open_link(&mut self, url: String) -> Result<(), Error> {
         if let Some(header_reference) = url.strip_prefix("#") {
             let pointer = {
-                let mut pointer = None;
-                for Section { id, content, .. } in self.document.iter() {
+                let mut target = None;
+                for Section {
+                    id,
+                    content,
+                    height,
+                } in self.document.iter()
+                {
                     if let SectionContent::Header(text, _, _) = content {
                         // Is this `#kebab-case` the only scheme? Probably not.
                         if text.to_lowercase().replace(' ', "-") == header_reference {
-                            pointer = Some(CursorPointer { id: *id, index: 0 });
+                            let Some(y) = self.document.get_y(&CursorPointer { id: *id, index: 0 })
+                            else {
+                                return Err(Error::Generic(format!(
+                                    "Header position not found: {}",
+                                    url
+                                )));
+                            };
+                            target = Some((y, 0));
                         }
                     }
+                    if let Some((_, target_height)) = &mut target {
+                        *target_height += height;
+                    }
                 }
-                pointer
+                target
             };
-            let Some(pointer) = pointer else {
+            let Some((y, remaining_document_height)) = pointer else {
                 return Err(Error::Generic(format!("Header link not found: {}", url)));
             };
-            // This will put the id in the pointer, and `#something-something` in the status.
-            let Some(y) = self.document.get_y(&pointer) else {
-                return Err(Error::Generic(format!(
-                    "Header position not found: {}",
-                    url
-                )));
-            };
 
-            self.cursor = Cursor::Search(url, Some(pointer));
+            self.cursor = Cursor::None;
             self.scroll = y as u16;
+            if remaining_document_height < self.inner_height() - 1 {
+                log::debug!(
+                    "remaining: {remaining_document_height} / {}",
+                    self.inner_height()
+                );
+                self.scroll -= self.inner_height() - 1 - remaining_document_height;
+            }
             return Ok(());
         }
 
