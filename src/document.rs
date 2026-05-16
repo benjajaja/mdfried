@@ -219,21 +219,27 @@ impl Document {
         None
     }
 
-    // Find first should be slightly more efficient.
+    /// Find first cursor in visible lines
+    ///
+    /// Find the first cursor in visible lines, or the first after, or the earliest before, in
+    /// that order.
     pub fn find_first_cursor<'b, Iter: Iterator<Item = &'b Section>>(
-        iter: Iter,
+        sections: Iter,
         target: FindTarget,
         scroll: u16,
     ) -> Option<CursorPointer> {
-        let locate = move |section: &Section| -> Option<CursorPointer> {
+        let locate = move |section: &Section| -> Option<(u16, CursorPointer)> {
             if let SectionContent::Lines(lines) = &section.content {
                 let mut flat_index = 0;
-                for (_, extras) in lines {
+                for (line_y, (_, extras)) in lines.iter().enumerate() {
                     if let Some(i) = extras.iter().position(|extra| target.matches(extra)) {
-                        return Some(CursorPointer {
-                            id: section.id,
-                            index: flat_index + i,
-                        });
+                        return Some((
+                            line_y as u16,
+                            CursorPointer {
+                                id: section.id,
+                                index: flat_index + i,
+                            },
+                        ));
                     }
                     flat_index += extras.len();
                 }
@@ -241,22 +247,21 @@ impl Document {
             None
         };
 
-        let mut first = None;
-        let mut offset_acc = 0;
-        for section in iter {
-            offset_acc += section.height;
-            if offset_acc < scroll + 1 {
-                if first.is_none() {
-                    first = locate(section);
-                }
-                continue;
+        let mut last = None;
+        let mut y = 0;
+        for section in sections {
+            let next = locate(section);
+            if let Some((line_y, _)) = &next
+                && y + line_y >= scroll
+            {
+                return next.map(|f| f.1);
             }
-            match locate(section) {
-                None => {}
-                x => return x,
+            if next.is_some() {
+                last = next.map(|f| f.1);
             }
+            y += section.height;
         }
-        first
+        last
     }
 
     // Find nth (nonzero) next cursor.

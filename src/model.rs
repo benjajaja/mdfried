@@ -287,7 +287,6 @@ impl Model {
 
     pub fn visible_lines(&self) -> (i16, i16) {
         let start_y = self.scroll as i16;
-        // We don't render the last line, so sub one extra:
         let end_y = start_y + (self.inner_height() as i16).saturating_sub(1);
         (start_y, end_y)
     }
@@ -606,6 +605,7 @@ mod tests {
         model::{InputQueue, Model},
     };
 
+    /// Test model, 80x20 screen size.
     fn test_model() -> Model {
         let (cmd_tx, _) = mpsc::channel::<Cmd>();
         let (_, event_rx) = mpsc::channel::<Event>();
@@ -631,7 +631,7 @@ mod tests {
                 model
                     .cursor
                     .pointer()
-                    .expect("model.cursor.pointer() should be Some(CursorPointer{ .. })"),
+                    .expect("model.cursor.pointer() should be Some"),
             )
             .expect("find_extra_by_cursor(...).unwrap()")
         else {
