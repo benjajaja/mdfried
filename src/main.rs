@@ -290,6 +290,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
 enum Cmd {
     Parse(DocumentId, u16, String, Option<ImageCache>),
+    OpenUrl(String),
 }
 
 impl std::fmt::Debug for Cmd {
@@ -311,6 +312,7 @@ impl Display for Cmd {
                         .unwrap_or(0)
                 )
             }
+            Cmd::OpenUrl(url) => write!(f, "Cmd::Open({url})"),
         }
     }
 }
@@ -324,6 +326,7 @@ pub enum Event {
     HeaderLoaded(DocumentId, SectionID, Vec<(String, u8, Protocol)>),
     FileChanged,
     Scroll(i16),
+    NewSource(String),
 }
 
 impl Display for Event {
@@ -360,6 +363,7 @@ impl Display for Event {
             }
             Event::FileChanged => write!(f, "Event::FileChanged"),
             Event::Scroll(s) => write!(f, "Event::Scroll({s})"),
+            Event::NewSource(_) => write!(f, "Event::NewSource"),
         }
     }
 }

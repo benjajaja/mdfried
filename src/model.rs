@@ -22,7 +22,7 @@ use crate::{
     cursor::{Cursor, CursorPointer},
     document::{Document, FindMode, FindTarget, LineExtra, Section, SectionContent},
     error::Error,
-    sources::DocumentSource,
+    sources::{DocumentSource, extend_url, github_usercontent_url},
     worker::ImageCache,
 };
 use crate::{Event, sources::SharedDocumentSource};
@@ -255,6 +255,20 @@ impl Model {
                 Event::Scroll(delta) => {
                     self.scroll = self.scroll.saturating_add_signed(delta);
                 }
+                Event::NewSource(text) => {
+                    // This looks like we should have a method to "clear everything".
+                    self.document_id = self.document_id.next();
+                    self.document = Document::default();
+                    self.cursor = Cursor::None;
+                    self.scroll = 0;
+                    self.input_queue = InputQueue::None;
+                    // We should also think about having some kind of history stack, with:
+                    // * file name
+                    // * scroll
+                    // * cursor
+                    // * ???
+                    self.open(text)?;
+                }
             }
         }
         Ok((had_events, had_done, had_reload))
@@ -295,8 +309,8 @@ impl Model {
         (start_y, end_y)
     }
 
-    pub fn open_link(&mut self, url: String) -> Result<(), Error> {
-        if let Some(header_reference) = url.strip_prefix("#") {
+    pub fn open_link(&mut self, link_url: String) -> Result<(), Error> {
+        if let Some(header_reference) = link_url.strip_prefix("#") {
             let pointer = {
                 let mut target = None;
                 for Section {
@@ -312,7 +326,7 @@ impl Model {
                             else {
                                 return Err(Error::Generic(format!(
                                     "Header position not found: {}",
-                                    url
+                                    link_url
                                 )));
                             };
                             target = Some((y, 0));
@@ -325,7 +339,10 @@ impl Model {
                 target
             };
             let Some((y, remaining_document_height)) = pointer else {
-                return Err(Error::Generic(format!("Header link not found: {}", url)));
+                return Err(Error::Generic(format!(
+                    "Header link not found: {}",
+                    link_url
+                )));
             };
 
             self.cursor = Cursor::None;
@@ -336,27 +353,39 @@ impl Model {
             return Ok(());
         }
 
-        let url_as_path = Path::new(&url);
-        if url_as_path.extension() == Some(std::ffi::OsStr::new("md"))
-            && fs::exists(url_as_path).unwrap_or_default()
-            && let Ok(text) = fs::read_to_string(url_as_path)
-        {
-            // This looks like we should have a method to "clear everything".
-            self.document_id = DocumentId::default();
-            self.document = Document::default();
-            self.cursor = Cursor::None;
-            self.scroll = 0;
-            self.input_queue = InputQueue::None;
-            // We should also think about having some kind of history stack, with:
-            // * file name
-            // * scroll
-            // * cursor
-            // * ???
-            return self.open(text);
-        }
+        match self.document_source.read() {
+            Ok(DocumentSource::File { .. }) | Ok(DocumentSource::Stdin) | Err(_) => {
+                let url_as_path = Path::new(&link_url);
+                if url_as_path.extension() == Some(std::ffi::OsStr::new("md"))
+                    && fs::exists(url_as_path).unwrap_or_default()
+                    && let Ok(text) = fs::read_to_string(url_as_path)
+                {
+                    // This looks like we should have a method to "clear everything".
+                    self.document_id = self.document_id.next();
+                    self.document = Document::default();
+                    self.cursor = Cursor::None;
+                    self.scroll = 0;
+                    self.input_queue = InputQueue::None;
+                    // We should also think about having some kind of history stack, with:
+                    // * file name
+                    // * scroll
+                    // * cursor
+                    // * ???
+                    return self.open(text);
+                }
 
-        if let Err(err) = open::that(&url) {
-            log::error!("{err}");
+                if let Err(err) = open::that(&link_url) {
+                    log::error!("{err}");
+                }
+            }
+            Ok(DocumentSource::Github { repo, branch }) => {
+                let url = github_usercontent_url(&repo, &branch, &link_url)?;
+                self.cmd_tx.send(Cmd::OpenUrl(url))?;
+            }
+            Ok(DocumentSource::HyperText { url }) => {
+                let url = extend_url(url, &link_url)?;
+                self.cmd_tx.send(Cmd::OpenUrl(url))?;
+            }
         }
         Ok(())
     }
@@ -566,6 +595,13 @@ impl DocumentId {
 
     fn is_first_load(&self) -> bool {
         self.reload_id == 0
+    }
+
+    fn next(&self) -> DocumentId {
+        DocumentId {
+            id: self.id + 1,
+            reload_id: 0,
+        }
     }
 }
 

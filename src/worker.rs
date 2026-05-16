@@ -33,7 +33,7 @@ use crate::{
     error::Error,
     model::DocumentId,
     setup::FontRenderer,
-    sources::SharedDocumentSource,
+    sources::{SharedDocumentSource, open_source},
     worker::sections::{SectionEvent, SectionIterator},
 };
 
@@ -210,6 +210,16 @@ pub fn worker_thread(
                                 uncached_image_events,
                             );
                         }
+                    }
+                    Cmd::OpenUrl(url)=>{
+                        let event_tx = event_tx.clone();
+                        tokio::task::spawn_blocking(move || -> Result<(), Error> {
+                            if let Ok((text, _)) = open_source(&url, None) {
+                                event_tx.send(Event::NewSource(text))?;
+                            }
+                            Ok(())
+                        })
+                        .await??;
                     }
                 }
             }
