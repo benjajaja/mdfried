@@ -30,6 +30,7 @@ pub enum Error {
     ImageLoad(String, String),
     Notify(notify::Error),
     MarkdownParse,
+    UrlParse(Option<url::ParseError>),
     // Do not overuse this one!
     Generic(String),
 }
@@ -56,9 +57,13 @@ impl fmt::Display for Error {
             Error::Download(err) => write!(f, "HTTP request error: {err}"),
             Error::NoFont => write!(f, "No font available"),
             Error::Thread(msg) => write!(f, "Thread error: {msg}"),
-            Error::ImageLoad(url, error) => write!(f, "Image error {url}: {error}"),
+            Error::ImageLoad(url, err) => write!(f, "Image error {url}: {err}"),
             Error::Notify(err) => write!(f, "Watch error: {err}"),
             Error::MarkdownParse => write!(f, "Markdown parsing failed"),
+            Error::UrlParse(err) => match err {
+                Some(err) => write!(f, "URL parsing failed: {err}"),
+                None => write!(f, "URL parsing failed"),
+            },
             Error::Generic(msg) => write!(f, "Generic error: {msg}"),
         }
     }
@@ -160,5 +165,11 @@ impl From<InstallError> for Error {
 impl From<mdfrier::MarkdownParseError> for Error {
     fn from(_value: mdfrier::MarkdownParseError) -> Self {
         Self::MarkdownParse
+    }
+}
+
+impl From<url::ParseError> for Error {
+    fn from(value: url::ParseError) -> Self {
+        Self::UrlParse(Some(value))
     }
 }

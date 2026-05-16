@@ -29,7 +29,7 @@ use crate::{
     Error,
     cursor::CursorPointer,
     setup::FontRenderer,
-    sources::{DocumentSource, SharedDocumentSource},
+    sources::{DocumentSource, SharedDocumentSource, extend_url, github_usercontent_url},
     worker::ImageCache,
 };
 
@@ -762,6 +762,13 @@ pub fn header_sections(
     Ok(protos)
 }
 
+#[derive(Debug)]
+enum ImageSource {
+    Bytes(Vec<u8>, ImageFormat),
+    Path(String),
+    DynamicImage(DynamicImage),
+}
+
 #[expect(clippy::too_many_arguments)]
 pub async fn image_section(
     picker: &Arc<Picker>,
@@ -774,83 +781,35 @@ pub async fn image_section(
     deep_fry_meme: bool,
     fontdb: Option<Arc<Database>>,
 ) -> Result<Section, Error> {
-    enum ImageSource {
-        Bytes(Vec<u8>, ImageFormat),
-        Path(String),
-        DynamicImage(DynamicImage),
-    }
-    let url = &link.url;
-    let image_source = if url.starts_with("https://") || url.starts_with("http://") {
-        let mut headers = HeaderMap::new();
-        headers.insert(ACCEPT, HeaderValue::from_static("image/png,image/jpg")); // or "image/jpeg"
-        let client = client.read().await;
-        let response = client.get(url).headers(headers).send().await?;
-        drop(client);
-        if !response.status().is_success() {
-            return Err(Error::ImageLoad(
-                url.to_owned(),
-                format!("status {}", response.status()),
-            ));
-        }
-        let ct = response
-            .headers()
-            .get(CONTENT_TYPE)
-            .and_then(|h| h.to_str().ok());
-
-        let Some(ct) = ct else {
-            return Err(Error::ImageLoad(
-                url.to_owned(),
-                "no content-type".to_owned(),
-            ));
-        };
-
-        // e.g. "image/svg+xml;charest=utf-8", but varies.
-        if ct.starts_with("image/svg+xml") {
-            #[cfg(feature = "svg")]
-            {
-                let Some(fontdb) = fontdb else {
-                    return Err(Error::ImageLoad(
-                        url.clone(),
-                        "svg feature enabled but no fontdb at runtime".to_owned(),
-                    ));
-                };
-                let bytes = response.bytes().await?.to_vec();
-                let dyn_img = svg_to_png(&bytes, fontdb)?;
-                ImageSource::DynamicImage(dyn_img)
-            }
-            #[cfg(not(feature = "svg"))]
-            return Err(Error::ImageLoad(
-                url.clone(),
-                "svg feature not enabled".to_owned(),
-            ));
-        } else {
-            let format = match ct {
-                "image/jpeg" => Ok(ImageFormat::Jpeg),
-                "image/png" => Ok(ImageFormat::Png),
-                "image/webp" => Ok(ImageFormat::WebP),
-                "image/gif" => Ok(ImageFormat::Gif),
-                ct => Err(Error::ImageLoad(
-                    url.to_owned(),
-                    format!("unhandled content-type {ct}"),
-                )),
-            }?;
-
-            let bytes = response.bytes().await?.to_vec();
-            ImageSource::Bytes(bytes, format)
-        }
+    let link_url = &link.url;
+    let image_source = if link_url.starts_with("https://") || link_url.starts_with("http://") {
+        download_image(client, fontdb, link_url).await?
     } else {
-        let path: String = match document_source.read() {
+        let image_source: Option<ImageSource> = match document_source.read() {
             Ok(DocumentSource::File {
                 path,
                 basepath: Some(basepath),
-            }) if url.starts_with("./") => basepath
-                .join(url)
-                .to_str()
-                .map(String::from)
-                .unwrap_or(url.to_owned()),
-            _ => url.to_owned(),
+            }) if link_url.starts_with("./") => {
+                let path = basepath.join(link_url).to_str().map(String::from);
+                path.map(ImageSource::Path)
+            }
+            Ok(DocumentSource::Github { repo, branch }) => {
+                if let Ok(repo_url) = github_usercontent_url(&repo, &branch, link_url) {
+                    Some(download_image(client, fontdb, repo_url.as_str()).await?)
+                } else {
+                    None
+                }
+            }
+            Ok(DocumentSource::HyperText { url }) => {
+                if let Ok(extended_url) = extend_url(url.clone(), link_url) {
+                    Some(download_image(client, fontdb, extended_url.as_str()).await?)
+                } else {
+                    None
+                }
+            }
+            _ => None,
         };
-        ImageSource::Path(path)
+        image_source.unwrap_or_else(|| ImageSource::Path(link_url.to_owned()))
     };
 
     // Now do all the blocking stuff
@@ -885,6 +844,70 @@ pub async fn image_section(
     })
     .await??;
     Ok(section)
+}
+
+async fn download_image(
+    client: Arc<RwLock<Client>>,
+    fontdb: Option<Arc<Database>>,
+    url: &str,
+) -> Result<ImageSource, Error> {
+    let mut headers = HeaderMap::new();
+    headers.insert(ACCEPT, HeaderValue::from_static("image/png,image/jpg")); // or "image/jpeg"
+    let client = client.read().await;
+    let response = client.get(url).headers(headers).send().await?;
+    drop(client);
+    if !response.status().is_success() {
+        return Err(Error::ImageLoad(
+            url.to_owned(),
+            format!("status {}", response.status()),
+        ));
+    }
+    let ct = response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|h| h.to_str().ok());
+
+    let Some(ct) = ct else {
+        return Err(Error::ImageLoad(
+            url.to_owned(),
+            "no content-type".to_owned(),
+        ));
+    };
+
+    // e.g. "image/svg+xml;charest=utf-8", but varies.
+    if ct.starts_with("image/svg+xml") {
+        #[cfg(feature = "svg")]
+        {
+            let Some(fontdb) = fontdb else {
+                return Err(Error::ImageLoad(
+                    url.to_owned(),
+                    "svg feature enabled but no fontdb at runtime".to_owned(),
+                ));
+            };
+            let bytes = response.bytes().await?.to_vec();
+            let dyn_img = svg_to_png(&bytes, fontdb)?;
+            Ok(ImageSource::DynamicImage(dyn_img))
+        }
+        #[cfg(not(feature = "svg"))]
+        return Err(Error::ImageLoad(
+            url.to_owned(),
+            "svg feature not enabled".to_owned(),
+        ));
+    } else {
+        let format = match ct {
+            "image/jpeg" => Ok(ImageFormat::Jpeg),
+            "image/png" => Ok(ImageFormat::Png),
+            "image/webp" => Ok(ImageFormat::WebP),
+            "image/gif" => Ok(ImageFormat::Gif),
+            ct => Err(Error::ImageLoad(
+                url.to_owned(),
+                format!("unhandled content-type {ct}"),
+            )),
+        }?;
+
+        let bytes = response.bytes().await?.to_vec();
+        Ok(ImageSource::Bytes(bytes, format))
+    }
 }
 
 #[cfg(feature = "svg")]

@@ -21,6 +21,7 @@ pub enum DocumentSource {
     Stdin,
     Github {
         repo: GHRepo,
+        branch: String,
     },
     HyperText {
         url: Url,
@@ -78,7 +79,13 @@ pub fn open_source(
             let response = client.get(&url).send()?;
             if response.status().is_success() {
                 println!("{OK_END}");
-                return Ok((response.text()?, DocumentSource::Github { repo }));
+                return Ok((
+                    response.text()?,
+                    DocumentSource::Github {
+                        repo,
+                        branch: branch.to_owned(),
+                    },
+                ));
             } else {
                 println!("error.");
             }
@@ -150,4 +157,32 @@ pub fn open_source(
         read_to_string(&path)?,
         DocumentSource::File { path, basepath },
     ))
+}
+
+pub fn github_usercontent_url(repo: &GHRepo, branch: &str, path: &str) -> Result<String, Error> {
+    let path_url = Url::parse(&format!("https://dummy.com/{}", path))?; // :rolling_eyes:
+
+    let mut url = Url::parse("https://raw.githubusercontent.com")?;
+    let segs = path_url.path_segments().ok_or(Error::UrlParse(None))?;
+    url.path_segments_mut()
+        .or(Err(Error::UrlParse(None)))?
+        .extend(&[repo.owner(), repo.name(), branch])
+        .extend(segs);
+    url.set_query(path_url.query());
+    url.set_fragment(path_url.fragment());
+
+    Ok(url.to_string())
+}
+
+pub fn extend_url(mut url: Url, path: &str) -> Result<String, Error> {
+    let path_url = Url::parse(&format!("https://dummy.com/{}", path))?; // :rolling_eyes:
+
+    let segs = path_url.path_segments().ok_or(Error::UrlParse(None))?;
+    url.path_segments_mut()
+        .or(Err(Error::UrlParse(None)))?
+        .extend(segs);
+    url.set_query(path_url.query());
+    url.set_fragment(path_url.fragment());
+
+    Ok(url.to_string())
 }
