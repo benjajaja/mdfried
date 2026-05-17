@@ -3,7 +3,7 @@
 let
   inherit (pkgs) lib;
 
-  mdfriedCmd = "${mdfriedStatic}/bin/mdfried README.md";
+  mdfriedCmd = "${mdfriedStatic}/bin/mdfried README.md --animate";
 
 in
 pkgs.testers.nixosTest {
@@ -11,6 +11,8 @@ pkgs.testers.nixosTest {
 
   nodes.machine = { pkgs, ... }: {
     virtualisation.memorySize = 4096;
+    virtualisation.qemu.options = [ "-device virtio-vga" ];
+    virtualisation.graphics = true;
 
     programs.sway = {
       enable = true;
@@ -23,6 +25,7 @@ pkgs.testers.nixosTest {
       gaps inner 0
       gaps outer 0
       for_window [app_id="kitty"] fullscreen enable
+      seat * hide_cursor 1
     '';
 
     services.xserver.enable = true;
@@ -67,16 +70,12 @@ pkgs.testers.nixosTest {
     # Copy assets
     machine.succeed("mkdir -p /tmp/test-assets")
     machine.copy_from_host("${builtins.path { path = ./README.md; name = "README.md"; }}", "/tmp/test-assets/README.md")
-
-    # Set up mdfried config to skip font setup wizard
-    machine.succeed("mkdir -p /home/test/.config/mdfried")
-    machine.succeed("echo 'font_family = \"Noto Sans Mono\"' > /home/test/.config/mdfried/config.toml")
-    machine.succeed("chown -R test:users /home/test/.config")
+    machine.copy_from_host("${builtins.path { path = ./assets/logo.png; name = "logo.png"; }}", "/tmp/test-assets/assets/logo.png")
+    machine.copy_from_host("${builtins.path { path = ./assets/screenshot_1.png; name = "screenshot_1.png"; }}", "/tmp/test-assets/assets/screenshot_1.png")
 
     # Wait for Wayland compositor to be ready
     machine.wait_until_succeeds("systemd-run --uid=test --setenv=XDG_RUNTIME_DIR=/run/user/1000 --setenv=WAYLAND_DISPLAY=wayland-1 -- swaymsg -t get_version")
 
-    # Launch kitty fullscreen running mdfried on README.md
     machine.succeed("""
       systemd-run --uid=test \
         --setenv=XDG_RUNTIME_DIR=/run/user/1000 \
@@ -87,25 +86,24 @@ pkgs.testers.nixosTest {
     """)
 
     # Give kitty and mdfried time to start and render
-    machine.succeed("sleep 3")
+    machine.succeed("sleep 5")
 
-    machine.succeed("sleep 1")
-
-    # Start wf-recorder for 5 seconds, output to /tmp/recording.mp4
     machine.succeed("""
       systemd-run --uid=test \
         --setenv=XDG_RUNTIME_DIR=/run/user/1000 \
         --setenv=WAYLAND_DISPLAY=wayland-1 \
-        -- wf-recorder -f /tmp/recording.mp4 --codec libx264 &
+        -- wf-recorder -f /tmp/recording.mp4 --codec libx264 --pixel-format yuv420p -r 30 -p crf=20 -p preset=medium &
     """)
+    machine.succeed("sleep 1")
 
-    machine.succeed("sleep 5")
+    machine.succeed("kill -USR1 $(pgrep mdfried)")
+
+    machine.succeed("sleep 4")
 
     # Stop the recorder gracefully
     machine.succeed("pkill -SIGINT wf-recorder || true")
     machine.succeed("sleep 1")
 
-    # Copy recording to test output
     machine.copy_from_vm("/tmp/recording.mp4", "recording")
     print("Screen recording saved as result/recording.mp4")
   '';

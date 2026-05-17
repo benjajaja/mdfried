@@ -73,6 +73,7 @@ fn main() -> io::Result<()> {
             arg!(--"log-to-stderr" "Log to stderr.\nMust be used with stderr redirection, otherwise garbled text will appear.\nFor example, in another terminal, get and copy the filename of stdin with `tty`,\nlet's say it's `/dev/pts/7`. Then run:\nmdfried FILE.md --log-to-stderr 2>/dev/pts/7\nThe logs will appear nicely colored in the other terminal.")
                 .value_parser(value_parser!(bool)),
         )
+        .arg(arg!(--"animate" "Animate scrolling on startup (for demo recordings)").hide(true).value_parser(value_parser!(bool)))
         .arg(
             arg!([source] "The markdown source.\nCan be a file path, a URL, a github repo in \"github:[owner]/[repo]\" format, or '-' or omit, for stdin")
         );
@@ -224,6 +225,12 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let (event_tx, event_rx) = mpsc::channel::<Event>();
     let watch_event_tx = event_tx.clone();
 
+    #[cfg(not(windows))]
+    if *matches.get_one("animate").unwrap_or(&false) {
+        log::warn!("--animate");
+        debug::animate_recording(event_tx.clone());
+    }
+
     let config_max_image_height = config.max_image_height;
     let mut worker_theme = config.theme.clone();
     worker_theme.has_text_size_protocol = Some(has_text_size_protocol);
@@ -312,6 +319,7 @@ pub enum Event {
     ImageFailed(DocumentId, SectionID, String, String),
     HeaderLoaded(DocumentId, SectionID, Vec<(String, u8, Protocol)>),
     FileChanged,
+    Scroll(i16),
 }
 
 impl Display for Event {
@@ -321,7 +329,6 @@ impl Display for Event {
             Event::ParseDone(document_id, last_section_id) => {
                 write!(f, "Event::ParseDone({document_id}, {last_section_id:?})")
             }
-
             Event::Parsed(document_id, section) => {
                 write!(
                     f,
@@ -329,18 +336,15 @@ impl Display for Event {
                     section.id, section.content
                 )
             }
-
             Event::ImageLoaded(document_id, section_id, url, _) => {
                 write!(f, "Event::ImageLoaded({document_id}, {section_id}, {url})")
             }
-
             Event::ImageFailed(document_id, section_id, url, error) => {
                 write!(
                     f,
                     "Event::ImageFailed({document_id}, {section_id}, {url}, {error})"
                 )
             }
-
             Event::HeaderLoaded(document_id, section_id, rows) => {
                 write!(
                     f,
@@ -350,8 +354,8 @@ impl Display for Event {
                         .unwrap_or_default()
                 )
             }
-
             Event::FileChanged => write!(f, "Event::FileChanged"),
+            Event::Scroll(s) => write!(f, "Event::Scroll({s})"),
         }
     }
 }

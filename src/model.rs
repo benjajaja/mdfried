@@ -251,6 +251,9 @@ impl Model {
                     self.reload(self.screen_size)?;
                     had_reload = true;
                 }
+                Event::Scroll(delta) => {
+                    self.scroll = self.scroll.saturating_add_signed(delta);
+                }
             }
         }
         Ok((had_events, had_done, had_reload))
