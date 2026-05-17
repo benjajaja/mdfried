@@ -1,7 +1,10 @@
 use textwrap::{Options, wrap};
 use unicode_width::UnicodeWidthStr;
 
-use crate::markdown::{Modifier, Span};
+use crate::{
+    link_tracker::LinkTracker,
+    markdown::{Modifier, Span},
+};
 
 /// Trim leading whitespace in place.
 #[inline]
@@ -38,6 +41,8 @@ pub fn wrap_md_spans(
 ) -> Vec<WrappedLine> {
     let available_width = width.saturating_sub(prefix_width as u16).max(1);
 
+    let mut tracker = LinkTracker::default();
+
     wrap_md_spans_lines(available_width, mdspans, hide_urls)
         .into_iter()
         .filter(|line| !line.is_empty())
@@ -46,7 +51,11 @@ pub fn wrap_md_spans(
             // Extract images from spans
             let mut images: Vec<ImageRef> = Vec::new();
             for (i, s) in mdspans.iter().enumerate() {
-                if s.modifiers.contains(Modifier::LinkURL) && s.modifiers.contains(Modifier::Image)
+                tracker.track(s);
+
+                if false
+                    && s.modifiers.contains(Modifier::LinkURL)
+                    && s.modifiers.contains(Modifier::Image)
                 {
                     // Track back to get description if any.
                     // TODO: something's wrong about this!
@@ -67,6 +76,17 @@ pub fn wrap_md_spans(
                     images.push(ImageRef {
                         url: s.content.clone(),
                         description: description.unwrap_or_default(),
+                    });
+                }
+            }
+
+            tracker.carriage_return();
+            for url in tracker.take_urls() {
+                if url.is_image {
+                    eprintln!("tracker: {}", url.url);
+                    images.push(ImageRef {
+                        url: url.url,
+                        description: String::new(),
                     });
                 }
             }

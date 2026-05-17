@@ -93,6 +93,7 @@
 //! ```
 
 mod lines;
+pub mod link_tracker;
 pub mod mapper;
 mod markdown;
 mod wrap;
