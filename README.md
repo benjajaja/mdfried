@@ -11,7 +11,7 @@ rest.
 
 ## Video
 
-https://github.com/user-attachments/assets/e69154a7-bea8-4e14-a677-be7ccf0d3cac
+https://github.com/user-attachments/assets/924d29a9-053c-44b0-8c09-39dac8c90329
 
 # Why?
 
