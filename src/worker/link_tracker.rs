@@ -7,7 +7,7 @@ use unicode_width::UnicodeWidthStr as _;
 
 use crate::document::LineExtra;
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 /// Iterator over [`mdfrier::Span`]s and extract links as [`LineExtra::Link`]`(url, start, end)`,
 /// where "start" and "end" are the respective positions in the [`mdfrier::Line`].
 pub struct LinkTracker {
@@ -105,6 +105,15 @@ impl LinkTracker {
             };
             // Exit URL, can build the LinkExtra::Link now.
             self.exit(start, end, lines, url.as_str());
+
+        // BareLink:
+        } else if self.link_builder == LinkExtraLinkBuilder::None
+            && node
+                .modifiers
+                .is_link_modifier(MdModifier::BareLink | MdModifier::LinkURL)
+        {
+            // BareLink, enter and exit immediately.
+            self.exit(self.offset, self.offset + span_width, 0, &node.content);
         }
         if self.hide_urls {
             if !node.modifiers.is_link_url() {
@@ -328,6 +337,24 @@ mod tests {
         assert_eq!(
             extras[0],
             LineExtra::Link(SourceContent::from("url-1/url-2"), 9, 5, Some(2)),
+        );
+    }
+
+    #[test]
+    fn track_bare_link() {
+        let mut tracker = LinkTracker::default();
+
+        tracker.track(&Span::new(
+            "http://bare".to_owned(),
+            MdModifier::Link | MdModifier::LinkURL | MdModifier::BareLink,
+        ));
+        let extras = tracker.extras();
+        // ```
+        // http://bare
+        // ```
+        assert_eq!(
+            extras[0],
+            LineExtra::Link(SourceContent::from("http://bare"), 0, 11, None),
         );
     }
 }

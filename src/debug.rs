@@ -28,11 +28,7 @@ pub fn init_logger(log_to_stderr: bool) -> Result<(), FlexiLoggerError> {
 #[cfg(test)]
 pub fn init_test_logger() {
     #[expect(clippy::let_underscore_untyped, clippy::unwrap_used)]
-    let _ = Logger::try_with_env()
-        .unwrap()
-        .log_to_stderr()
-        .start()
-        .inspect_err(|err| eprintln!("test logger setup failed: {err}"));
+    let _ = Logger::try_with_env().unwrap().log_to_stderr().start();
 }
 
 #[cfg(not(windows))]

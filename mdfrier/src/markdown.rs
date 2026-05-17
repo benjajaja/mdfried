@@ -398,7 +398,9 @@ bitflags! {
 impl Modifier {
     // Returns true if LinkURL but not Image.
     pub fn is_link_url(&self) -> bool {
-        self.contains(Modifier::LinkURL) && !self.contains(Modifier::Image)
+        self.contains(Modifier::LinkURL)
+            && !self.contains(Modifier::BareLink)
+            && !self.contains(Modifier::Image)
     }
     /// Returns true if contains `modifier` but not [`Modifier::Image`].
     pub fn is_link_modifier(&self, modifier: Modifier) -> bool {
@@ -810,10 +812,10 @@ fn detect_bare_urls(mdspans: Vec<Span>) -> Vec<Span> {
 
             // Opening wrapper - only keep NewLine if this is the first span emitted
             let wrapper_mods = if first_emitted {
-                base_modifiers | Modifier::LinkURLWrapper
+                base_modifiers | Modifier::BareLink | Modifier::LinkURLWrapper
             } else {
                 first_emitted = true;
-                span.modifiers | Modifier::LinkURLWrapper
+                span.modifiers | Modifier::BareLink | Modifier::LinkURLWrapper
             };
             result.push(Span::new("(".to_owned(), wrapper_mods));
 
@@ -821,13 +823,13 @@ fn detect_bare_urls(mdspans: Vec<Span>) -> Vec<Span> {
             let url = mat.as_str().to_owned();
             result.push(Span::new(
                 url,
-                base_modifiers | Modifier::LinkURL | Modifier::BareLink,
+                base_modifiers | Modifier::BareLink | Modifier::LinkURL,
             ));
 
             // Closing wrapper
             result.push(Span::new(
                 ")".to_owned(),
-                base_modifiers | Modifier::LinkURLWrapper,
+                base_modifiers | Modifier::BareLink | Modifier::LinkURLWrapper,
             ));
 
             last_end = mat.end();
@@ -971,15 +973,35 @@ mod tests {
         let result = detect_bare_urls(spans);
         assert_eq!(result.len(), 5);
         assert_eq!(result[0].content, "Check ");
-        assert!(!result[0].modifiers.contains(Modifier::LinkURL));
+        assert!(
+            !result[0]
+                .modifiers
+                .contains(Modifier::BareLink | Modifier::LinkURL)
+        );
         assert_eq!(result[1].content, "(");
-        assert!(result[1].modifiers.contains(Modifier::LinkURLWrapper));
+        assert!(
+            result[1]
+                .modifiers
+                .contains(Modifier::BareLink | Modifier::LinkURLWrapper)
+        );
         assert_eq!(result[2].content, "https://example.com");
-        assert!(result[2].modifiers.contains(Modifier::LinkURL));
+        assert!(
+            result[2]
+                .modifiers
+                .contains(Modifier::BareLink | Modifier::LinkURL)
+        );
         assert_eq!(result[3].content, ")");
-        assert!(result[3].modifiers.contains(Modifier::LinkURLWrapper));
+        assert!(
+            result[3]
+                .modifiers
+                .contains(Modifier::BareLink | Modifier::LinkURLWrapper)
+        );
         assert_eq!(result[4].content, " for more.");
-        assert!(!result[4].modifiers.contains(Modifier::LinkURL));
+        assert!(
+            !result[4]
+                .modifiers
+                .contains(Modifier::BareLink | Modifier::LinkURL)
+        );
     }
 
     #[test]

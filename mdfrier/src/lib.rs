@@ -466,11 +466,11 @@ Quote break.
             spans,
             vec![
                 Span::from("See "),
-                Span::with("(", Modifier::LinkURLWrapper),
+                Span::with("(", Modifier::LinkURLWrapper | Modifier::BareLink),
                 Span::with("https://", Modifier::LinkURL | Modifier::BareLink),
                 Span::with("example.com/", Modifier::LinkURL | Modifier::BareLink,),
                 Span::with("path", Modifier::LinkURL | Modifier::BareLink,),
-                Span::with(")", Modifier::LinkURLWrapper),
+                Span::with(")", Modifier::LinkURLWrapper | Modifier::BareLink),
                 Span::with(" ok?", Modifier::empty()),
             ]
         );
