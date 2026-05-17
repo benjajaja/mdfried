@@ -200,14 +200,13 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<'_, I> {
         loop {
             let first = self.inner.next()?;
 
-            // Clone kind to avoid partial move issues
-            let kind = first.kind.clone();
-            match kind {
+            match first.kind {
                 // Headers are always their own section
                 LineKind::Header(tier) => return Some(self.process_header(first, tier)),
 
                 // Images are always their own section
-                LineKind::Image(link) => {
+                LineKind::Image(ref link) => {
+                    let link = link.clone();
                     return Some(self.process_image(first, link));
                 }
 
