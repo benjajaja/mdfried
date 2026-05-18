@@ -11,7 +11,8 @@ use unicode_width::UnicodeWidthStr as _;
 pub struct LinkTracker {
     offset: u16,
     urls: Vec<TrackedUrl>,
-    state: [LinkState; 2],
+    state: LinkState,
+    nested_state: LinkState,
     hide_urls: bool,
 }
 
@@ -67,7 +68,8 @@ impl LinkTracker {
     pub fn carriage_return(&mut self) {
         self.offset = 0;
         // Only increase line count if we haven't reached "end" yet.
-        if let LinkState::LinkDesc(_start, lines) = &mut self.state[0] {
+        // Only links care about the lines count, images just have description and URL.
+        if let LinkState::LinkDesc(_start, lines) = &mut self.state {
             *lines += 1;
         }
     }
@@ -77,7 +79,7 @@ impl LinkTracker {
         let Span { modifiers, content } = &node;
         let span_width = content.width() as u16;
 
-        self.state[0] = match std::mem::take(&mut self.state[0]) {
+        self.state = match std::mem::take(&mut self.state) {
             None if modifiers.contains(Modifier::Link | Modifier::LinkDescriptionWrapper) => {
                 LinkDescOpen
             }
@@ -127,26 +129,49 @@ impl LinkTracker {
                 ));
                 None
             }
-            // Images
+            state => self.track_images(state, modifiers, content),
+        };
+
+        // Track images nested in links at the same time.
+        if matches!(self.state, LinkDesc(..)) {
+            let state = std::mem::take(&mut self.nested_state);
+            self.nested_state = self.track_images(state, modifiers, content);
+        }
+
+        if self.hide_urls {
+            if !node.modifiers.is_link_url() {
+                self.offset += span_width;
+            }
+        } else {
+            self.offset += span_width;
+        }
+    }
+
+    fn track_images(&mut self, state: LinkState, modifiers: &Modifier, content: &str) -> LinkState {
+        // Nested images carry over LinkDescription, so we can't only rely on that, we must also
+        // check if content is a wrapper marker. Tree-sitter doesn't produce nodes for those for
+        // some reason.
+        use LinkState::*;
+        match state {
             None if modifiers.contains(Modifier::Image | Modifier::LinkDescription) => {
-                ImageDesc(String::from(content))
+                ImageDesc(if content != "![" {
+                    String::from(content)
+                } else {
+                    String::new()
+                })
             }
             ImageDesc(mut desc)
                 if modifiers.contains(Modifier::Image | Modifier::LinkDescription) =>
             {
-                desc.push_str(content);
-                ImageDesc(desc)
+                if content != "](" {
+                    desc.push_str(content);
+                    ImageDesc(desc)
+                } else {
+                    ImageUrl(desc, String::new())
+                }
             }
-            // ImageDesc(desc)
-            // if modifiers.contains(Modifier::Image | Modifier::LinkDescriptionWrapper) =>
-            // {
-            // panic!("LinkDescriptionWrapper");
-            // }
-            // ImageDesc(desc) if modifiers.contains(Modifier::Image | Modifier::LinkURLWrapper) => {
-            // panic!("LinkURLWrapper");
-            // }
             ImageDesc(desc) if modifiers.contains(Modifier::Image | Modifier::LinkURL) => {
-                ImageUrl(desc, content.clone())
+                ImageUrl(desc, content.to_owned())
             }
             ImageUrl(desc, mut url) if modifiers.contains(Modifier::Image | Modifier::LinkURL) => {
                 url.push_str(content);
@@ -157,46 +182,6 @@ impl LinkTracker {
                 None
             }
             state => state,
-        };
-
-        // Nested images
-        // TODO: shouldn't this be the same logic as above? Can we also not copypasta it?
-        if matches!(self.state[0], LinkDesc(..)) {
-            self.state[1] = match std::mem::take(&mut self.state[1]) {
-                // Images
-                None if modifiers.contains(Modifier::Image) => ImageDesc(String::new()),
-                ImageDesc(mut desc)
-                    if modifiers.contains(Modifier::Image | Modifier::LinkDescription)
-                        && !modifiers.contains(Modifier::LinkURL) =>
-                {
-                    if content != "](" {
-                        desc.push_str(content);
-                    }
-                    ImageDesc(desc)
-                }
-                ImageDesc(desc) if modifiers.contains(Modifier::Image | Modifier::LinkURL) => {
-                    ImageUrl(desc, content.clone())
-                }
-                ImageUrl(desc, mut url)
-                    if modifiers.contains(Modifier::Image | Modifier::LinkURL) =>
-                {
-                    url.push_str(content);
-                    ImageUrl(desc, url)
-                }
-                ImageUrl(desc, url) if !modifiers.contains(Modifier::Image | Modifier::LinkURL) => {
-                    self.urls.push(TrackedUrl::image(desc, url));
-                    None
-                }
-                state => state,
-            };
-        }
-
-        if self.hide_urls {
-            if !node.modifiers.is_link_url() {
-                self.offset += span_width;
-            }
-        } else {
-            self.offset += span_width;
         }
     }
 
@@ -276,10 +261,12 @@ mod tests {
         }
         let extras = tracker.take_urls();
         assert_eq!(
-            extras[0],
-            TrackedUrl::image("image".to_owned(), "image_url".to_owned())
-        );
-        assert_eq!(extras[1], TrackedUrl::link("url".to_owned(), 1, 20, 0));
+            extras,
+            vec![
+                TrackedUrl::image("image".to_owned(), "image_url".to_owned()),
+                TrackedUrl::link("url".to_owned(), 1, 20, 0),
+            ]
+        )
     }
 
     #[test]
