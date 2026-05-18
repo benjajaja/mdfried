@@ -2,7 +2,7 @@ use textwrap::{Options, wrap};
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    link_tracker::LinkTracker,
+    link_tracker::{LinkTracker, TrackedUrl},
     markdown::{Modifier, Span},
 };
 
@@ -47,53 +47,28 @@ pub fn wrap_md_spans(
         .into_iter()
         .filter(|line| !line.is_empty())
         .enumerate()
-        .map(|(line_idx, mdspans)| {
+        .map(|(line_idx, spans)| {
             // Extract images from spans
             let mut images: Vec<ImageRef> = Vec::new();
-            for (i, s) in mdspans.iter().enumerate() {
-                tracker.track(s);
-
-                if false
-                    && s.modifiers.contains(Modifier::LinkURL)
-                    && s.modifiers.contains(Modifier::Image)
-                {
-                    // Track back to get description if any.
-                    // TODO: something's wrong about this!
-                    let mut description = None;
-                    for j in 0..3 {
-                        if i > j
-                            && let Some(desc_span) = mdspans.get(i - j)
-                            && desc_span.modifiers.contains(Modifier::LinkDescription)
-                            && desc_span.modifiers.contains(Modifier::Image)
-                        {
-                            description = Some(desc_span.content.clone());
-                        }
-                    }
-                    #[cfg(feature = "ratatui")]
-                    if description.is_none() {
-                        log::warn!("image description node not found (really absent?)");
-                    }
-                    images.push(ImageRef {
-                        url: s.content.clone(),
-                        description: description.unwrap_or_default(),
-                    });
-                }
+            for span in &spans {
+                tracker.track(span);
             }
-
             tracker.carriage_return();
             for url in tracker.take_urls() {
-                if url.is_image {
-                    eprintln!("tracker: {}", url.url);
-                    images.push(ImageRef {
-                        url: url.url,
-                        description: String::new(),
-                    });
+                match url {
+                    TrackedUrl::Image { desc, url } => {
+                        images.push(ImageRef {
+                            url,
+                            description: desc,
+                        });
+                    }
+                    _ => {}
                 }
             }
 
             WrappedLine {
                 is_first: line_idx == 0,
-                spans: mdspans,
+                spans,
                 images,
             }
         })

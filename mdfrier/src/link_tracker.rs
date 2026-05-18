@@ -2,34 +2,8 @@
 
 use std::mem::swap;
 
-use crate::{Modifier as MdModifier, Span};
+use crate::{Modifier, Span};
 use unicode_width::UnicodeWidthStr as _;
-
-#[derive(Debug, PartialEq)]
-pub struct TrackedUrl {
-    pub is_image: bool,
-    pub url: String,
-    pub start: u16,
-    pub end: u16,
-    pub lines: usize,
-}
-impl TrackedUrl {
-    fn new(is_image: bool, url: String, start: u16, end: u16, lines: usize) -> Self {
-        TrackedUrl {
-            is_image,
-            url,
-            start,
-            end,
-            lines,
-        }
-    }
-    pub fn link(url: String, start: u16, end: u16, lines: usize) -> Self {
-        TrackedUrl::new(false, url, start, end, lines)
-    }
-    pub fn image(url: String, start: u16, end: u16, lines: usize) -> Self {
-        TrackedUrl::new(true, url, start, end, lines)
-    }
-}
 
 #[derive(Default, Debug)]
 /// Iterator over [`mdfrier::Span`]s and extract links as [`LineExtra::Link`]`(url, start, end)`,
@@ -37,35 +11,48 @@ impl TrackedUrl {
 pub struct LinkTracker {
     offset: u16,
     urls: Vec<TrackedUrl>,
-    link_builder: LinkExtraLinkBuilder,
+    state: [LinkState; 2],
     hide_urls: bool,
 }
 
-#[derive(Debug, Default, PartialEq)]
-enum LinkExtraLinkBuilder {
+#[derive(Default, Debug)]
+enum LinkState {
     #[default]
     None,
-    Start {
+    LinkDescOpen,
+    LinkDesc(u16, usize),
+    LinkDescClose(u16, usize, u16),
+    LinkUrlOpen(u16, usize, u16),
+    LinkUrl(u16, usize, u16, String),
+    ImageDesc(String),
+    ImageUrl(String, String),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum TrackedUrl {
+    Link {
         start: u16,
         lines: usize,
-    },
-    StartEnd {
-        start: u16,
         end: u16,
-        lines: usize,
-    },
-    StartEndUrl {
-        start: u16,
-        end: u16,
-        lines: usize,
         url: String,
     },
     Image {
-        start: u16,
-        end: u16,
-        lines: usize,
+        desc: String,
         url: String,
     },
+}
+impl TrackedUrl {
+    pub fn link(url: String, start: u16, end: u16, lines: usize) -> Self {
+        Self::Link {
+            start,
+            lines,
+            end,
+            url,
+        }
+    }
+    pub fn image(desc: String, url: String) -> Self {
+        Self::Image { desc, url }
+    }
 }
 
 impl LinkTracker {
@@ -77,118 +64,128 @@ impl LinkTracker {
     pub fn carriage_return(&mut self) {
         self.offset = 0;
         // Only increase line count if we haven't reached "end" yet.
-        if let LinkExtraLinkBuilder::Start { lines, .. } = &mut self.link_builder {
+        if let LinkState::LinkDesc(_start, lines) = &mut self.state[0] {
             *lines += 1;
         }
     }
     pub fn track(&mut self, node: &Span) {
-        eprintln!("track: {node:?}");
-        let span_width = node.content.width() as u16;
-        if self.link_builder == LinkExtraLinkBuilder::None
-            && node
-                .modifiers
-                .is_link_modifier(MdModifier::LinkDescriptionWrapper)
-        {
-            // Enter link description at next span.
-            self.link_builder = LinkExtraLinkBuilder::Start {
-                start: self.offset + span_width,
-                lines: 0,
-            };
-        } else if let LinkExtraLinkBuilder::Start { start, lines } = self.link_builder
-            && node
-                .modifiers
-                .is_link_modifier(MdModifier::LinkDescriptionWrapper)
-        {
-            // Exit link description before this span.
-            self.link_builder = LinkExtraLinkBuilder::StartEnd {
-                start,
-                end: self.offset,
-                lines,
-            };
-        } else if let LinkExtraLinkBuilder::StartEnd { start, end, lines } = self.link_builder
-            && node.modifiers.is_link_modifier(MdModifier::LinkURLWrapper)
-        {
-            // Enter link URL next span.
-            self.link_builder = LinkExtraLinkBuilder::StartEndUrl {
-                start,
-                end,
-                lines,
-                url: String::new(),
-            };
-        } else if let LinkExtraLinkBuilder::StartEndUrl { url, .. } = &mut self.link_builder
-            && node.modifiers.is_link_url()
-        {
-            // Push all LinkURL spans into URL.
-            url.push_str(&node.content);
-        } else if node.modifiers.is_link_modifier(MdModifier::LinkURLWrapper)
-            && matches!(self.link_builder, LinkExtraLinkBuilder::StartEndUrl { .. })
-        {
-            let LinkExtraLinkBuilder::StartEndUrl {
-                start,
-                end,
-                lines,
-                url,
-            } = std::mem::take(&mut self.link_builder)
-            else {
-                // We need to "take if matches", so we can't put the destructure in the `if` above.
-                unreachable!("invariant by matches macro");
-            };
-            // Exit URL, can build the LinkExtra::Link now.
-            self.exit(false, start, end, lines, url);
+        use LinkState::*;
 
-        // BareLink:
-        } else if self.link_builder == LinkExtraLinkBuilder::None
-            && node
-                .modifiers
-                .is_link_modifier(MdModifier::BareLink | MdModifier::LinkURL)
-        {
-            // BareLink, enter and exit immediately. Cannot be line broken?
-            self.exit(
-                false,
-                self.offset,
-                self.offset + span_width,
-                0,
-                node.content.clone(),
-            );
-        } else if self.link_builder == LinkExtraLinkBuilder::None
-            && node
-                .modifiers
-                .contains(MdModifier::Image | MdModifier::LinkURL)
-        {
-            // Enter link description at next span.
-            self.link_builder = LinkExtraLinkBuilder::Image {
-                url: node.content.clone(),
-                start: self.offset,
-                end: self.offset + span_width,
-                lines: 0,
+        let Span { modifiers, content } = &node;
+        let span_width = content.width() as u16;
+
+        self.state[0] = match std::mem::take(&mut self.state[0]) {
+            None if modifiers.contains(Modifier::Link | Modifier::LinkDescriptionWrapper) => {
+                LinkDescOpen
+            }
+            LinkDescOpen if modifiers.contains(Modifier::Link | Modifier::LinkDescription) => {
+                LinkDesc(self.offset, 0)
+            }
+            keep @ LinkDesc(..)
+                if modifiers.contains(Modifier::Link | Modifier::LinkDescription) =>
+            {
+                keep
+            }
+            LinkDesc(start, lines)
+                if modifiers.contains(Modifier::Link | Modifier::LinkDescriptionWrapper) =>
+            {
+                LinkDescClose(start, lines, self.offset)
+            }
+            LinkDescClose(start, lines, end)
+                if modifiers.contains(Modifier::Link | Modifier::LinkURLWrapper) =>
+            {
+                LinkUrlOpen(start, lines, end)
+            }
+            LinkUrlOpen(start, lines, end)
+                if modifiers.contains(Modifier::Link | Modifier::LinkURL) =>
+            {
+                LinkUrl(start, lines, end, content.clone())
+            }
+            LinkUrl(start, lines, end, mut url)
+                if modifiers.contains(Modifier::Link | Modifier::LinkURL) =>
+            {
+                url.push_str(content);
+                LinkUrl(start, lines, end, url)
+            }
+            LinkUrl(start, lines, end, url)
+                if modifiers.contains(Modifier::Link | Modifier::LinkURLWrapper) =>
+            {
+                self.urls.push(TrackedUrl::link(url, start, end, lines));
+                None
+            }
+            // Bare links
+            None if modifiers.contains(Modifier::Link | Modifier::BareLink | Modifier::LinkURL) => {
+                // This assumes that bare links cannot be line broken.
+                self.urls.push(TrackedUrl::link(
+                    content.clone(),
+                    self.offset,
+                    self.offset + span_width,
+                    0,
+                ));
+                None
+            }
+            // Images
+            None if modifiers.contains(Modifier::Image | Modifier::LinkDescription) => {
+                ImageDesc(String::from(content))
+            }
+            ImageDesc(mut desc)
+                if modifiers.contains(Modifier::Image | Modifier::LinkDescription) =>
+            {
+                desc.push_str(content);
+                ImageDesc(desc)
+            }
+            // ImageDesc(desc)
+            // if modifiers.contains(Modifier::Image | Modifier::LinkDescriptionWrapper) =>
+            // {
+            // panic!("LinkDescriptionWrapper");
+            // }
+            // ImageDesc(desc) if modifiers.contains(Modifier::Image | Modifier::LinkURLWrapper) => {
+            // panic!("LinkURLWrapper");
+            // }
+            ImageDesc(desc) if modifiers.contains(Modifier::Image | Modifier::LinkURL) => {
+                ImageUrl(desc, content.clone())
+            }
+            ImageUrl(desc, mut url) if modifiers.contains(Modifier::Image | Modifier::LinkURL) => {
+                url.push_str(content);
+                ImageUrl(desc, url)
+            }
+            ImageUrl(desc, url) if !modifiers.contains(Modifier::Image | Modifier::LinkURL) => {
+                self.urls.push(TrackedUrl::image(desc, url));
+                None
+            }
+            state => state,
+        };
+
+        // Nested images
+        // TODO: shouldn't this be the same logic as above? Can we also not copypasta it?
+        if matches!(self.state[0], LinkDesc(..)) {
+            self.state[1] = match std::mem::take(&mut self.state[1]) {
+                // Images
+                None if modifiers.contains(Modifier::Image) => ImageDesc(String::new()),
+                ImageDesc(mut desc)
+                    if modifiers.contains(Modifier::Image | Modifier::LinkDescription)
+                        && !modifiers.contains(Modifier::LinkURL) =>
+                {
+                    if content != "](" {
+                        desc.push_str(content);
+                    }
+                    ImageDesc(desc)
+                }
+                ImageDesc(desc) if modifiers.contains(Modifier::Image | Modifier::LinkURL) => {
+                    ImageUrl(desc, content.clone())
+                }
+                ImageUrl(desc, mut url)
+                    if modifiers.contains(Modifier::Image | Modifier::LinkURL) =>
+                {
+                    url.push_str(content);
+                    ImageUrl(desc, url)
+                }
+                ImageUrl(desc, url) if !modifiers.contains(Modifier::Image | Modifier::LinkURL) => {
+                    self.urls.push(TrackedUrl::image(desc, url));
+                    None
+                }
+                state => state,
             };
-            eprintln!("start: {}", node.content);
-        } else if let LinkExtraLinkBuilder::Image {
-            end, lines, url, ..
-        } = &mut self.link_builder
-            && node
-                .modifiers
-                .contains(MdModifier::Image | MdModifier::LinkURL)
-        {
-            eprintln!("push: {}", node.content);
-            url.push_str(&node.content);
-            *end = span_width;
-            *lines += 1;
-        } else if matches!(self.link_builder, LinkExtraLinkBuilder::Image { .. })
-            && node.modifiers.contains(MdModifier::Image)
-            && node.content == ")"
-        // Should this not be its own Modifier?
-        {
-            let LinkExtraLinkBuilder::Image {
-                start,
-                end,
-                lines,
-                url,
-            } = std::mem::take(&mut self.link_builder)
-            else {
-                panic!("matched LinkExtraLinkBuilder::Image");
-            };
-            self.exit(true, start, end, lines, url);
         }
 
         if self.hide_urls {
@@ -199,14 +196,11 @@ impl LinkTracker {
             self.offset += span_width;
         }
     }
+
     pub fn take_urls(&mut self) -> Vec<TrackedUrl> {
         let mut extras = Vec::new();
         swap(&mut self.urls, &mut extras);
         extras
-    }
-    fn exit(&mut self, is_image: bool, start: u16, end: u16, lines: usize, url: String) {
-        self.urls
-            .push(TrackedUrl::new(is_image, url, start, end, lines));
     }
 }
 
@@ -219,25 +213,19 @@ mod tests {
         vec![
             Span::new(
                 "[".to_owned(),
-                MdModifier::Link | MdModifier::LinkDescriptionWrapper,
+                Modifier::Link | Modifier::LinkDescriptionWrapper,
             ),
             Span::new(
                 description.to_owned(),
-                MdModifier::Link | MdModifier::LinkDescription,
+                Modifier::Link | Modifier::LinkDescription,
             ),
             Span::new(
                 "]".to_owned(),
-                MdModifier::Link | MdModifier::LinkDescriptionWrapper,
+                Modifier::Link | Modifier::LinkDescriptionWrapper,
             ),
-            Span::new(
-                "(".to_owned(),
-                MdModifier::Link | MdModifier::LinkURLWrapper,
-            ),
-            Span::new(url.to_owned(), MdModifier::Link | MdModifier::LinkURL),
-            Span::new(
-                ")".to_owned(),
-                MdModifier::Link | MdModifier::LinkURLWrapper,
-            ),
+            Span::new("(".to_owned(), Modifier::Link | Modifier::LinkURLWrapper),
+            Span::new(url.to_owned(), Modifier::Link | Modifier::LinkURL),
+            Span::new(")".to_owned(), Modifier::Link | Modifier::LinkURLWrapper),
         ]
     }
 
@@ -260,27 +248,23 @@ mod tests {
             [
                 Span::new(
                     "![".to_owned(),
-                    MdModifier::Image | MdModifier::Link | MdModifier::LinkDescriptionWrapper,
+                    Modifier::Link | Modifier::LinkDescription | Modifier::Image,
                 ),
                 Span::new(
                     "image".to_owned(),
-                    MdModifier::Image | MdModifier::Link | MdModifier::LinkDescription,
+                    Modifier::Link | Modifier::LinkDescription | Modifier::Image,
                 ),
                 Span::new(
-                    "]".to_owned(),
-                    MdModifier::Image | MdModifier::Link | MdModifier::LinkDescriptionWrapper,
-                ),
-                Span::new(
-                    "(".to_owned(),
-                    MdModifier::Image | MdModifier::Link | MdModifier::LinkURLWrapper,
+                    "](".to_owned(),
+                    Modifier::Link | Modifier::LinkDescription | Modifier::Image,
                 ),
                 Span::new(
                     "image_url".to_owned(),
-                    MdModifier::Link | MdModifier::LinkURL,
+                    Modifier::LinkDescription | Modifier::Image | Modifier::LinkURL,
                 ),
                 Span::new(
                     ")".to_owned(),
-                    MdModifier::Image | MdModifier::Link | MdModifier::LinkURLWrapper,
+                    Modifier::Link | Modifier::LinkDescription | Modifier::Image,
                 ),
             ],
         );
@@ -288,7 +272,11 @@ mod tests {
             tracker.track(&span);
         }
         let extras = tracker.take_urls();
-        assert_eq!(extras[0], TrackedUrl::link("url".to_owned(), 1, 20, 0),);
+        assert_eq!(
+            extras[0],
+            TrackedUrl::image("image".to_owned(), "image_url".to_owned())
+        );
+        assert_eq!(extras[1], TrackedUrl::link("url".to_owned(), 1, 20, 0));
     }
 
     #[test]
@@ -297,35 +285,35 @@ mod tests {
 
         tracker.track(&Span::new(
             "[".to_owned(),
-            MdModifier::Link | MdModifier::LinkDescriptionWrapper,
+            Modifier::Link | Modifier::LinkDescriptionWrapper,
         ));
         tracker.track(&Span::new(
             "desc".to_owned(),
-            MdModifier::Link | MdModifier::LinkDescription,
+            Modifier::Link | Modifier::LinkDescription,
         ));
         tracker.carriage_return();
 
         tracker.track(&Span::new(
             "cont".to_owned(),
-            MdModifier::Link | MdModifier::LinkDescription,
+            Modifier::Link | Modifier::LinkDescription,
         ));
         tracker.track(&Span::new(
             "]".to_owned(),
-            MdModifier::Link | MdModifier::LinkDescriptionWrapper,
+            Modifier::Link | Modifier::LinkDescriptionWrapper,
         ));
         tracker.track(&Span::new(
             "(".to_owned(),
-            MdModifier::Link | MdModifier::LinkURLWrapper,
+            Modifier::Link | Modifier::LinkURLWrapper,
         ));
         tracker.carriage_return();
 
         tracker.track(&Span::new(
             "url".to_owned(),
-            MdModifier::Link | MdModifier::LinkURL,
+            Modifier::Link | Modifier::LinkURL,
         ));
         tracker.track(&Span::new(
             ")".to_owned(),
-            MdModifier::Link | MdModifier::LinkURLWrapper,
+            Modifier::Link | Modifier::LinkURLWrapper,
         ));
 
         let extras = tracker.take_urls();
@@ -336,54 +324,54 @@ mod tests {
     fn track_multiple_wraps_link() {
         let mut tracker = LinkTracker::default();
 
-        tracker.track(&Span::new("nothing ".to_owned(), MdModifier::default()));
+        tracker.track(&Span::new("nothing ".to_owned(), Modifier::default()));
 
         tracker.track(&Span::new(
             "[".to_owned(),
-            MdModifier::Link | MdModifier::LinkDescriptionWrapper,
+            Modifier::Link | Modifier::LinkDescriptionWrapper,
         ));
         tracker.track(&Span::new(
             "desc1".to_owned(),
-            MdModifier::Link | MdModifier::LinkDescription,
+            Modifier::Link | Modifier::LinkDescription,
         ));
         tracker.carriage_return();
 
         tracker.track(&Span::new(
             "desc2".to_owned(),
-            MdModifier::Link | MdModifier::LinkDescription,
+            Modifier::Link | Modifier::LinkDescription,
         ));
         tracker.carriage_return();
 
         tracker.track(&Span::new(
             "desc3".to_owned(),
-            MdModifier::Link | MdModifier::LinkDescription,
+            Modifier::Link | Modifier::LinkDescription,
         ));
 
         tracker.track(&Span::new(
             "]".to_owned(),
-            MdModifier::Link | MdModifier::LinkDescriptionWrapper,
+            Modifier::Link | Modifier::LinkDescriptionWrapper,
         ));
         tracker.track(&Span::new(
             "(".to_owned(),
-            MdModifier::Link | MdModifier::LinkURLWrapper,
+            Modifier::Link | Modifier::LinkURLWrapper,
         ));
         tracker.carriage_return();
 
         tracker.track(&Span::new(
             "url-1/".to_owned(),
-            MdModifier::Link | MdModifier::LinkURL,
+            Modifier::Link | Modifier::LinkURL,
         ));
         tracker.carriage_return();
 
         tracker.track(&Span::new(
             "url-2".to_owned(),
-            MdModifier::Link | MdModifier::LinkURL,
+            Modifier::Link | Modifier::LinkURL,
         ));
         tracker.carriage_return();
 
         tracker.track(&Span::new(
             ")".to_owned(),
-            MdModifier::Link | MdModifier::LinkURLWrapper,
+            Modifier::Link | Modifier::LinkURLWrapper,
         ));
 
         let extras = tracker.take_urls();
@@ -406,7 +394,7 @@ mod tests {
 
         tracker.track(&Span::new(
             "http://bare".to_owned(),
-            MdModifier::Link | MdModifier::LinkURL | MdModifier::BareLink,
+            Modifier::Link | Modifier::LinkURL | Modifier::BareLink,
         ));
         let extras = tracker.take_urls();
         // ```

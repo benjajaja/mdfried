@@ -205,6 +205,7 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<'_, I> {
                 LineKind::Header(tier) => return Some(self.process_header(first, tier)),
 
                 // Images are always their own section
+                #[expect(clippy::ref_patterns)]
                 LineKind::Image(ref link) => {
                     let link = link.clone();
                     return Some(self.process_image(first, link));
