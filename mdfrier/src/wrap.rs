@@ -3,7 +3,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::{
     Line, LineKind,
-    link_tracker::LinkTracker,
+    link_tracker::{LinkTracker, TrackedUrl},
     markdown::{Modifier, Span},
 };
 
@@ -38,7 +38,18 @@ pub fn wrap_md_spans(
 
             Line {
                 spans,
-                urls: tracker.take_urls(),
+                urls: tracker
+                    .take_urls()
+                    // Shift start-end by prefix_width.
+                    .into_iter()
+                    .map(|mut tracked_url| {
+                        if let TrackedUrl::Link { start, end, .. } = &mut tracked_url {
+                            *start += prefix_width as u16;
+                            *end += prefix_width as u16;
+                        }
+                        tracked_url
+                    })
+                    .collect(),
                 kind: LineKind::Blank, // will be set by wrapped_to_lines()
             }
         })
