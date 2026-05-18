@@ -68,7 +68,13 @@ pub fn view(model: &Model, frame: &mut Frame) {
                     if let Cursor::Links(CursorPointer { id, index }) = &model.cursor {
                         if let Some(selected) = &selected_url {
                             for (i, extra) in extras.iter().enumerate() {
-                                if let LineExtra::Link(url, start, end, lines_count) = extra {
+                                if let LineExtra::Link {
+                                    source: url,
+                                    start,
+                                    end,
+                                    lines: lines_count,
+                                } = extra
+                                {
                                     if url.as_ptr() == selected.as_ptr() {
                                         let mut last_start = 0;
                                         for (link_overlay, area) in link_overlays(

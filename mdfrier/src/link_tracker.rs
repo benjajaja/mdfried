@@ -6,7 +6,7 @@ use crate::{Modifier, Span};
 use unicode_width::UnicodeWidthStr as _;
 
 #[derive(Default, Debug)]
-/// Iterator over [`mdfrier::Span`]s and extract links as [`LineExtra::Link`]`(url, start, end)`,
+/// Iterator over [`mdfrier::Span`]s and extract links as [`LineExtra::Link`] with `source`, `start`, `end` fields,
 /// where "start" and "end" are the respective positions in the [`mdfrier::Line`].
 pub struct LinkTracker {
     offset: u16,

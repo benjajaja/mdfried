@@ -405,7 +405,7 @@ impl Model {
                 let mut remaining = pointer.index;
                 for (_, extras) in lines {
                     if remaining < extras.len() {
-                        let LineExtra::Link(url, ..) = &extras[remaining] else {
+                        let LineExtra::Link { source: url, .. } = &extras[remaining] else {
                             return None;
                         };
                         return Some(url.clone());
@@ -666,7 +666,7 @@ mod tests {
 
     #[track_caller]
     fn assert_cursor_link(model: &Model, expected_url: &SourceContent) {
-        let LineExtra::Link(url, ..) = model
+        let LineExtra::Link { source: url, .. } = model
             .document
             .find_extra_by_cursor(
                 model
@@ -699,8 +699,18 @@ mod tests {
             content: SectionContent::Lines(vec![(
                 Line::from("http://a.com http://b.com"),
                 vec![
-                    LineExtra::Link(link_a.clone(), 0, 11, None),
-                    LineExtra::Link(link_b.clone(), 12, 21, None),
+                    LineExtra::Link {
+                        source: link_a.clone(),
+                        start: 0,
+                        end: 11,
+                        lines: None,
+                    },
+                    LineExtra::Link {
+                        source: link_b.clone(),
+                        start: 12,
+                        end: 21,
+                        lines: None,
+                    },
                 ],
             )]),
         });
@@ -709,7 +719,12 @@ mod tests {
             height: 1,
             content: SectionContent::Lines(vec![(
                 Line::from("http://c.com"),
-                vec![LineExtra::Link(link_c.clone(), 0, 11, None)],
+                vec![LineExtra::Link {
+                    source: link_c.clone(),
+                    start: 0,
+                    end: 11,
+                    lines: None,
+                }],
             )]),
         });
 
@@ -736,7 +751,12 @@ mod tests {
                 height: 1,
                 content: SectionContent::Lines(vec![(
                     Line::from(url.clone()),
-                    vec![LineExtra::Link(link, 0, 11, None)],
+                    vec![LineExtra::Link {
+                        source: link,
+                        start: 0,
+                        end: 11,
+                        lines: None,
+                    }],
                 )]),
             });
         }
@@ -755,7 +775,12 @@ mod tests {
             height: 1,
             content: SectionContent::Lines(vec![(
                 Line::from("http://a.com"),
-                vec![LineExtra::Link(link.clone(), 0, 11, None)],
+                vec![LineExtra::Link {
+                    source: link.clone(),
+                    start: 0,
+                    end: 11,
+                    lines: None,
+                }],
             )]),
         });
         for i in 2..5 {
@@ -783,8 +808,18 @@ mod tests {
             content: SectionContent::Lines(vec![(
                 Line::from("http://a.com http://b.com"),
                 vec![
-                    LineExtra::Link(link_a.clone(), 0, 11, None),
-                    LineExtra::Link(link_b.clone(), 12, 21, None),
+                    LineExtra::Link {
+                        source: link_a.clone(),
+                        start: 0,
+                        end: 11,
+                        lines: None,
+                    },
+                    LineExtra::Link {
+                        source: link_b.clone(),
+                        start: 12,
+                        end: 21,
+                        lines: None,
+                    },
                 ],
             )]),
         });
@@ -793,7 +828,12 @@ mod tests {
             height: 1,
             content: SectionContent::Lines(vec![(
                 Line::from("http://c.com"),
-                vec![LineExtra::Link(link_c.clone(), 0, 11, None)],
+                vec![LineExtra::Link {
+                    source: link_c.clone(),
+                    start: 0,
+                    end: 11,
+                    lines: None,
+                }],
             )]),
         });
 
@@ -819,8 +859,18 @@ mod tests {
             content: SectionContent::Lines(vec![(
                 Line::from("http://a.com http://b.com"),
                 vec![
-                    LineExtra::Link(link_a.clone(), 0, 11, None),
-                    LineExtra::Link(link_b.clone(), 12, 21, None),
+                    LineExtra::Link {
+                        source: link_a.clone(),
+                        start: 0,
+                        end: 11,
+                        lines: None,
+                    },
+                    LineExtra::Link {
+                        source: link_b.clone(),
+                        start: 12,
+                        end: 21,
+                        lines: None,
+                    },
                 ],
             )]),
         });
@@ -829,7 +879,12 @@ mod tests {
             height: 1,
             content: SectionContent::Lines(vec![(
                 Line::from("http://c.com"),
-                vec![LineExtra::Link(link_c.clone(), 0, 11, None)],
+                vec![LineExtra::Link {
+                    source: link_c.clone(),
+                    start: 0,
+                    end: 11,
+                    lines: None,
+                }],
             )]),
         });
 
@@ -908,7 +963,12 @@ mod tests {
             height: 1,
             content: SectionContent::Lines(vec![(
                 Line::from("http://a.com"),
-                vec![LineExtra::Link(link.clone(), 0, 11, None)],
+                vec![LineExtra::Link {
+                    source: link.clone(),
+                    start: 0,
+                    end: 11,
+                    lines: None,
+                }],
             )]),
         });
 
@@ -931,7 +991,7 @@ mod tests {
         let SectionContent::Lines(lines) = &last_rendered.content else {
             panic!("expected Line");
         };
-        let LineExtra::Link(url, ..) = &lines[0].1[0] else {
+        let LineExtra::Link { source: url, .. } = &lines[0].1[0] else {
             panic!("expected Link");
         };
         assert_eq!("http://a.com", url.as_ref());
@@ -949,7 +1009,12 @@ mod tests {
                 height: 1,
                 content: SectionContent::Lines(vec![(
                     Line::from(url),
-                    vec![LineExtra::Link(link.clone(), 0, 11, None)],
+                    vec![LineExtra::Link {
+                        source: link.clone(),
+                        start: 0,
+                        end: 11,
+                        lines: None,
+                    }],
                 )]),
             });
             links.push(link);

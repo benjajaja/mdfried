@@ -430,7 +430,7 @@ pub enum FindTarget {
 impl FindTarget {
     fn matches(&self, extra: &LineExtra) -> bool {
         match self {
-            FindTarget::Link => matches!(extra, LineExtra::Link(..)),
+            FindTarget::Link => matches!(extra, LineExtra::Link { .. }),
             FindTarget::Search => matches!(extra, LineExtra::SearchMatch(..)),
         }
     }
@@ -586,7 +586,12 @@ pub enum LineExtra {
     /// URL, start, end, multiline_count
     ///
     /// The "multiline_count" means "how many lines up does the link actually start".
-    Link(SourceContent, u16, u16, Option<usize>),
+    Link {
+        source: SourceContent,
+        start: u16,
+        end: u16,
+        lines: Option<usize>,
+    },
     /// start, end, text
     SearchMatch(usize, usize, String),
 }
@@ -594,7 +599,12 @@ pub enum LineExtra {
 impl Debug for LineExtra {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LineExtra::Link(url, start, end, lines) => {
+            LineExtra::Link {
+                source: url,
+                start,
+                end,
+                lines,
+            } => {
                 write!(
                     f,
                     "Link({:?}, {}, {}, {})",
@@ -615,7 +625,20 @@ impl Debug for LineExtra {
 impl PartialEq for LineExtra {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (LineExtra::Link(l0, l1, l2, l3), LineExtra::Link(r0, r1, r2, r3)) => {
+            (
+                LineExtra::Link {
+                    source: l0,
+                    start: l1,
+                    end: l2,
+                    lines: l3,
+                },
+                LineExtra::Link {
+                    source: r0,
+                    start: r1,
+                    end: r2,
+                    lines: r3,
+                },
+            ) => {
                 l0 == r0 && l1 == r1 && l2 == r2 && l3 == r3
             }
             (LineExtra::SearchMatch(l0, l1, l2), LineExtra::SearchMatch(r0, r1, r2)) => {

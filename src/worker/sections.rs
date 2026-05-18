@@ -179,12 +179,12 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
                             is_reference,
                         } = tracked_url
                         {
-                            Some(LineExtra::Link(
-                                SourceContent::from(url.as_str()),
-                                *start,
-                                *end,
-                                if *lines == 0 { None } else { Some(*lines) },
-                            ))
+                            Some(LineExtra::Link {
+                                source: SourceContent::from(url.as_str()),
+                                start: *start,
+                                end: *end,
+                                lines: if *lines == 0 { None } else { Some(*lines) },
+                            })
                         } else {
                             None
                         }
@@ -357,7 +357,7 @@ mod tests {
             panic!("expected SectionContent::Lines");
         };
         assert_eq!(lines.len(), 1, "one line");
-        assert!(matches!(lines[0].1.as_slice(), [LineExtra::Link(..)]),);
+        assert!(matches!(lines[0].1.as_slice(), [LineExtra::Link { .. }]),);
     }
 
     #[test]
@@ -369,7 +369,7 @@ mod tests {
             panic!("expected SectionContent::Lines");
         };
         assert_eq!(lines.len(), 1);
-        assert!(matches!(lines[0].1.as_slice(), [LineExtra::Link(..)]),);
+        assert!(matches!(lines[0].1.as_slice(), [LineExtra::Link { .. }]),);
     }
 
     #[test]
@@ -389,7 +389,7 @@ mod tests {
             .1
             .iter()
             .filter_map(|extra| {
-                if let LineExtra::Link(url, ..) = extra {
+                if let LineExtra::Link { source: url, .. } = extra {
                     Some(url)
                 } else {
                     None
@@ -416,7 +416,7 @@ mod tests {
             .1
             .iter()
             .filter_map(|extra| {
-                if let LineExtra::Link(url, ..) = extra {
+                if let LineExtra::Link { source: url, .. } = extra {
                     Some(url)
                 } else {
                     None
@@ -450,18 +450,28 @@ That's all."#;
         assert_eq!(
             lines[0].1,
             vec![
-                LineExtra::Link("http://example.com/link1".into(), 10, 18, None),
-                LineExtra::Link("http://example.com/link2".into(), 30, 38, None),
+                LineExtra::Link {
+                    source: "http://example.com/link1".into(),
+                    start: 10,
+                    end: 18,
+                    lines: None,
+                },
+                LineExtra::Link {
+                    source: "http://example.com/link2".into(),
+                    start: 30,
+                    end: 38,
+                    lines: None,
+                },
             ]
         );
         assert_eq!(
             lines[1].1,
-            vec![LineExtra::Link(
-                "http://example.com/link3".into(),
-                45,
-                55,
-                None
-            ),]
+            vec![LineExtra::Link {
+                source: "http://example.com/link3".into(),
+                start: 45,
+                end: 55,
+                lines: None,
+            },]
         );
     }
 }
