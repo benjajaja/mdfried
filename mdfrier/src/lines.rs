@@ -176,6 +176,7 @@ impl<'a, M: Mapper> LineIterator<'a, M> {
             self.pending_lines.push_back(Line {
                 spans: Vec::new(),
                 kind: LineKind::Blank,
+                urls: Vec::new(),
             });
         }
 
@@ -222,6 +223,7 @@ fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> V
             vec![Line {
                 spans: Vec::new(),
                 kind: LineKind::Blank,
+                urls: Vec::new(),
             }]
         }
         MdContent::Paragraph(p) => {
@@ -259,12 +261,14 @@ fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> V
                     .map(|line| Line {
                         spans: line.spans,
                         kind: LineKind::Header(*tier),
+                        urls: Vec::new(), // TODO: headers should be able to have links
                     })
                     .collect()
             } else {
                 vec![Line {
                     spans: vec![Span::from(text.clone())],
                     kind: LineKind::Header(*tier),
+                    urls: Vec::new(), // TODO: Same
                 }]
             }
         }
@@ -284,6 +288,7 @@ fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> V
             vec![Line {
                 spans,
                 kind: LineKind::HorizontalRule,
+                urls: Vec::new(),
             }]
         }
         MdContent::Table {
@@ -296,6 +301,7 @@ fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> V
             .map(|linestr| Line {
                 spans: vec![Span::from(linestr.to_owned())],
                 kind: LineKind::Paragraph,
+                urls: Vec::new(),
             })
             .collect(),
     }
@@ -586,6 +592,7 @@ fn code_block_to_lines<M: Mapper>(
                     kind: LineKind::CodeBlock {
                         language: language.to_owned(),
                     },
+                    urls: Vec::new(),
                 });
             }
         } else {
@@ -602,6 +609,7 @@ fn code_block_to_lines<M: Mapper>(
                 kind: LineKind::CodeBlock {
                     language: language.to_owned(),
                 },
+                urls: Vec::new(),
             });
         }
     }
@@ -611,7 +619,7 @@ fn code_block_to_lines<M: Mapper>(
 
 /// Convert wrapped lines to output Lines with prefix spans.
 fn wrapped_to_lines<M: Mapper>(
-    wrapped_lines: Vec<crate::wrap::WrappedLine>,
+    wrapped_lines: Vec<Line>,
     nesting: Vec<MdLineContainer>,
     mapper: &M,
 ) -> Vec<Line> {
@@ -654,18 +662,10 @@ fn wrapped_to_lines<M: Mapper>(
             && wrapped_line.spans[3].modifiers == (Modifier::Image | Modifier::LinkURL)
             && wrapped_line.spans[4].modifiers == Modifier::Image
             && wrapped_line.spans[4].content == ")";
-        // Create text line
-        if !is_only_image && !wrapped_line.spans.is_empty() {
-            let mut spans = nesting_to_prefix_spans(line_nesting, mapper);
-            spans.extend(wrapped_line.spans);
-            lines.push(Line {
-                spans,
-                kind: LineKind::Paragraph,
-            });
-        }
 
+        let mut image_lines = Vec::new();
         // Create image lines
-        for tracked_url in wrapped_line.urls {
+        for tracked_url in &wrapped_line.urls {
             if let TrackedUrl::Image { desc, url } = tracked_url {
                 let spans = vec![
                     Span::new(
@@ -688,15 +688,32 @@ fn wrapped_to_lines<M: Mapper>(
                     Span::new(url.clone(), Modifier::Image | Modifier::LinkURL),
                     Span::new(")".to_owned(), Modifier::Image | Modifier::LinkURLWrapper),
                 ];
-                lines.push(Line {
+                image_lines.push(Line {
                     spans,
                     kind: LineKind::Image(MarkdownLink {
-                        url,
-                        description: desc,
+                        url: url.clone(),
+                        description: desc.clone(),
                     }),
+                    urls: vec![TrackedUrl::Image {
+                        desc: desc.clone(),
+                        url: url.clone(),
+                    }],
                 });
             }
         }
+
+        // Create text line
+        if !is_only_image && !wrapped_line.spans.is_empty() {
+            let mut spans = nesting_to_prefix_spans(line_nesting, mapper);
+            spans.extend(wrapped_line.spans);
+            lines.push(Line {
+                spans,
+                kind: LineKind::Paragraph,
+                urls: wrapped_line.urls,
+            });
+        }
+
+        lines.extend(image_lines);
     }
 
     lines
@@ -786,6 +803,7 @@ fn table_to_lines<M: Mapper>(
         Line {
             spans,
             kind: LineKind::TableBorder,
+            urls: Vec::new(),
         }
     };
 
@@ -863,6 +881,7 @@ fn table_to_lines<M: Mapper>(
             result.push(Line {
                 spans,
                 kind: LineKind::TableRow { is_header },
+                urls: Vec::new(),
             });
         }
 
@@ -948,6 +967,7 @@ mod tests {
                     Span::with("", Modifier::Link | Modifier::LinkURLWrapper,),
                 ],
                 kind: LineKind::Paragraph,
+                urls: vec![TrackedUrl::link("http://example.com", 0, 4, 0)]
             }
         );
     }
@@ -1009,6 +1029,10 @@ mod tests {
                     Span::with("", Modifier::Link | Modifier::LinkURLWrapper),
                 ],
                 kind: LineKind::Paragraph,
+                urls: vec![
+                    TrackedUrl::image("image", "http://example.com/img.png"),
+                    TrackedUrl::link("http://example.com", 0, 36, 0),
+                ],
             }
         );
     }
@@ -1040,6 +1064,7 @@ I have searched far **and** wide but I have *yet* to come across a show that wou
                     Span::with(" to come across a show that", Modifier::default()),
                 ],
                 kind: LineKind::Paragraph,
+                urls: Vec::new(),
             }
         );
         assert_eq!(
@@ -1050,6 +1075,7 @@ I have searched far **and** wide but I have *yet* to come across a show that wou
                     Modifier::default()
                 ),],
                 kind: LineKind::Paragraph,
+                urls: Vec::new(),
             }
         );
         assert_eq!(
@@ -1060,6 +1086,7 @@ I have searched far **and** wide but I have *yet* to come across a show that wou
                     Modifier::default()
                 ),],
                 kind: LineKind::Paragraph,
+                urls: Vec::new(),
             }
         );
         assert_eq!(
@@ -1070,6 +1097,7 @@ I have searched far **and** wide but I have *yet* to come across a show that wou
                     Modifier::default()
                 ),],
                 kind: LineKind::Paragraph,
+                urls: Vec::new(),
             }
         );
     }

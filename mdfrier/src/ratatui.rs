@@ -279,7 +279,11 @@ pub fn render_line<T: Theme, F: FnMut(&Span)>(
     theme: &T,
     mut node_cb: Option<F>,
 ) -> Line<'static> {
-    let MdLine { spans, kind } = md_line;
+    let MdLine {
+        spans,
+        kind,
+        urls: _,
+    } = md_line;
 
     // Track blockquote depth by counting BlockquoteBar spans
     let mut bq_depth = 0;

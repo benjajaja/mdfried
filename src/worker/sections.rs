@@ -161,6 +161,7 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
             lines.push(Line {
                 kind: LineKind::Blank,
                 spans: Vec::new(),
+                urls: Vec::new(),
             });
         }
 

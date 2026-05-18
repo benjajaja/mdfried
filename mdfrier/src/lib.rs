@@ -110,6 +110,7 @@ pub use mapper::{DefaultMapper, Mapper, StyledMapper};
 pub use markdown::BulletStyle;
 pub use markdown::{Modifier, SourceContent, Span};
 
+use crate::link_tracker::TrackedUrl;
 use crate::markdown::MdIterator;
 
 // ============================================================================
@@ -120,13 +121,15 @@ use crate::markdown::MdIterator;
 ///
 /// This is the final, flattened representation with all decorators applied
 /// and nesting converted to prefix spans.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Line {
     /// The text spans making up this line, including any prefix spans
     /// (blockquote bars, list markers) that were added from nesting.
     pub spans: Vec<Span>,
     /// The kind of content this line represents.
     pub kind: LineKind,
+    /// Any links and images found *ending* on this line.
+    pub urls: Vec<TrackedUrl>,
 }
 
 /// The kind of content a line represents.

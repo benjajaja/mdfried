@@ -42,16 +42,19 @@ pub enum TrackedUrl {
     },
 }
 impl TrackedUrl {
-    pub fn link(url: String, start: u16, end: u16, lines: usize) -> Self {
+    pub fn link<S: Into<String>>(url: S, start: u16, end: u16, lines: usize) -> Self {
         Self::Link {
             start,
             lines,
             end,
-            url,
+            url: url.into(),
         }
     }
-    pub fn image(desc: String, url: String) -> Self {
-        Self::Image { desc, url }
+    pub fn image<S: Into<String>>(desc: S, url: S) -> Self {
+        Self::Image {
+            desc: desc.into(),
+            url: url.into(),
+        }
     }
 }
 

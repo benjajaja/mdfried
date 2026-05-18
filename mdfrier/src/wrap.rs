@@ -2,7 +2,8 @@ use textwrap::{Options, wrap};
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    link_tracker::{LinkTracker, TrackedUrl},
+    Line, LineKind,
+    link_tracker::LinkTracker,
     markdown::{Modifier, Span},
 };
 
@@ -16,20 +17,12 @@ fn trim_start_inplace(s: &mut String) {
     }
 }
 
-/// A wrapped line of markdown content.
-pub(crate) struct WrappedLine {
-    /// The content spans.
-    pub spans: Vec<Span>,
-    /// Any links and images found *ending* on this line.
-    pub urls: Vec<TrackedUrl>,
-}
-
 pub fn wrap_md_spans(
     width: u16,
     mdspans: Vec<Span>,
     prefix_width: usize,
     hide_urls: bool,
-) -> Vec<WrappedLine> {
+) -> Vec<Line> {
     let available_width = width.saturating_sub(prefix_width as u16).max(1);
 
     let mut tracker = LinkTracker::default();
@@ -43,9 +36,10 @@ pub fn wrap_md_spans(
             }
             tracker.carriage_return();
 
-            WrappedLine {
+            Line {
                 spans,
                 urls: tracker.take_urls(),
+                kind: LineKind::Blank, // will be set by wrapped_to_lines()
             }
         })
         .collect()
