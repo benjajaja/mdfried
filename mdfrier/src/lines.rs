@@ -6,6 +6,7 @@ use unicode_width::UnicodeWidthStr as _;
 
 use crate::{
     Line, LineKind, Mapper, MarkdownLink,
+    link_tracker::TrackedUrl,
     markdown::{
         ListMarker, MdContainer, MdContent, MdIterator, MdSection, Modifier, Span, TableAlignment,
     },
@@ -621,12 +622,12 @@ fn wrapped_to_lines<M: Mapper>(
             .spans
             .iter()
             .any(|s| !s.content.trim().is_empty());
-        if !has_content && wrapped_line.images.is_empty() {
+        if !has_content && wrapped_line.urls.is_empty() {
             continue;
         }
 
         // For continuation lines (soft-wrapped), mark ListItems as continuation
-        let line_nesting = if line_idx == 0 || wrapped_line.is_first {
+        let line_nesting = if line_idx == 0 {
             &nesting
         } else {
             &nesting
@@ -664,38 +665,37 @@ fn wrapped_to_lines<M: Mapper>(
         }
 
         // Create image lines
-        for img in wrapped_line.images {
-            let spans = vec![
-                Span::new(
-                    "![".to_owned(),
-                    Modifier::Image | Modifier::LinkDescriptionWrapper,
-                ),
-                if is_only_image {
+        for tracked_url in wrapped_line.urls {
+            if let TrackedUrl::Image { desc, url } = tracked_url {
+                let spans = vec![
                     Span::new(
-                        img.description.clone(),
-                        Modifier::Image | Modifier::LinkDescription,
-                    )
-                } else {
+                        "![".to_owned(),
+                        Modifier::Image | Modifier::LinkDescriptionWrapper,
+                    ),
+                    if is_only_image {
+                        Span::new(desc.clone(), Modifier::Image | Modifier::LinkDescription)
+                    } else {
+                        Span::new(
+                            "Loading...".to_owned(),
+                            Modifier::Image | Modifier::LinkDescription,
+                        )
+                    },
                     Span::new(
-                        "Loading...".to_owned(),
-                        Modifier::Image | Modifier::LinkDescription,
-                    )
-                },
-                Span::new(
-                    "]".to_owned(),
-                    Modifier::Image | Modifier::LinkDescriptionWrapper,
-                ),
-                Span::new("(".to_owned(), Modifier::Image | Modifier::LinkURLWrapper),
-                Span::new(img.url.clone(), Modifier::Image | Modifier::LinkURL),
-                Span::new(")".to_owned(), Modifier::Image | Modifier::LinkURLWrapper),
-            ];
-            lines.push(Line {
-                spans,
-                kind: LineKind::Image(MarkdownLink {
-                    url: img.url,
-                    description: img.description,
-                }),
-            });
+                        "]".to_owned(),
+                        Modifier::Image | Modifier::LinkDescriptionWrapper,
+                    ),
+                    Span::new("(".to_owned(), Modifier::Image | Modifier::LinkURLWrapper),
+                    Span::new(url.clone(), Modifier::Image | Modifier::LinkURL),
+                    Span::new(")".to_owned(), Modifier::Image | Modifier::LinkURLWrapper),
+                ];
+                lines.push(Line {
+                    spans,
+                    kind: LineKind::Image(MarkdownLink {
+                        url,
+                        description: desc,
+                    }),
+                });
+            }
         }
     }
 

@@ -16,21 +16,12 @@ fn trim_start_inplace(s: &mut String) {
     }
 }
 
-/// Image reference extracted from markdown.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ImageRef {
-    pub url: String,
-    pub description: String,
-}
-
 /// A wrapped line of markdown content.
 pub(crate) struct WrappedLine {
-    /// Whether this is a first line (not a soft-wrapped continuation).
-    pub is_first: bool,
     /// The content spans.
     pub spans: Vec<Span>,
-    /// Any images found on this line.
-    pub images: Vec<ImageRef>,
+    /// Any links and images found *ending* on this line.
+    pub urls: Vec<TrackedUrl>,
 }
 
 pub fn wrap_md_spans(
@@ -46,30 +37,15 @@ pub fn wrap_md_spans(
     wrap_md_spans_lines(available_width, mdspans, hide_urls)
         .into_iter()
         .filter(|line| !line.is_empty())
-        .enumerate()
-        .map(|(line_idx, spans)| {
-            // Extract images from spans
-            let mut images: Vec<ImageRef> = Vec::new();
+        .map(|spans| {
             for span in &spans {
                 tracker.track(span);
             }
             tracker.carriage_return();
-            for url in tracker.take_urls() {
-                match url {
-                    TrackedUrl::Image { desc, url } => {
-                        images.push(ImageRef {
-                            url,
-                            description: desc,
-                        });
-                    }
-                    _ => {}
-                }
-            }
 
             WrappedLine {
-                is_first: line_idx == 0,
                 spans,
-                images,
+                urls: tracker.take_urls(),
             }
         })
         .collect()
