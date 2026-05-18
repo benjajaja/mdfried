@@ -117,7 +117,7 @@ impl LinkTracker {
                 None
             }
             // Bare links
-            None if modifiers.contains(Modifier::Link | Modifier::BareLink | Modifier::LinkURL) => {
+            None if modifiers.contains(Modifier::BareLink | Modifier::LinkURL) => {
                 // This assumes that bare links cannot be line broken.
                 self.urls.push(TrackedUrl::link(
                     content.clone(),

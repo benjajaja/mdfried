@@ -7,7 +7,10 @@ use ratatui::{
     text::{Line, Span as RatatuiSpan},
 };
 
-use crate::{Line as MdLine, LineKind, Span, mapper::Mapper, markdown::Modifier as MdModifier};
+use crate::{
+    Line as MdLine, LineKind, Span, link_tracker::TrackedUrl, mapper::Mapper,
+    markdown::Modifier as MdModifier,
+};
 
 // ============================================================================
 // Theme trait - extends Mapper with styling
@@ -274,16 +277,8 @@ impl Theme for DefaultTheme {}
 /// # Returns
 ///
 /// A tuple of (styled Line, list of Tags)
-pub fn render_line<T: Theme, F: FnMut(&Span)>(
-    md_line: MdLine,
-    theme: &T,
-    mut node_cb: Option<F>,
-) -> Line<'static> {
-    let MdLine {
-        spans,
-        kind,
-        urls: _,
-    } = md_line;
+pub fn render_line<T: Theme>(md_line: MdLine, theme: &T) -> (Line<'static>, Vec<TrackedUrl>) {
+    let MdLine { spans, kind, .. } = md_line;
 
     // Track blockquote depth by counting BlockquoteBar spans
     let mut bq_depth = 0;
@@ -296,10 +291,6 @@ pub fn render_line<T: Theme, F: FnMut(&Span)>(
     let line_spans: Vec<RatatuiSpan<'static>> = spans
         .into_iter()
         .map(|node| {
-            if let Some(ref mut cb) = node_cb {
-                cb(&node);
-            }
-
             node_to_span(
                 node,
                 bq_depth,
@@ -311,7 +302,7 @@ pub fn render_line<T: Theme, F: FnMut(&Span)>(
         })
         .collect();
 
-    Line::from(line_spans)
+    (Line::from(line_spans), md_line.urls)
 }
 
 /// Convert a Span to a styled ratatui Span.

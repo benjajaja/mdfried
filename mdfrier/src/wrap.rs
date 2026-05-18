@@ -25,7 +25,7 @@ pub fn wrap_md_spans(
 ) -> Vec<Line> {
     let available_width = width.saturating_sub(prefix_width as u16).max(1);
 
-    let mut tracker = LinkTracker::default();
+    let mut tracker = LinkTracker::default().hide_urls(hide_urls);
 
     wrap_md_spans_lines(available_width, mdspans, hide_urls)
         .into_iter()

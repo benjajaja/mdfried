@@ -6,17 +6,15 @@
 //! - Image lines become their own section
 //! - All other lines are aggregated into text sections
 
-use std::cell::RefCell;
 use std::iter::Peekable;
-use std::rc::Rc;
 
+use mdfrier::link_tracker::TrackedUrl;
 use mdfrier::ratatui::render_line;
-use mdfrier::{Line, LineKind, Mapper, MarkdownLink};
+use mdfrier::{Line, LineKind, MarkdownLink, SourceContent};
 use ratatui::text::Span;
 
-use super::link_tracker::LinkTracker;
 use crate::config::Theme;
-use crate::document::{Section, SectionContent, SectionID};
+use crate::document::{LineExtra, Section, SectionContent, SectionID};
 
 /// Events produced during section iteration that need post-processing.
 pub enum SectionEvent {
@@ -59,7 +57,8 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
     /// Render a line to ratatui Line without links, for headers, images, or other non-text
     /// content.
     fn render_simple_line(&self, line: Line) -> ratatui::text::Line<'static> {
-        render_line(line, self.theme, None::<fn(&mdfrier::Span)>)
+        let (line, _) = render_line(line, self.theme);
+        line
     }
 
     /// Process header lines into sections.
@@ -165,22 +164,33 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
             });
         }
 
-        let hide_urls = Mapper::hide_urls(self.theme);
-        let link_tracker = Rc::new(RefCell::new(LinkTracker::default().hide_urls(hide_urls)));
-
         let rendered_lines: Vec<_> = lines
             .into_iter()
             .map(|line| {
-                let link_tracker_inner = Rc::clone(&link_tracker);
-                link_tracker_inner.borrow_mut().carriage_return();
-                let lines = render_line(
-                    line,
-                    self.theme,
-                    Some(move |node: &mdfrier::Span| {
-                        link_tracker_inner.borrow_mut().track(node);
-                    }),
-                );
-                (lines, link_tracker.borrow_mut().extras())
+                let (line, urls) = render_line(line, self.theme);
+                let extras: Vec<LineExtra> = urls
+                    .iter()
+                    .filter_map(|tracked_url| {
+                        if let TrackedUrl::Link {
+                            start,
+                            lines,
+                            end,
+                            url,
+                        } = tracked_url
+                        {
+                            Some(LineExtra::Link(
+                                SourceContent::from(url.as_str()),
+                                *start,
+                                *end,
+                                if *lines == 0 { None } else { Some(*lines) },
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                (line, extras)
             })
             .collect();
 
