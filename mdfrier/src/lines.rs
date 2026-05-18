@@ -304,6 +304,25 @@ fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> V
                 urls: Vec::new(),
             })
             .collect(),
+        MdContent::LinkReferenceDefinition { reference, url } => {
+            eprintln!("LinkReferenceDefinition: {reference}, {url}");
+            let spans = vec![
+                Span::new("[".to_owned(), Modifier::LinkDescriptionWrapper),
+                Span::new(reference.to_owned(), Modifier::LinkDescription),
+                Span::new("]".to_owned(), Modifier::LinkDescriptionWrapper),
+                Span::new(": ".to_owned(), Modifier::LinkURLWrapper),
+                Span::new(url.to_owned(), Modifier::BareLink | Modifier::LinkURL),
+            ];
+            let start =
+                (spans[0].width() + spans[1].width() + spans[2].width() + spans[3].width()) as u16;
+            let end = start + spans[4].width() as u16;
+            let urls = vec![TrackedUrl::link(url.to_owned(), start, end, 0)];
+            vec![Line {
+                spans,
+                kind: LineKind::Paragraph,
+                urls,
+            }]
+        }
     }
 }
 

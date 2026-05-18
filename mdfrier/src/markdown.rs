@@ -194,6 +194,25 @@ impl<'a> MdIterator<'a> {
             "thematic_break" => Some(MdContent::HorizontalRule),
             "pipe_table" => Some(self.parse_table(node)),
             "html_block" => Some(self.parse_html(node)),
+            "link_reference_definition" => {
+                // We parse it with tree-sitter. A simple regex would do, except for escaping
+                // edge-case, e.g. `[description][reference\[with-brackets\]]`, and so on.
+                self.parse_paragraph(&node).map(|md_content| {
+                    let MdContent::Paragraph(p) = md_content else {
+                        return md_content;
+                    };
+                    let mut reference = String::new();
+                    let mut url = String::new();
+                    for span in &p.spans {
+                        if span.modifiers == Modifier::LinkDescription {
+                            reference.push_str(&span.content);
+                        } else if span.modifiers == Modifier::BareLink | Modifier::LinkURL {
+                            url = span.content.clone();
+                        }
+                    }
+                    MdContent::LinkReferenceDefinition { reference, url }
+                })
+            }
             _ => None,
         }
     }
@@ -560,6 +579,10 @@ pub(crate) enum MdContent {
     Html {
         html: String,
     },
+    LinkReferenceDefinition {
+        reference: String,
+        url: String,
+    },
 }
 
 impl MdContent {
@@ -643,13 +666,19 @@ impl MdParagraph {
             "[" | "]" => Modifier::LinkDescriptionWrapper,
             "(" | ")" => Modifier::LinkURLWrapper,
             "link_text" => Modifier::LinkDescription,
-            "inline_link" => Modifier::Link,
+            "inline_link" | "full_reference_link" => Modifier::Link,
             "image" => Modifier::Image,
             "image_description" => Modifier::LinkDescription,
             "link_destination" => {
                 let url = source[node.byte_range()].to_owned();
                 self.spans
                     .push(Span::new(url, extra.union(Modifier::LinkURL)));
+                return;
+            }
+            "link_label" => {
+                let label = source[node.byte_range()].to_owned();
+                self.spans
+                    .push(Span::new(label, extra.union(Modifier::LinkURL)));
                 return;
             }
             _ => Modifier::default(),

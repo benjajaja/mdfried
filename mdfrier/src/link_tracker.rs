@@ -101,6 +101,14 @@ impl LinkTracker {
             {
                 LinkUrlOpen(start, lines, end)
             }
+            LinkDescClose(start, lines, end)
+                if modifiers.contains(Modifier::Link | Modifier::LinkURL) =>
+            {
+                // full_reference_link
+                self.urls
+                    .push(TrackedUrl::link(content.clone(), start, end, lines));
+                None
+            }
             LinkUrlOpen(start, lines, end)
                 if modifiers.contains(Modifier::Link | Modifier::LinkURL) =>
             {
