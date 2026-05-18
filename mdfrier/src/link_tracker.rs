@@ -36,6 +36,7 @@ pub enum TrackedUrl {
         lines: usize,
         end: u16,
         url: String,
+        is_reference: bool,
     },
     Image {
         desc: String,
@@ -49,6 +50,16 @@ impl TrackedUrl {
             lines,
             end,
             url: url.into(),
+            is_reference: false,
+        }
+    }
+    pub fn link_reference<S: Into<String>>(url: S, start: u16, end: u16, lines: usize) -> Self {
+        Self::Link {
+            start,
+            lines,
+            end,
+            url: url.into(),
+            is_reference: true,
         }
     }
     pub fn image<S: Into<String>>(desc: S, url: S) -> Self {
@@ -105,8 +116,12 @@ impl LinkTracker {
                 if modifiers.contains(Modifier::Link | Modifier::LinkURL) =>
             {
                 // full_reference_link
-                self.urls
-                    .push(TrackedUrl::link(content.clone(), start, end, lines));
+                self.urls.push(TrackedUrl::link_reference(
+                    content.clone(),
+                    start,
+                    end,
+                    lines,
+                ));
                 None
             }
             LinkUrlOpen(start, lines, end)

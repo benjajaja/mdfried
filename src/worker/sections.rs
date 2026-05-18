@@ -176,6 +176,7 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
                             lines,
                             end,
                             url,
+                            is_reference,
                         } = tracked_url
                         {
                             Some(LineExtra::Link(
