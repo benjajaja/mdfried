@@ -401,6 +401,31 @@ impl Document {
             .iter()
             .any(|section| matches!(&section.content, SectionContent::ImagePlaceholder(..)))
     }
+
+    // Update all link URLs that point to the link reference definition.
+    pub fn update_link_references(&mut self, definition_id: String, url: &str) {
+        for section in &mut self.sections {
+            let SectionContent::Lines(lines) = &mut section.content else {
+                continue;
+            };
+            for (_, extras) in lines {
+                for extra in extras {
+                    let LineExtra::Link {
+                        source, reference, ..
+                    } = extra
+                    else {
+                        continue;
+                    };
+                    let LinkReference::Reference { id } = reference else {
+                        continue;
+                    };
+                    if *id == definition_id {
+                        *source = SourceContent::from(url);
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl Deref for Document {
@@ -591,6 +616,7 @@ pub enum LineExtra {
         start: u16,
         end: u16,
         lines: Option<usize>,
+        reference: LinkReference,
     },
     /// start, end, text
     SearchMatch(usize, usize, String),
@@ -604,14 +630,16 @@ impl Debug for LineExtra {
                 start,
                 end,
                 lines,
+                reference,
             } => {
                 write!(
                     f,
-                    "Link({:?}, {}, {}, {})",
+                    "Link({:?}, {}, {}, {}, {:?})",
                     url,
                     start,
                     end,
-                    lines.unwrap_or_default()
+                    lines.unwrap_or_default(),
+                    reference,
                 )
             }
             LineExtra::SearchMatch(start, end, text) => {
@@ -631,22 +659,29 @@ impl PartialEq for LineExtra {
                     start: l1,
                     end: l2,
                     lines: l3,
+                    reference: l4,
                 },
                 LineExtra::Link {
                     source: r0,
                     start: r1,
                     end: r2,
                     lines: r3,
+                    reference: r4,
                 },
-            ) => {
-                l0 == r0 && l1 == r1 && l2 == r2 && l3 == r3
-            }
+            ) => l0 == r0 && l1 == r1 && l2 == r2 && l3 == r3 && l4 == r4,
             (LineExtra::SearchMatch(l0, l1, l2), LineExtra::SearchMatch(r0, r1, r2)) => {
                 l0 == r0 && l1 == r1 && l2 == r2
             }
             _ => false,
         }
     }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum LinkReference {
+    None,
+    Reference { id: String },
+    ReferenceDefinition { id: String, url: String },
 }
 
 /// Layout/shape and render `text` into a list of [`DynamicImage`] with a given terminal width.

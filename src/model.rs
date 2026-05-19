@@ -247,6 +247,9 @@ impl Model {
                     }
                     self.document.update_header(section_id, rows);
                 }
+                Event::ReferenceDefinition { id, url } => {
+                    self.document.update_link_references(id, &url);
+                }
                 Event::FileChanged => {
                     log::info!("reload: FileChanged");
                     self.reload(self.screen_size)?;
@@ -641,7 +644,7 @@ mod tests {
         Cmd, DocumentId, Event,
         config::UserConfig,
         cursor::{Cursor, CursorPointer},
-        document::{Document, LineExtra, Section, SectionContent},
+        document::{Document, LineExtra, LinkReference, Section, SectionContent},
         model::{InputQueue, Model},
         sources::SharedDocumentSource,
     };
@@ -704,12 +707,14 @@ mod tests {
                         start: 0,
                         end: 11,
                         lines: None,
+                        reference: LinkReference::None,
                     },
                     LineExtra::Link {
                         source: link_b.clone(),
                         start: 12,
                         end: 21,
                         lines: None,
+                        reference: LinkReference::None,
                     },
                 ],
             )]),
@@ -724,6 +729,7 @@ mod tests {
                     start: 0,
                     end: 11,
                     lines: None,
+                    reference: LinkReference::None,
                 }],
             )]),
         });
@@ -756,6 +762,7 @@ mod tests {
                         start: 0,
                         end: 11,
                         lines: None,
+                        reference: LinkReference::None,
                     }],
                 )]),
             });
@@ -780,6 +787,7 @@ mod tests {
                     start: 0,
                     end: 11,
                     lines: None,
+                    reference: LinkReference::None,
                 }],
             )]),
         });
@@ -813,12 +821,14 @@ mod tests {
                         start: 0,
                         end: 11,
                         lines: None,
+                        reference: LinkReference::None,
                     },
                     LineExtra::Link {
                         source: link_b.clone(),
                         start: 12,
                         end: 21,
                         lines: None,
+                        reference: LinkReference::None,
                     },
                 ],
             )]),
@@ -833,6 +843,7 @@ mod tests {
                     start: 0,
                     end: 11,
                     lines: None,
+                    reference: LinkReference::None,
                 }],
             )]),
         });
@@ -864,12 +875,14 @@ mod tests {
                         start: 0,
                         end: 11,
                         lines: None,
+                        reference: LinkReference::None,
                     },
                     LineExtra::Link {
                         source: link_b.clone(),
                         start: 12,
                         end: 21,
                         lines: None,
+                        reference: LinkReference::None,
                     },
                 ],
             )]),
@@ -884,6 +897,7 @@ mod tests {
                     start: 0,
                     end: 11,
                     lines: None,
+                    reference: LinkReference::None,
                 }],
             )]),
         });
@@ -968,6 +982,7 @@ mod tests {
                     start: 0,
                     end: 11,
                     lines: None,
+                    reference: LinkReference::None,
                 }],
             )]),
         });
@@ -1014,6 +1029,7 @@ mod tests {
                         start: 0,
                         end: 11,
                         lines: None,
+                        reference: LinkReference::None,
                     }],
                 )]),
             });

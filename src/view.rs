@@ -73,6 +73,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
                                     start,
                                     end,
                                     lines: lines_count,
+                                    ..
                                 } = extra
                                 {
                                     if url.as_ptr() == selected.as_ptr() {

@@ -327,6 +327,7 @@ pub enum Event {
     FileChanged,
     Scroll(i16),
     NewSource(String),
+    ReferenceDefinition { id: String, url: String },
 }
 
 impl Display for Event {
@@ -360,6 +361,9 @@ impl Display for Event {
                         .map(|(text, _, _)| text.clone())
                         .unwrap_or_default()
                 )
+            }
+            Event::ReferenceDefinition { id, url } => {
+                write!(f, "Event::ReferenceDefinition {{ id: {id}, url: {url} }}")
             }
             Event::FileChanged => write!(f, "Event::FileChanged"),
             Event::Scroll(s) => write!(f, "Event::Scroll({s})"),

@@ -213,7 +213,7 @@ impl<'a> MdIterator<'a> {
                     MdContent::LinkReferenceDefinition { reference, url }
                 })
             }
-            _ => None,
+            _ => None, // Processed as inline.
         }
     }
 

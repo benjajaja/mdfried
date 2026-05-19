@@ -10,16 +10,17 @@ use std::iter::Peekable;
 
 use mdfrier::link_tracker::TrackedUrl;
 use mdfrier::ratatui::render_line;
-use mdfrier::{Line, LineKind, MarkdownLink, SourceContent};
+use mdfrier::{Line, LineKind, MarkdownLink, Modifier, SourceContent};
 use ratatui::text::Span;
 
 use crate::config::Theme;
-use crate::document::{LineExtra, Section, SectionContent, SectionID};
+use crate::document::{LineExtra, LinkReference, Section, SectionContent, SectionID};
 
 /// Events produced during section iteration that need post-processing.
 pub enum SectionEvent {
     Image(SectionID, MarkdownLink),
     Header(SectionID, String, u8),
+    ReferenceDefinition { id: String, url: String },
 }
 
 /// Iterator that groups lines into sections and renders them.
@@ -167,9 +168,26 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
         let rendered_lines: Vec<_> = lines
             .into_iter()
             .map(|line| {
-                let (line, urls) = render_line(line, self.theme);
+                let mut link_reference_definition =
+                    if line.kind == LineKind::LinkReferenceDefinitions {
+                        let reference = line.spans.iter().find_map(|span| {
+                            span.modifiers
+                                .contains(Modifier::LinkDescription)
+                                .then(|| span.content.clone())
+                        });
+                        if reference.is_none() {
+                            log::error!("LineKind::LinkReferenceDefinitions but no LinkDescription span for the reference-id");
+                            log::debug!("line: {line:?}");
+                        }
+                        reference
+                    } else {
+                        None
+                    };
+
+                let (ratatui_line, urls) = render_line(line, self.theme);
+
                 let extras: Vec<LineExtra> = urls
-                    .iter()
+                    .into_iter()
                     .filter_map(|tracked_url| {
                         if let TrackedUrl::Link {
                             start,
@@ -181,9 +199,22 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
                         {
                             Some(LineExtra::Link {
                                 source: SourceContent::from(url.as_str()),
-                                start: *start,
-                                end: *end,
-                                lines: if *lines == 0 { None } else { Some(*lines) },
+                                start,
+                                end,
+                                lines: if lines == 0 { None } else { Some(lines) },
+                                // Build the reference, both on the links that point the reference
+                                // definition, and the reference definitions.
+                                // The worker emits a special event on definitions for the document
+                                // to update all reference links, after all `Parse` events.
+                                reference: if is_reference {
+                                    LinkReference::Reference { id: url }
+                                } else if let Some(id) = link_reference_definition.take() {
+                                    // We can take it because there should only be one
+                                    // ReferenceDefinition per line.
+                                    LinkReference::ReferenceDefinition { id, url }
+                                } else {
+                                    LinkReference::None
+                                },
                             })
                         } else {
                             None
@@ -191,7 +222,7 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
                     })
                     .collect();
 
-                (line, extras)
+                (ratatui_line, extras)
             })
             .collect();
 
@@ -455,12 +486,14 @@ That's all."#;
                     start: 10,
                     end: 18,
                     lines: None,
+                    reference: LinkReference::None,
                 },
                 LineExtra::Link {
                     source: "http://example.com/link2".into(),
                     start: 30,
                     end: 38,
                     lines: None,
+                    reference: LinkReference::None,
                 },
             ]
         );
@@ -471,6 +504,7 @@ That's all."#;
                 start: 45,
                 end: 55,
                 lines: None,
+                reference: LinkReference::None,
             },]
         );
     }

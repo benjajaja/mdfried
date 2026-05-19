@@ -28,7 +28,9 @@ use tokio::{runtime::Builder, sync::RwLock};
 use crate::{
     Cmd, Event, Protocol, VERSION,
     config::Theme,
-    document::{SectionContent, header_images, header_sections, image_section},
+    document::{
+        LineExtra, LinkReference, SectionContent, header_images, header_sections, image_section,
+    },
     error::Error,
     model::DocumentId,
     setup::FontRenderer,
@@ -118,7 +120,15 @@ pub fn worker_thread(
                         let mut post_parse_events = Vec::new();
                         for section in &mut section_iter {
                             match &section.content {
-                                SectionContent::Lines(_) => {
+                                SectionContent::Lines(lines) => {
+                                    for (_, extras) in lines {
+                                        for extra in extras {
+                                            if let LineExtra::Link { reference, .. } = extra
+                                                && let LinkReference::ReferenceDefinition{ id, url } = reference {
+                                                    post_parse_events.push(SectionEvent::ReferenceDefinition{ id: id.clone(), url: url.clone() });
+                                            }
+                                        }
+                                    }
                                     event_tx.send(Event::Parsed(document_id, section))?;
                                 }
                                 SectionContent::Image(_, _,_) => {
@@ -188,6 +198,9 @@ pub fn worker_thread(
                                     } else {
                                         uncached_image_events.push(event);
                                     }
+                                }
+                                SectionEvent::ReferenceDefinition { id, url } => {
+                                    event_tx.send(Event::ReferenceDefinition { id: format!("[{id}]"), url: url.clone() })?;
                                 }
                             }
                         }
@@ -300,6 +313,7 @@ fn process_image_events(
                     .await??;
                     task_tx.send(Event::HeaderLoaded(document_id, section_id, images))?;
                 }
+                SectionEvent::ReferenceDefinition { .. } => {}
             }
         }
         Ok::<(), Error>(())

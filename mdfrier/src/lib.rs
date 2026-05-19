@@ -151,6 +151,9 @@ pub enum LineKind {
     Image(MarkdownLink),
     /// Blank line.
     Blank,
+    /// Link reference definitions, e.g. `[reference]: http://example.com`, has `LinkDescription`
+    /// and `LinkUrl` [`Modifier`]s, respectively.
+    LinkReferenceDefinitions,
 }
 
 #[cfg(test)]

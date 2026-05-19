@@ -5,30 +5,6 @@ use std::mem::swap;
 use crate::{Modifier, Span};
 use unicode_width::UnicodeWidthStr as _;
 
-#[derive(Default, Debug)]
-/// Iterator over [`mdfrier::Span`]s and extract links as [`LineExtra::Link`] with `source`, `start`, `end` fields,
-/// where "start" and "end" are the respective positions in the [`mdfrier::Line`].
-pub struct LinkTracker {
-    offset: u16,
-    urls: Vec<TrackedUrl>,
-    state: LinkState,
-    nested_state: LinkState,
-    hide_urls: bool,
-}
-
-#[derive(Default, Debug)]
-enum LinkState {
-    #[default]
-    None,
-    LinkDescOpen,
-    LinkDesc(u16, usize),
-    LinkDescClose(u16, usize, u16),
-    LinkUrlOpen(u16, usize, u16),
-    LinkUrl(u16, usize, u16, String),
-    ImageDesc(String),
-    ImageUrl(String, String),
-}
-
 #[derive(Debug, PartialEq)]
 pub enum TrackedUrl {
     Link {
@@ -68,6 +44,30 @@ impl TrackedUrl {
             url: url.into(),
         }
     }
+}
+
+#[derive(Default, Debug)]
+/// Iterator over [`mdfrier::Span`]s and extract links as [`LineExtra::Link`] with `source`, `start`, `end` fields,
+/// where "start" and "end" are the respective positions in the [`mdfrier::Line`].
+pub struct LinkTracker {
+    offset: u16,
+    urls: Vec<TrackedUrl>,
+    state: LinkState,
+    nested_state: LinkState,
+    hide_urls: bool,
+}
+
+#[derive(Default, Debug)]
+enum LinkState {
+    #[default]
+    None,
+    LinkDescOpen,
+    LinkDesc(u16, usize),
+    LinkDescClose(u16, usize, u16),
+    LinkUrlOpen(u16, usize, u16),
+    LinkUrl(u16, usize, u16, String),
+    ImageDesc(String),
+    ImageUrl(String, String),
 }
 
 impl LinkTracker {
