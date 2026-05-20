@@ -84,26 +84,10 @@ See `--help` for all options.
 
 ### Key bindings
 
-Key | Description
-----|------------
-`q` or `Ctrl-c` | Quit and leave contents on terminal
-`r` | Reload the file (unless piped stdin)
-`j` | Scroll down one line
-`k` | Scroll up one line
-`d` or `Ctrl-d` | Scroll down half page
-`u` or `Ctrl-u` | Scroll up half page
-`f` or `PageDown` or `Space` | Scroll down a page
-`b` or `PageUp` | Scroll up a page
-`g` | Go to start of file
-`G` | Go to end of file
-`<number>G` or `<number>g` | Go to the string #\<number>
-`/` | Search text
-`n` | Jump to next match or link
-`N` | Jump to previous match or link
-`Enter` | Open selected link with `xdg-open` (linux) or `open` (macos)
-`Esc` | Leave search or link modes
+The keybindings should follow the basics of general CLI pagers. Vi-style keybindings are 
+prioritized, but "normal" keys should be usable as well.
 
-Entering a number before motion applies the motion that many times.
+Type `:help` in the program to see the exact list, or see [assets/help.md](assets/help.md).
 
 Mouse scroll only works if enabled in settings as `enable_mouse_capture = true`, but then you can't
 select text.

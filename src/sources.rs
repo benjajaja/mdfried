@@ -10,9 +10,9 @@ use ghrepo::GHRepo;
 use reqwest::header::CONTENT_TYPE;
 use url::Url;
 
-use crate::{OK_END, VERSION, error::Error};
+use crate::{OK_END, VERSION, document::Document, error::Error};
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum DocumentSource {
     File {
         path: PathBuf,
@@ -26,6 +26,7 @@ pub enum DocumentSource {
     HyperText {
         url: Url,
     },
+    BuiltInHelp,
 }
 
 #[derive(Clone)]
@@ -37,8 +38,17 @@ impl SharedDocumentSource {
         SharedDocumentSource(Arc::new(RwLock::new(DocumentSource::Stdin)))
     }
 
-    pub fn read(&self) -> Result<DocumentSource, String> {
-        self.0.read().map(|g| g.clone()).map_err(|e| e.to_string())
+    pub fn read(&self) -> Result<DocumentSource, Error> {
+        self.0
+            .read()
+            .map(|g| g.clone())
+            .map_err(|e| Error::Thread(e.to_string()))
+    }
+
+    pub fn write(&self, source: DocumentSource) -> Result<(), Error> {
+        let mut inner = self.0.write().map_err(|e| Error::Thread(e.to_string()))?;
+        *inner = source;
+        Ok(())
     }
 }
 
@@ -185,4 +195,10 @@ pub fn extend_url(mut url: Url, path: &str) -> Result<String, Error> {
     url.set_fragment(path_url.fragment());
 
     Ok(url.to_string())
+}
+
+pub struct DocumentHistoryEntry {
+    pub source: DocumentSource,
+    pub document: Document,
+    pub scroll: u16,
 }

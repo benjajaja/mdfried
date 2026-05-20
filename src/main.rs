@@ -271,7 +271,9 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         None
     };
 
-    run(&mut terminal, model)?;
+    if let Err(err) = run(&mut terminal, model) {
+        eprintln!("Runtime error: {err}");
+    };
     drop(debouncer);
 
     // Cursor might be in wird places, prompt or whatever should always show at the bottom now.
@@ -326,7 +328,7 @@ pub enum Event {
     HeaderLoaded(DocumentId, SectionID, Vec<(String, u8, Protocol)>),
     FileChanged,
     Scroll(i16),
-    NewSource(String),
+    NewSourceContent(String),
     ReferenceDefinition { id: String, url: String },
 }
 
@@ -367,7 +369,7 @@ impl Display for Event {
             }
             Event::FileChanged => write!(f, "Event::FileChanged"),
             Event::Scroll(s) => write!(f, "Event::Scroll({s})"),
-            Event::NewSource(_) => write!(f, "Event::NewSource"),
+            Event::NewSourceContent(_) => write!(f, "Event::NewSource"),
         }
     }
 }

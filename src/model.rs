@@ -15,6 +15,7 @@ use ratatui::{
     widgets::Padding,
 };
 use regex::RegexBuilder;
+use url::Url;
 
 use crate::{
     Cmd,
@@ -22,7 +23,7 @@ use crate::{
     cursor::{Cursor, CursorPointer},
     document::{Document, FindMode, FindTarget, LineExtra, Section, SectionContent},
     error::Error,
-    sources::{DocumentSource, extend_url, github_usercontent_url},
+    sources::{DocumentHistoryEntry, DocumentSource, extend_url, github_usercontent_url},
     worker::ImageCache,
 };
 use crate::{Event, sources::SharedDocumentSource};
@@ -35,6 +36,7 @@ pub struct Model {
     document: Document,
     document_id: DocumentId,
     document_source: SharedDocumentSource,
+    document_history: Vec<DocumentHistoryEntry>,
     config: Config,
     cmd_tx: Sender<Cmd>,
     event_rx: Receiver<Event>,
@@ -48,6 +50,7 @@ pub enum InputQueue {
     MovementCount(NonZero<u16>),
     Search(String),
     CursorPositioningCommands,
+    Command(String),
 }
 impl InputQueue {
     // Convenience for model "cursor_find" method. Consumes the input, resets self to
@@ -86,16 +89,17 @@ impl Model {
         config: Config,
     ) -> Model {
         Model {
-            document_source,
             screen_size,
             config,
             scroll: 0,
             input_queue: InputQueue::None,
             cursor: Cursor::default(),
             document: Document::default(),
+            document_id: DocumentId::default(),
+            document_source,
+            document_history: Vec::new(),
             cmd_tx,
             event_rx,
-            document_id: DocumentId::default(),
         }
     }
 
@@ -115,6 +119,37 @@ impl Model {
 
     pub fn open(&self, text: String) -> Result<(), Error> {
         self.parse(self.document_id.open(), text, None)
+    }
+
+    fn open_new_source(&mut self, source: DocumentSource, text: String) -> Result<(), Error> {
+        self.document_history.push(DocumentHistoryEntry {
+            source: self.document_source.read()?,
+            document: std::mem::take(&mut self.document), // resets self.document to default
+            scroll: self.scroll,
+        });
+        self.document_source.write(source)?;
+        self.cursor = Cursor::None;
+        self.scroll = 0;
+        self.input_queue = InputQueue::None;
+        self.open(text)
+    }
+
+    pub fn history_pop(&mut self) -> Result<(), Error> {
+        let DocumentHistoryEntry {
+            source,
+            document,
+            scroll,
+        } = self
+            .document_history
+            .pop()
+            .ok_or(Error::Generic("No history to go back".to_owned()))?;
+        self.document_source.write(source)?;
+        self.document = document;
+        self.cursor = Cursor::None;
+        self.scroll = scroll;
+        self.input_queue = InputQueue::None;
+
+        Ok(())
     }
 
     pub fn reparse(&mut self, text: String) -> Result<(), Error> {
@@ -258,19 +293,8 @@ impl Model {
                 Event::Scroll(delta) => {
                     self.scroll = self.scroll.saturating_add_signed(delta);
                 }
-                Event::NewSource(text) => {
-                    // This looks like we should have a method to "clear everything".
-                    self.document_id = self.document_id.next();
-                    self.document = Document::default();
-                    self.cursor = Cursor::None;
-                    self.scroll = 0;
-                    self.input_queue = InputQueue::None;
-                    // We should also think about having some kind of history stack, with:
-                    // * file name
-                    // * scroll
-                    // * cursor
-                    // * ???
-                    self.open(text)?;
+                Event::NewSourceContent(text) => {
+                    self.open_new_source(self.document_source.read()?, text)?;
                 }
             }
         }
@@ -356,38 +380,41 @@ impl Model {
             return Ok(());
         }
 
-        match self.document_source.read() {
-            Ok(DocumentSource::File { .. }) | Ok(DocumentSource::Stdin) | Err(_) => {
+        match self.document_source.read()? {
+            source @ DocumentSource::File { .. }
+            | source @ DocumentSource::Stdin
+            | source @ DocumentSource::BuiltInHelp => {
                 let url_as_path = Path::new(&link_url);
                 if url_as_path.extension() == Some(std::ffi::OsStr::new("md"))
                     && fs::exists(url_as_path).unwrap_or_default()
                     && let Ok(text) = fs::read_to_string(url_as_path)
                 {
-                    // This looks like we should have a method to "clear everything".
-                    self.document_id = self.document_id.next();
-                    self.document = Document::default();
-                    self.cursor = Cursor::None;
-                    self.scroll = 0;
-                    self.input_queue = InputQueue::None;
-                    // We should also think about having some kind of history stack, with:
-                    // * file name
-                    // * scroll
-                    // * cursor
-                    // * ???
-                    return self.open(text);
+                    self.open_new_source(source, text)?;
                 }
 
                 if let Err(err) = open::that(&link_url) {
                     log::error!("{err}");
                 }
             }
-            Ok(DocumentSource::Github { repo, branch }) => {
-                let url = github_usercontent_url(&repo, &branch, &link_url)?;
-                self.cmd_tx.send(Cmd::OpenUrl(url))?;
+            DocumentSource::Github { repo, branch } => {
+                if Url::parse(&link_url).is_ok() {
+                    if let Err(err) = open::that(&link_url) {
+                        log::error!("{err}");
+                    }
+                } else {
+                    let url = github_usercontent_url(&repo, &branch, &link_url)?;
+                    self.cmd_tx.send(Cmd::OpenUrl(url))?;
+                }
             }
-            Ok(DocumentSource::HyperText { url }) => {
-                let url = extend_url(url, &link_url)?;
-                self.cmd_tx.send(Cmd::OpenUrl(url))?;
+            DocumentSource::HyperText { url } => {
+                if Url::parse(&link_url).is_ok() {
+                    if let Err(err) = open::that(&link_url) {
+                        log::error!("{err}");
+                    }
+                } else {
+                    let url = extend_url(url, &link_url)?;
+                    self.cmd_tx.send(Cmd::OpenUrl(url))?;
+                }
             }
         }
         Ok(())
@@ -569,6 +596,22 @@ impl Model {
             log::error!("jump_to_pointer without cursor / pointer");
         }
     }
+
+    /// User has typed `:some_command<Enter>`.
+    pub fn user_command_str(&mut self, command: String) -> Result<(), Error> {
+        match command.as_str() {
+            "help" => {
+                const HELP_MD: &str = include_str!("../assets/help.md");
+                self.open_new_source(DocumentSource::BuiltInHelp, String::from(HELP_MD))
+            }
+            "back" => self.history_pop(),
+            _ => Err(Error::Generic("unknown command: {command}".to_owned())),
+        }
+    }
+
+    pub fn is_help_screen(&self) -> Result<bool, Error> {
+        Ok(self.document_source.read()? == DocumentSource::BuiltInHelp)
+    }
 }
 
 #[derive(Default, Debug, PartialEq, Clone, Copy)]
@@ -598,13 +641,6 @@ impl DocumentId {
 
     fn is_first_load(&self) -> bool {
         self.reload_id == 0
-    }
-
-    fn next(&self) -> DocumentId {
-        DocumentId {
-            id: self.id + 1,
-            reload_id: 0,
-        }
     }
 }
 
@@ -654,7 +690,6 @@ mod tests {
         let (cmd_tx, _) = mpsc::channel::<Cmd>();
         let (_, event_rx) = mpsc::channel::<Event>();
         Model {
-            document_source: SharedDocumentSource::test(),
             screen_size: (80, 20).into(),
             config: UserConfig::default().into(),
             scroll: 0,
@@ -664,6 +699,8 @@ mod tests {
             cmd_tx,
             event_rx,
             document_id: DocumentId::default(),
+            document_source: SharedDocumentSource::test(),
+            document_history: Vec::new(),
         }
     }
 

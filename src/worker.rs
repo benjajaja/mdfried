@@ -227,7 +227,7 @@ pub fn worker_thread(
                         let event_tx = event_tx.clone();
                         tokio::task::spawn_blocking(move || -> Result<(), Error> {
                             if let Ok((text, _)) = open_source(&url, None) {
-                                event_tx.send(Event::NewSource(text))?;
+                                event_tx.send(Event::NewSourceContent(text))?;
                             }
                             Ok(())
                         })

@@ -214,7 +214,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
             Cursor::Search(needle, _) => {
                 let mut line = Line::default();
                 line.spans.push(Span::from("/").fg(Color::Indexed(148)));
-                let needle = Span::from(needle.clone()).fg(Color::Indexed(148));
+                let needle = Span::from(needle.as_str()).fg(Color::Indexed(148));
                 line.spans.push(needle);
                 let width = line.width() as u16;
                 let searchbar = Paragraph::new(line);
@@ -225,7 +225,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
         InputQueue::Search(needle) => {
             let mut line = Line::default();
             line.spans.push(Span::from("/").fg(Color::Indexed(148)));
-            let needle = Span::from(needle.clone());
+            let needle = Span::from(needle.as_str());
             line.spans.push(needle);
             let width = line.width() as u16;
             let searchbar = Paragraph::new(line);
@@ -247,6 +247,16 @@ pub fn view(model: &Model, frame: &mut Frame) {
         }
         InputQueue::CursorPositioningCommands => {
             let line = Line::from(Span::from("z").fg(Color::Indexed(32)));
+            let width = line.width() as u16;
+            let searchbar = Paragraph::new(line);
+            frame.render_widget(searchbar, Rect::new(0, status_line_y, width, 1));
+            frame.set_cursor_position((width, status_line_y));
+        }
+        InputQueue::Command(command) => {
+            let mut line = Line::default();
+            line.spans.push(Span::from(":").fg(Color::Indexed(148)));
+            let needle = Span::from(command.as_str());
+            line.spans.push(needle);
             let width = line.width() as u16;
             let searchbar = Paragraph::new(line);
             frame.render_widget(searchbar, Rect::new(0, status_line_y, width, 1));

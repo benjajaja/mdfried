@@ -67,7 +67,6 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
     match key.code {
         // Search-input mode captures any `KeyCode::Char(_)`.
         KeyCode::Char(c) if matches!(model.input_queue, InputQueue::Search(_)) => {
-            // We could also match over (key.code, model.input_queue).
             let InputQueue::Search(needle) = &mut model.input_queue else {
                 panic!("invariant InputQueue::Search");
             };
@@ -75,6 +74,13 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
             let clone = needle.clone();
             model.add_searches(Some(&clone));
             model.cursor = Cursor::Search(clone, None);
+        }
+        // Command-input mode captures any `KeyCode::Char(_)`.
+        KeyCode::Char(c) if matches!(model.input_queue, InputQueue::Command(_)) => {
+            let InputQueue::Command(command) = &mut model.input_queue else {
+                panic!("invariant InputQueue::Command");
+            };
+            command.push(c);
         }
         // Digits start a movement-count.
         KeyCode::Char(x)
@@ -91,11 +97,11 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
                         .saturating_mul(NonZero::new(10).expect("10 != 0"))
                         .saturating_add(x);
                 }
-                InputQueue::Search(_) => {
-                    panic!("invariant is_ascii_digit while in search");
-                }
                 InputQueue::CursorPositioningCommands => {
                     model.input_queue = InputQueue::None;
+                }
+                InputQueue::Search(_) | InputQueue::Command(_) => {
+                    panic!("invariant is_ascii_digit while in invalid InputQueue mode");
                 }
             }
         }
@@ -185,11 +191,26 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
             model.input_queue = InputQueue::Search(String::new());
             model.cursor = Cursor::Search(String::new(), None);
         }
+        KeyCode::Char(':') => {
+            model.input_queue = InputQueue::Command(String::new());
+        }
         KeyCode::Enter if matches!(model.input_queue, InputQueue::Search(_)) => {
             // Exit search...
             model.input_queue = InputQueue::None;
             // ...and jump to first match.
             model.cursor_next(1);
+        }
+        KeyCode::Enter if matches!(model.input_queue, InputQueue::Command(_)) => {
+            let InputQueue::Command(command) =
+                std::mem::replace(&mut model.input_queue, InputQueue::None)
+            else {
+                panic!("invariant InputQueue::Command");
+            };
+
+            if let Err(err) = model.user_command_str(command) {
+                // Once we display error messages, let this return and be catched higher up.
+                log::error!("{err}");
+            }
         }
         KeyCode::Enter => {
             // Open links with xdg-open
@@ -220,6 +241,9 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
                 }
             }
         }
+        KeyCode::Esc if model.is_help_screen()? => {
+            model.history_pop()?;
+        }
         KeyCode::Esc => match model.input_queue {
             InputQueue::None => {
                 // This is not vim-canon: Esc is the equivalent of `:noh`. This works because we
@@ -231,16 +255,14 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
                     _ => {}
                 }
             }
-            InputQueue::MovementCount(_) => {
-                // Abort movement-count input.
-                model.input_queue = InputQueue::None;
-            }
             InputQueue::Search(_) => {
                 // Abort search input.
                 model.input_queue = InputQueue::None;
                 model.cursor = Cursor::None;
             }
-            InputQueue::CursorPositioningCommands => {
+            InputQueue::MovementCount(_)
+            | InputQueue::CursorPositioningCommands
+            | InputQueue::Command(_) => {
                 model.input_queue = InputQueue::None;
             }
         },
@@ -261,6 +283,13 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
                     needle.pop();
                     let clone = needle.clone();
                     model.add_searches(Some(&clone));
+                }
+            }
+            InputQueue::Command(command) => {
+                if command.is_empty() {
+                    model.input_queue = InputQueue::None;
+                } else {
+                    command.pop();
                 }
             }
         },
