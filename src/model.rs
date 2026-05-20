@@ -319,15 +319,21 @@ impl Model {
         }
     }
 
-    pub fn scroll_by(&mut self, lines: i32) {
+    /// Returns false the scroll did not change.
+    pub fn scroll_by(&mut self, lines: i32) -> bool {
         let new_scroll = (self.scroll as u32)
             .saturating_add_signed(lines)
             .min(u16::MAX as u32) as u16;
+
+        if new_scroll == self.scroll {
+            return false;
+        }
 
         self.scroll = min(
             new_scroll,
             self.total_lines().saturating_sub(self.inner_height()),
         );
+        true
     }
 
     pub fn visible_lines(&self) -> (i16, i16) {

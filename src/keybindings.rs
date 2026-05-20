@@ -130,27 +130,39 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
         // Movements
         KeyCode::Char('j') | KeyCode::Down => {
             let count = model.input_queue.take_count_or_unit_i32();
-            model.scroll_by(count);
+            if !model.scroll_by(count) {
+                return Ok(PollResult::None);
+            }
         }
         KeyCode::Char('k') | KeyCode::Up => {
             let count = model.input_queue.take_count_or_unit_i32();
-            model.scroll_by(-count);
+            if !model.scroll_by(-count) {
+                return Ok(PollResult::None);
+            }
         }
         KeyCode::Char('d') => {
             let count = model.input_queue.take_count_or_unit_i32();
-            model.scroll_by(((page_scroll_count + 1) / 2).saturating_mul(count));
+            if !model.scroll_by(((page_scroll_count + 1) / 2).saturating_mul(count)) {
+                return Ok(PollResult::None);
+            }
         }
         KeyCode::Char('u') => {
             let count = model.input_queue.take_count_or_unit_i32();
-            model.scroll_by((-(page_scroll_count + 1) / 2).saturating_mul(count));
+            if !model.scroll_by((-(page_scroll_count + 1) / 2).saturating_mul(count)) {
+                return Ok(PollResult::None);
+            }
         }
         KeyCode::Char('f' | ' ') | KeyCode::PageDown => {
             let count = model.input_queue.take_count_or_unit_i32();
-            model.scroll_by(page_scroll_count.saturating_mul(count));
+            if !model.scroll_by(page_scroll_count.saturating_mul(count)) {
+                return Ok(PollResult::None);
+            }
         }
         KeyCode::Char('b') | KeyCode::PageUp => {
             let count = model.input_queue.take_count_or_unit_i32();
-            model.scroll_by((-page_scroll_count).saturating_mul(count));
+            if !model.scroll_by((-page_scroll_count).saturating_mul(count)) {
+                return Ok(PollResult::None);
+            }
         }
         KeyCode::Char('g') => {
             let scroll = if let InputQueue::MovementCount(count) = model.input_queue {
@@ -159,6 +171,9 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
             } else {
                 0
             };
+            if scroll == model.scroll {
+                return Ok(PollResult::None);
+            }
             model.scroll = scroll;
         }
         KeyCode::Char('G') => {
@@ -170,6 +185,9 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
                     page_scroll_count as u16 + 1, // Why +1?
                 )
             };
+            if scroll == model.scroll {
+                return Ok(PollResult::None);
+            }
             model.scroll = scroll;
         }
         // Cursor movements
