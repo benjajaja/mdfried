@@ -186,7 +186,7 @@ impl<'a, M: Mapper> LineIterator<'a, M> {
         self.prev_was_blank = is_blank_line;
         self.prev_in_list = in_list;
 
-        let lines = section_to_lines(self.width, &section, self.mapper);
+        let lines = section_to_lines(self.width, section, self.mapper);
         self.pending_lines.extend(lines);
 
         true
@@ -215,10 +215,10 @@ impl<M: Mapper> Iterator for LineIterator<'_, M> {
 
 /// Convert a markdown section to output lines.
 /// Applies mapper decorators before wrapping so widths are correct.
-fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> Vec<Line> {
+fn section_to_lines<M: Mapper>(width: u16, section: MdSection, mapper: &M) -> Vec<Line> {
     let nesting = convert_nesting(&section.nesting, section.is_list_continuation);
 
-    match &section.content {
+    match section.content {
         MdContent::Paragraph(p) if p.is_empty() => {
             vec![Line {
                 spans: Vec::new(),
@@ -228,7 +228,7 @@ fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> V
         }
         MdContent::Paragraph(p) => {
             // Apply decorators first, then wrap
-            let decorated_spans = apply_decorators(p.spans.clone(), mapper);
+            let decorated_spans = apply_decorators(p.spans, mapper);
             let prefix_width: usize = nesting
                 .iter()
                 .map(|c| match c {
@@ -240,8 +240,8 @@ fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> V
                 wrap_md_spans(width, decorated_spans, prefix_width, mapper.hide_urls());
             wrapped_to_lines(wrapped_lines, nesting, mapper)
         }
-        MdContent::Header { tier, text } => {
-            if mapper.has_text_size_protocol() {
+        MdContent::Header { tier, text, links } => {
+            let mut lines = if mapper.has_text_size_protocol() {
                 // We only pre-wrap headers for text-size-protocol. When rendering image, the
                 // wrapping is taken care of the image renderer, as the font size is not known
                 // here.
@@ -260,17 +260,31 @@ fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> V
                     .into_iter()
                     .map(|line| Line {
                         spans: line.spans,
-                        kind: LineKind::Header(*tier),
-                        urls: Vec::new(), // TODO: headers should be able to have links
+                        kind: LineKind::Header(tier),
+                        urls: Vec::new(),
                     })
                     .collect()
             } else {
                 vec![Line {
                     spans: vec![Span::from(text.clone())],
-                    kind: LineKind::Header(*tier),
-                    urls: Vec::new(), // TODO: Same
+                    kind: LineKind::Header(tier),
+                    urls: Vec::new(),
                 }]
+            };
+
+            if !links.is_empty()
+                && let Some(joined) = links.into_iter().reduce(|mut acc, next| {
+                    acc.push(Span::new(String::from(" "), Modifier::default()));
+                    acc.extend(next);
+                    acc
+                })
+            {
+                let decorated_spans = apply_decorators(joined, mapper);
+                let wrapped_lines = wrap_md_spans(width, decorated_spans, 0, mapper.hide_urls());
+                lines.extend(wrapped_to_lines(wrapped_lines, Vec::new(), mapper));
             }
+
+            lines
         }
         MdContent::CodeBlock { language, code } => {
             code_block_to_lines(width, language, code, nesting, mapper)
@@ -295,7 +309,7 @@ fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> V
             header,
             rows,
             alignments,
-        } => table_to_lines(width, header, rows, alignments, nesting, mapper),
+        } => table_to_lines(width, &header, &rows, &alignments, nesting, mapper),
         MdContent::Html { html } => html
             .split("\n")
             .map(|linestr| Line {
@@ -307,15 +321,15 @@ fn section_to_lines<M: Mapper>(width: u16, section: &MdSection, mapper: &M) -> V
         MdContent::LinkReferenceDefinition { reference, url } => {
             let spans = vec![
                 Span::new("[".to_owned(), Modifier::LinkDescriptionWrapper),
-                Span::new(reference.to_owned(), Modifier::LinkDescription),
+                Span::new(reference.clone(), Modifier::LinkDescription),
                 Span::new("]".to_owned(), Modifier::LinkDescriptionWrapper),
                 Span::new(": ".to_owned(), Modifier::LinkURLWrapper),
-                Span::new(url.to_owned(), Modifier::BareLink | Modifier::LinkURL),
+                Span::new(url.clone(), Modifier::BareLink | Modifier::LinkURL),
             ];
             let start =
                 (spans[0].width() + spans[1].width() + spans[2].width() + spans[3].width()) as u16;
             let end = start + spans[4].width() as u16;
-            let urls = vec![TrackedUrl::link(url.to_owned(), start, end, 0)];
+            let urls = vec![TrackedUrl::link(url.clone(), start, end, 0)];
             vec![Line {
                 spans,
                 kind: LineKind::LinkReferenceDefinitions,
@@ -568,8 +582,8 @@ fn convert_nesting(md_nesting: &[MdContainer], is_list_continuation: bool) -> Ve
 /// Convert a code block to output lines.
 fn code_block_to_lines<M: Mapper>(
     width: u16,
-    language: &str,
-    code: &str,
+    language: String,
+    code: String,
     nesting: Vec<MdLineContainer>,
     mapper: &M,
 ) -> Vec<Line> {
@@ -608,7 +622,7 @@ fn code_block_to_lines<M: Mapper>(
                 result.push(Line {
                     spans,
                     kind: LineKind::CodeBlock {
-                        language: language.to_owned(),
+                        language: language.clone(),
                     },
                     urls: Vec::new(),
                 });
@@ -625,7 +639,7 @@ fn code_block_to_lines<M: Mapper>(
             result.push(Line {
                 spans,
                 kind: LineKind::CodeBlock {
-                    language: language.to_owned(),
+                    language: language.clone(),
                 },
                 urls: Vec::new(),
             });

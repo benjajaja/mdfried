@@ -130,9 +130,39 @@ impl<'a> MdIterator<'a> {
             "atx_heading" => {
                 let mut tier = 0;
                 let mut text = "";
+                let mut links: Vec<Vec<Span>> = Vec::new();
                 for child in node.children(&mut node.walk()) {
                     match child.kind() {
-                        "inline" => text = &self.source[child.byte_range()],
+                        "inline" => {
+                            text = &self.source[child.byte_range()];
+                            if let Some(tree) = self.inline_parser.parse(text, None)
+                                && let Some(MdContent::Paragraph(p)) =
+                                    // TODO: should make a specific parser only for links in
+                                    // headers here.
+                                    MdParagraph::from_inline(tree.root_node(), text, 0)
+                            {
+                                let mut link: Vec<Span> = Vec::new();
+                                for span in p.spans {
+                                    if span.modifiers.contains(Modifier::Link) {
+                                        let is_end =
+                                            (span.modifiers.contains(Modifier::LinkURLWrapper)
+                                                && link
+                                                    .last()
+                                                    .map(|last| {
+                                                        last.modifiers.contains(Modifier::LinkURL)
+                                                    })
+                                                    .unwrap_or(false))
+                                                || (span.modifiers.contains(Modifier::LinkURL)
+                                                    && span.content.starts_with("[")
+                                                    && span.content.ends_with("]"));
+                                        link.push(span);
+                                        if is_end {
+                                            links.push(std::mem::take(&mut link));
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         "atx_h1_marker" => tier = 1,
                         "atx_h2_marker" => tier = 2,
                         "atx_h3_marker" => tier = 3,
@@ -147,6 +177,7 @@ impl<'a> MdIterator<'a> {
                 Some(MdContent::Header {
                     tier,
                     text: text.to_owned(),
+                    links,
                 })
             }
             "block_continuation" => {
@@ -565,6 +596,7 @@ pub(crate) enum MdContent {
     Header {
         tier: u8,
         text: String,
+        links: Vec<Vec<Span>>,
     },
     CodeBlock {
         language: String,
@@ -1210,6 +1242,61 @@ mod tests {
         assert_eq!(
             spans[9],
             Span::with(")", Modifier::Link | Modifier::LinkURLWrapper)
+        );
+    }
+
+    #[test]
+    fn header_with_links() {
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
+        let source = "# Header [with link!](https://crates.io/crates/mdfried), [second][ref], [third](http://third), and [another][ref].\n";
+        let tree = parser.parse(source, None).unwrap();
+        let sections: Vec<_> = MdIterator::new(tree, &mut inline_parser, source).collect();
+        assert_eq!(sections.len(), 1);
+        fn link(desc: &str, url: &str) -> Vec<Span> {
+            vec![
+                Span::new(
+                    "[".to_owned(),
+                    Modifier::Link | Modifier::LinkDescriptionWrapper,
+                ),
+                Span::new(desc.to_owned(), Modifier::Link | Modifier::LinkDescription),
+                Span::new(
+                    "]".to_owned(),
+                    Modifier::Link | Modifier::LinkDescriptionWrapper,
+                ),
+                Span::new("(".to_owned(), Modifier::Link | Modifier::LinkURLWrapper),
+                Span::new(url.to_owned(), Modifier::Link | Modifier::LinkURL),
+                Span::new(")".to_owned(), Modifier::Link | Modifier::LinkURLWrapper),
+            ]
+        }
+        fn link_ref(desc: &str, refe: &str) -> Vec<Span> {
+            vec![
+                Span::new(
+                    "[".to_owned(),
+                    Modifier::Link | Modifier::LinkDescriptionWrapper,
+                ),
+                Span::new(desc.to_owned(), Modifier::Link | Modifier::LinkDescription),
+                Span::new(
+                    "]".to_owned(),
+                    Modifier::Link | Modifier::LinkDescriptionWrapper,
+                ),
+                Span::new(format!("[{refe}]"), Modifier::Link | Modifier::LinkURL),
+            ]
+        }
+        assert_eq!(
+            sections[0].content,
+            MdContent::Header {
+                tier: 1,
+                text: String::from(
+                    "Header [with link!](https://crates.io/crates/mdfried), [second][ref], [third](http://third), and [another][ref]."
+                ),
+                links: vec![
+                    link("with link!", "https://crates.io/crates/mdfried"),
+                    link_ref("second", "ref"),
+                    link("third", "http://third"),
+                    link_ref("another", "ref"),
+                ],
+            },
         );
     }
 }
