@@ -6,6 +6,7 @@ mod document;
 mod error;
 mod keybindings;
 mod model;
+mod renderer;
 mod setup;
 mod sources;
 mod view;
@@ -20,20 +21,18 @@ use std::{
     io::{self, Read as _},
     sync::{
         Arc, OnceLock, RwLock,
-        mpsc::{self, TrySendError},
+        mpsc::{self},
     },
-    thread,
 };
 
 use clap::{ArgMatches, arg, command, value_parser};
 use ratatui::{
-    DefaultTerminal, Terminal,
-    buffer::Buffer,
+    Terminal,
     crossterm::{
         event::{DisableMouseCapture, EnableMouseCapture},
         tty::IsTty as _,
     },
-    layout::{Position, Size},
+    layout::Size,
     prelude::CrosstermBackend,
 };
 
@@ -45,10 +44,9 @@ use crate::{
     config::Config,
     document::{Section, SectionID},
     error::Error,
-    keybindings::PollResult,
     model::{DocumentId, Model},
+    renderer::run_loop,
     sources::{DocumentSource, SharedDocumentSource, open_source},
-    view::view,
     watch::watch,
     worker::{ImageCache, worker_thread},
 };
@@ -272,7 +270,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         None
     };
 
-    if let Err(err) = run(terminal, model) {
+    if let Err(err) = run_loop(terminal, model) {
         eprintln!("Runtime error: {err}");
     };
     drop(debouncer);
@@ -381,65 +379,6 @@ impl std::fmt::Debug for Event {
         // Reuse Display impl
         Display::fmt(self, f)
     }
-}
-
-fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
-    terminal.draw(|frame| view(&model, frame.buffer_mut()))?;
-    let (buf_tx, buf_rx) = mpsc::sync_channel::<Buffer>(1);
-    let mut terminal = terminal;
-    let render_thread = thread::spawn(move || {
-        while let Ok(buf) = buf_rx.recv() {
-            if let Err(err) = terminal.draw(|frame| {
-                let cursor_position = Position::from((0, buf.area.height - 1));
-                *frame.buffer_mut() = buf;
-                frame.set_cursor_position(cursor_position);
-            }) {
-                log::error!("draw error: {err}");
-            }
-        }
-        // Cursor might be in wird places, prompt or whatever should always show at the bottom now.
-        if let Ok(size) = terminal.size() {
-            if let Err(err) = terminal.set_cursor_position((0, size.height - 1)) {
-                log::error!("could not set_cursor_position on exit: {err}");
-            }
-        }
-    });
-    let mut dropped = false;
-    loop {
-        let (had_events, _, had_reload) = model.process_events()?;
-
-        let (had_input, skip_render) = match keybindings::poll(had_events, &mut model)? {
-            PollResult::Quit => break,
-            PollResult::None => (false, false),
-            PollResult::HadInput => (true, false),
-            PollResult::SkipRender => (true, true),
-        };
-
-        let should_render = dropped || ((had_events || had_input) && !skip_render && !had_reload);
-
-        if should_render {
-            let mut buf = Buffer::empty(model.screen_size.into());
-            view(&model, &mut buf);
-            if let Err(err) = buf_tx.try_send(buf) {
-                match err {
-                    TrySendError::Full(_) => {
-                        log::warn!("frame dropped");
-                        dropped = true;
-                    }
-                    TrySendError::Disconnected(_) => {
-                        log::error!("render buffer channel disconnected");
-                        break;
-                    }
-                }
-            } else {
-                dropped = false;
-            }
-        }
-    }
-    drop(buf_tx);
-    render_thread
-        .join()
-        .map_err(|err| Error::Thread(format!("{err:?}")))
 }
 
 #[cfg(test)]
