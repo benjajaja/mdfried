@@ -27,8 +27,15 @@ pub fn init_logger(log_to_stderr: bool) -> Result<(), FlexiLoggerError> {
 
 #[cfg(test)]
 pub fn init_test_logger() {
+    use flexi_logger::WriteMode;
+
     #[expect(clippy::let_underscore_untyped, clippy::unwrap_used)]
-    let _ = Logger::try_with_env().unwrap().log_to_stderr().start();
+    let _ = Logger::try_with_env()
+        .unwrap()
+        .log_to_stderr()
+        .write_mode(WriteMode::Direct)
+        .start()
+        .ok();
 }
 
 #[cfg(not(windows))]

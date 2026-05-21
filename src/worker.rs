@@ -161,6 +161,7 @@ pub fn worker_thread(
                             }
                         }
                         let section_id = section_iter.last_section_id();
+                        drop(section_iter);
 
                         // Send cached images synchronously before ParseDone
                         let mut image_cache = image_cache.unwrap_or_default();
@@ -205,7 +206,7 @@ pub fn worker_thread(
                             }
                         }
 
-                        event_tx.send(Event::ParseDone(document_id, section_id))?;
+                        event_tx.send(Event::ParseDone(document_id, section_id, text))?;
 
                         if !uncached_image_events.is_empty() {
                             process_image_events(

@@ -18,7 +18,9 @@ pub enum DocumentSource {
         path: PathBuf,
         basepath: Option<PathBuf>,
     },
-    Stdin,
+    Stdin {
+        text: Option<String>,
+    },
     Github {
         repo: GHRepo,
         branch: String,
@@ -28,6 +30,18 @@ pub enum DocumentSource {
     },
     BuiltInHelp,
 }
+impl DocumentSource {
+    pub fn return_text(self, returned_text: String) -> Option<Self> {
+        match self {
+            DocumentSource::Stdin { .. } => Some(DocumentSource::Stdin {
+                text: Some(returned_text),
+            }),
+            // TODO: Github and HyperText should also return the text to avoid re-fetch.
+            // File is OK to just reload from disk.
+            _ => None,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct SharedDocumentSource(pub Arc<RwLock<DocumentSource>>);
@@ -35,7 +49,7 @@ pub struct SharedDocumentSource(pub Arc<RwLock<DocumentSource>>);
 impl SharedDocumentSource {
     #[cfg(test)]
     pub fn test() -> SharedDocumentSource {
-        SharedDocumentSource(Arc::new(RwLock::new(DocumentSource::Stdin)))
+        SharedDocumentSource(Arc::new(RwLock::new(DocumentSource::Stdin { text: None })))
     }
 
     pub fn read(&self) -> Result<DocumentSource, Error> {

@@ -141,7 +141,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             print!("Reading stdin...");
             io::stdin().read_to_string(&mut text)?;
             println!("{OK_END}");
-            (text, DocumentSource::Stdin)
+            (text, DocumentSource::Stdin { text: None })
         }
         None => {
             if io::stdin().is_tty() {
@@ -153,7 +153,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             print!("Reading stdin...");
             io::stdin().read_to_string(&mut text)?;
             println!("{OK_END}");
-            (text, DocumentSource::Stdin)
+            (text, DocumentSource::Stdin { text: None })
         }
         Some(source) => open_source(&source, config.url_transform_command.clone())?,
     };
@@ -321,7 +321,7 @@ impl Display for Cmd {
 
 pub enum Event {
     NewDocument(DocumentId),
-    ParseDone(DocumentId, Option<SectionID>), // Only signals "parsing done", not "images ready"!
+    ParseDone(DocumentId, Option<SectionID>, String), // Only signals "parsing done", not "images ready"!
     Parsed(DocumentId, Section),
     ImageLoaded(DocumentId, SectionID, MarkdownLink, (SlicedProtocol, Size)),
     ImageFailed(DocumentId, SectionID, String, String),
@@ -336,7 +336,7 @@ impl Display for Event {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Event::NewDocument(document_id) => write!(f, "Event::NewDocument({document_id})"),
-            Event::ParseDone(document_id, last_section_id) => {
+            Event::ParseDone(document_id, last_section_id, _text) => {
                 write!(f, "Event::ParseDone({document_id}, {last_section_id:?})")
             }
             Event::Parsed(document_id, section) => {
@@ -408,12 +408,13 @@ mod tests {
 
     #[cfg(not(target_os = "macos"))]
     use insta::assert_snapshot;
-    use ratatui::{Terminal, backend::TestBackend, layout::Size};
+    use ratatui::{Terminal, backend::TestBackend, layout::Size, text::Line};
     use ratatui_image::picker::{Picker, ProtocolType};
 
     use crate::{
         Cmd, Event,
         config::{Config, UserConfig},
+        document::{Section, SectionContent},
         error::Error,
         model::Model,
         sources::SharedDocumentSource,
@@ -426,7 +427,7 @@ mod tests {
         crate::debug::init_test_logger();
     }
 
-    fn setup(config: Config) -> (Model, JoinHandle<Result<(), Error>>, Size) {
+    fn setup(config: Config) -> (Model, JoinHandle<Result<(), Error>>, Terminal<TestBackend>) {
         let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
         let (event_tx, event_rx) = mpsc::channel::<Event>();
 
@@ -449,7 +450,11 @@ mod tests {
         let screen_size = (80, 20).into();
 
         let model = Model::new(document_source, cmd_tx, event_rx, screen_size, config);
-        (model, worker, screen_size)
+
+        let terminal =
+            Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
+
+        (model, worker, terminal)
     }
 
     // Drop model so that cmd_rx gets closed and worker exits, then exit/join worker.
@@ -497,9 +502,7 @@ mod tests {
             ..Default::default()
         }
         .into();
-        let (mut model, worker, screen_size) = setup(config);
-        let mut terminal =
-            Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
+        let (mut model, worker, mut terminal) = setup(config);
 
         model
             .open(String::from(
@@ -535,9 +538,7 @@ Goodbye."#,
             ..Default::default()
         }
         .into();
-        let (mut model, worker, screen_size) = setup(config);
-        let mut terminal =
-            Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
+        let (mut model, worker, mut terminal) = setup(config);
 
         model
             .open(String::from(
@@ -587,9 +588,7 @@ Goodbye."#,
             ..Default::default()
         }
         .into();
-        let (mut model, worker, screen_size) = setup(config);
-        let mut terminal =
-            Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
+        let (mut model, worker, mut terminal) = setup(config);
 
         model
             .open(String::from(
@@ -630,9 +629,7 @@ Goodbye."#,
             ..Default::default()
         }
         .into();
-        let (mut model, worker, screen_size) = setup(config);
-        let mut terminal =
-            Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
+        let (mut model, worker, mut terminal) = setup(config);
 
         model
             .open(String::from(
@@ -661,6 +658,81 @@ Goodbye.
         terminal.draw(|frame| view(&model, frame)).unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("duplicate image done", terminal.backend());
+        teardown(model, worker);
+    }
+
+    #[test]
+    fn simple_resize() {
+        let config = UserConfig {
+            max_image_height: Some(10),
+            ..Default::default()
+        }
+        .into();
+        let (mut model, worker, mut terminal) = setup(config);
+        model.screen_size = Size::new(40, 20);
+
+        model
+            .open(String::from(
+                r#"# Header here hee hee heeeeeeeeeeeeee
+Line that should be broken up later
+"#,
+            ))
+            .unwrap();
+        poll_parsed(&mut model);
+        terminal.draw(|frame| view(&model, frame)).unwrap();
+
+        let sections: Vec<&Section> = model.sections().collect();
+        assert_eq!(3, sections.len());
+        assert_eq!(
+            SectionContent::Header("Header here hee hee".to_owned(), 1, None),
+            sections[0].content
+        );
+        assert_eq!(
+            SectionContent::Header("heeeeeeeeeeeeee".to_owned(), 1, None),
+            sections[1].content
+        );
+        assert_eq!(
+            SectionContent::Lines(vec![(
+                Line::from("Line that should be broken up later"),
+                Vec::new()
+            ),]),
+            sections[2].content
+        );
+
+        model.reload(Size::new(20, 20)).unwrap();
+        poll_parsed(&mut model);
+        terminal.draw(|frame| view(&model, frame)).unwrap();
+
+        let sections: Vec<&Section> = model.sections().collect();
+        assert_eq!(6, sections.len());
+        assert_eq!(
+            SectionContent::Header("Header".to_owned(), 1, None),
+            sections[0].content
+        );
+        assert_eq!(
+            SectionContent::Header("here".to_owned(), 1, None),
+            sections[1].content
+        );
+        assert_eq!(
+            SectionContent::Header("hee hee".to_owned(), 1, None),
+            sections[2].content
+        );
+        assert_eq!(
+            SectionContent::Header("heeeeeeeee".to_owned(), 1, None),
+            sections[3].content
+        );
+        assert_eq!(
+            SectionContent::Header("eeeee".to_owned(), 1, None),
+            sections[4].content
+        );
+        assert_eq!(
+            SectionContent::Lines(vec![
+                (Line::from("Line that should be"), Vec::new()),
+                (Line::from("broken up later"), Vec::new()),
+            ]),
+            sections[5].content
+        );
+
         teardown(model, worker);
     }
 }

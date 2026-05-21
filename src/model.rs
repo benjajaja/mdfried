@@ -110,11 +110,15 @@ impl Model {
 
     pub fn reload(&mut self, screen_size: Size) -> Result<(), Error> {
         self.screen_size = screen_size;
-        if let Ok(DocumentSource::File { path, .. }) = &self.document_source.read() {
-            let text = fs::read_to_string(path)?;
-            self.reparse(text)?;
-        }
-        Ok(())
+        log::debug!("reload on {:?}", self.document_source.read()?);
+        let text = match self.document_source.read()? {
+            DocumentSource::File { path, .. } => fs::read_to_string(path)?,
+            DocumentSource::Stdin { mut text } => text.take().ok_or(Error::Thread(
+                "reload on stdin while processing text".to_owned(),
+            ))?,
+            _source => todo!("reload for other sources: {_source:?}"),
+        };
+        self.reparse(text)
     }
 
     pub fn open(&self, text: String) -> Result<(), Error> {
@@ -153,13 +157,14 @@ impl Model {
     }
 
     pub fn reparse(&mut self, text: String) -> Result<(), Error> {
-        log::info!("reparse");
+        log::info!("reparse with {:?}", self.screen_size);
         let image_cache = self.document.take_image_protocols();
         let cache = if image_cache.is_empty() {
             None
         } else {
             Some(image_cache)
         };
+        self.document = Document::default();
         self.parse(self.document_id.reload(), text, cache)
     }
 
@@ -219,13 +224,16 @@ impl Model {
                     log::info!("NewDocument {document_id}");
                     self.document_id = document_id;
                 }
-                Event::ParseDone(document_id, last_section_id) => {
+                Event::ParseDone(document_id, last_section_id, text) => {
                     if !self.document_id.is_same_document(&document_id) {
                         log::debug!("stale event, ignoring");
                         continue;
                     }
                     self.document.trim(last_section_id);
                     self.reload_search();
+                    if let Some(updated) = self.document_source.read()?.return_text(text) {
+                        self.document_source.write(updated)?;
+                    }
                     had_done = true;
                 }
                 Event::Parsed(document_id, section) => {
@@ -240,11 +248,7 @@ impl Model {
                         section.content
                     );
 
-                    if self.document_id.is_first_load() {
-                        self.document.push(section);
-                    } else {
-                        self.document.update(vec![section]);
-                    }
+                    self.document.push(section);
                 }
                 Event::ImageLoaded(document_id, section_id, link, protos) => {
                     if !self.document_id.is_same_document(&document_id) {
@@ -388,7 +392,7 @@ impl Model {
 
         match self.document_source.read()? {
             source @ DocumentSource::File { .. }
-            | source @ DocumentSource::Stdin
+            | source @ DocumentSource::Stdin { .. }
             | source @ DocumentSource::BuiltInHelp => {
                 let url_as_path = Path::new(&link_url);
                 if url_as_path.extension() == Some(std::ffi::OsStr::new("md"))
@@ -643,10 +647,6 @@ impl DocumentId {
             id: self.id,
             reload_id: self.reload_id + 1,
         }
-    }
-
-    fn is_first_load(&self) -> bool {
-        self.reload_id == 0
     }
 }
 

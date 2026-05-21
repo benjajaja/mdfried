@@ -81,7 +81,10 @@ impl Document {
                 self.sections.push(section);
             }
         } else {
-            log::error!("Update section #{first_id} not found anymore: {updates:?}");
+            log::error!(
+                "Update section #{first_id} not found anymore for {} updates",
+                updates.len()
+            );
         }
     }
 
