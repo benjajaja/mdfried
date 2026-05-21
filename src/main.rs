@@ -20,18 +20,20 @@ use std::{
     io::{self, Read as _},
     sync::{
         Arc, OnceLock, RwLock,
-        mpsc::{self},
+        mpsc::{self, TrySendError},
     },
+    thread,
 };
 
 use clap::{ArgMatches, arg, command, value_parser};
 use ratatui::{
     DefaultTerminal, Terminal,
+    buffer::Buffer,
     crossterm::{
         event::{DisableMouseCapture, EnableMouseCapture},
         tty::IsTty as _,
     },
-    layout::Size,
+    layout::{Position, Size},
     prelude::CrosstermBackend,
 };
 
@@ -259,7 +261,6 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let watch_debounce_milliseconds = config.watch_debounce_milliseconds;
     terminal.clear()?;
 
-    let terminal_size = terminal.size()?;
     let model = Model::new(document_source, cmd_tx, event_rx, terminal.size()?, config);
     model.open(text)?;
 
@@ -271,13 +272,10 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         None
     };
 
-    if let Err(err) = run(&mut terminal, model) {
+    if let Err(err) = run(terminal, model) {
         eprintln!("Runtime error: {err}");
     };
     drop(debouncer);
-
-    // Cursor might be in wird places, prompt or whatever should always show at the bottom now.
-    terminal.set_cursor_position((0, terminal_size.height - 1))?;
 
     if enable_mouse_capture {
         crossterm::execute!(io::stderr(), DisableMouseCapture)?;
@@ -385,24 +383,63 @@ impl std::fmt::Debug for Event {
     }
 }
 
-fn run(terminal: &mut DefaultTerminal, mut model: Model) -> Result<(), Error> {
-    terminal.draw(|frame| view(&model, frame))?;
+fn run(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
+    terminal.draw(|frame| view(&model, frame.buffer_mut()))?;
+    let (buf_tx, buf_rx) = mpsc::sync_channel::<Buffer>(1);
+    let mut terminal = terminal;
+    let render_thread = thread::spawn(move || {
+        while let Ok(buf) = buf_rx.recv() {
+            if let Err(err) = terminal.draw(|frame| {
+                let cursor_position = Position::from((0, buf.area.height - 1));
+                *frame.buffer_mut() = buf;
+                frame.set_cursor_position(cursor_position);
+            }) {
+                log::error!("draw error: {err}");
+            }
+        }
+        // Cursor might be in wird places, prompt or whatever should always show at the bottom now.
+        if let Ok(size) = terminal.size() {
+            if let Err(err) = terminal.set_cursor_position((0, size.height - 1)) {
+                log::error!("could not set_cursor_position on exit: {err}");
+            }
+        }
+    });
+    let mut dropped = false;
     loop {
         let (had_events, _, had_reload) = model.process_events()?;
 
         let (had_input, skip_render) = match keybindings::poll(had_events, &mut model)? {
-            PollResult::Quit => return Ok(()),
+            PollResult::Quit => break,
             PollResult::None => (false, false),
             PollResult::HadInput => (true, false),
             PollResult::SkipRender => (true, true),
         };
 
-        if (had_events || had_input) && !skip_render && !had_reload {
-            terminal.draw(|frame| {
-                view(&model, frame);
-            })?;
+        let should_render = dropped || ((had_events || had_input) && !skip_render && !had_reload);
+
+        if should_render {
+            let mut buf = Buffer::empty(model.screen_size.into());
+            view(&model, &mut buf);
+            if let Err(err) = buf_tx.try_send(buf) {
+                match err {
+                    TrySendError::Full(_) => {
+                        log::warn!("frame dropped");
+                        dropped = true;
+                    }
+                    TrySendError::Disconnected(_) => {
+                        log::error!("render buffer channel disconnected");
+                        break;
+                    }
+                }
+            } else {
+                dropped = false;
+            }
         }
     }
+    drop(buf_tx);
+    render_thread
+        .join()
+        .map_err(|err| Error::Thread(format!("{err:?}")))
 }
 
 #[cfg(test)]
@@ -523,12 +560,16 @@ Goodbye."#,
             ))
             .unwrap();
         poll_parsed(&mut model);
-        terminal.draw(|frame| view(&model, frame)).unwrap();
+        terminal
+            .draw(|frame| view(&model, frame.buffer_mut()))
+            .unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("first parse image previews", terminal.backend());
         // Must load an image.
         poll_images_done(&mut model);
-        terminal.draw(|frame| view(&model, frame)).unwrap();
+        terminal
+            .draw(|frame| view(&model, frame.buffer_mut()))
+            .unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("first parse done", terminal.backend());
 
@@ -568,7 +609,9 @@ Goodbye."#,
             .unwrap();
         poll_parsed(&mut model);
         log::debug!("poll_parsed before failing done");
-        terminal.draw(|frame| view(&model, frame)).unwrap();
+        terminal
+            .draw(|frame| view(&model, frame.buffer_mut()))
+            .unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("reload move image up", terminal.backend());
 
@@ -584,7 +627,9 @@ Goodbye."#,
             )
             .unwrap();
         poll_parsed(&mut model);
-        terminal.draw(|frame| view(&model, frame)).unwrap();
+        terminal
+            .draw(|frame| view(&model, frame.buffer_mut()))
+            .unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("reload move image down", terminal.backend());
 
@@ -624,12 +669,16 @@ Goodbye."#,
             )
             .unwrap();
         poll_parsed(&mut model);
-        terminal.draw(|frame| view(&model, frame)).unwrap();
+        terminal
+            .draw(|frame| view(&model, frame.buffer_mut()))
+            .unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("reload add image preview", terminal.backend());
         // Must load an image.
         poll_images_done(&mut model);
-        terminal.draw(|frame| view(&model, frame)).unwrap();
+        terminal
+            .draw(|frame| view(&model, frame.buffer_mut()))
+            .unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("reload add image done", terminal.backend());
         teardown(model, worker);
@@ -666,12 +715,16 @@ Goodbye.
             )
             .unwrap();
         poll_parsed(&mut model);
-        terminal.draw(|frame| view(&model, frame)).unwrap();
+        terminal
+            .draw(|frame| view(&model, frame.buffer_mut()))
+            .unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("duplicate image preview", terminal.backend());
         // Must load an image.
         poll_images_done(&mut model);
-        terminal.draw(|frame| view(&model, frame)).unwrap();
+        terminal
+            .draw(|frame| view(&model, frame.buffer_mut()))
+            .unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("duplicate image done", terminal.backend());
         teardown(model, worker);

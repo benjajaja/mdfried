@@ -1,7 +1,7 @@
 use unicode_width::UnicodeWidthStr as _;
 
 use ratatui::{
-    Frame,
+    buffer::Buffer,
     layout::Rect,
     style::{Color, Stylize as _},
     text::{Line, Span},
@@ -21,16 +21,15 @@ use crate::{
     model::{InputQueue, Model},
 };
 
-pub fn view(model: &Model, frame: &mut Frame) {
+pub fn view(model: &Model, buf: &mut Buffer) {
     let inner_area = {
-        let frame_area = frame.area();
+        let frame_area = *buf.area();
         let padding = model.block_padding(frame_area);
         let block = Block::new().padding(padding);
-        frame.render_widget(&block, frame_area);
-        block.inner(frame_area)
+        let inner = block.inner(frame_area);
+        block.render(frame_area, buf);
+        inner
     };
-
-    let mut cursor_positioned = None;
 
     // Get the selected link URL if in Links mode (for highlighting all spans of wrapped URLs)
     let selected_url = match &model.cursor {
@@ -62,12 +61,12 @@ pub fn view(model: &Model, frame: &mut Frame) {
                     }
 
                     let p = Paragraph::new(line.clone());
-                    render_lines(p, LINE_HEIGHT, line_y, inner_area, frame);
+                    render_lines(p, LINE_HEIGHT, line_y, inner_area, buf);
 
                     // Highlight all links that share the same URL as the selected link
-                    if let Cursor::Links(CursorPointer { id, index }) = &model.cursor {
+                    if let Cursor::Links(CursorPointer { .. }) = &model.cursor {
                         if let Some(selected) = &selected_url {
-                            for (i, extra) in extras.iter().enumerate() {
+                            for extra in extras.iter() {
                                 if let LineExtra::Link {
                                     source: url,
                                     start,
@@ -77,7 +76,6 @@ pub fn view(model: &Model, frame: &mut Frame) {
                                 } = extra
                                 {
                                     if url.as_ptr() == selected.as_ptr() {
-                                        let mut last_start = 0;
                                         for (link_overlay, area) in link_overlays(
                                             line,
                                             *start,
@@ -88,13 +86,11 @@ pub fn view(model: &Model, frame: &mut Frame) {
                                             inner_area,
                                             line_y,
                                         ) {
-                                            frame.render_widget(link_overlay, area);
-                                            last_start = area.x;
+                                            link_overlay.render(area, buf);
                                         }
-                                        // Position cursor on the actual selected link
-                                        if *id == section.id && *index == flat_index + i {
-                                            cursor_positioned = Some((last_start, line_y));
-                                        }
+                                        // TODO: Find out if positioning the cursor on the link
+                                        // would help with screen readers, or anything else in
+                                        // general.
                                     }
                                 }
                             }
@@ -119,8 +115,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
                                         .fg(Color::Black)
                                         .bg(Color::Indexed(148))
                                 };
-                                frame.render_widget(search_highlight_overlay, area);
-                                cursor_positioned = Some((x, line_y));
+                                search_highlight_overlay.render(area, buf);
                             }
                         }
                     }
@@ -132,10 +127,8 @@ pub fn view(model: &Model, frame: &mut Frame) {
                 // TODO: just fix up inner_area at once
                 let mut inner_area = inner_area;
                 inner_area.height -= 1;
-                frame.render_widget(
-                    SlicedImage::new(sliced_proto, SignedPosition { x: 0, y: y as i16 }),
-                    inner_area,
-                );
+                SlicedImage::new(sliced_proto, SignedPosition { x: 0, y: y as i16 })
+                    .render(inner_area, buf);
                 y += size.height as i32;
             }
             SectionContent::ImagePlaceholder(_, lines) => {
@@ -145,7 +138,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
                         continue; // skip this line.
                     }
                     let p = Paragraph::new(line.clone());
-                    render_lines(p, 1, y as u16, inner_area, frame);
+                    render_lines(p, 1, y as u16, inner_area, buf);
                     y += 1;
                 }
             }
@@ -154,10 +147,10 @@ pub fn view(model: &Model, frame: &mut Frame) {
                 if y >= 0 && (y as u16) < inner_area.bottom() - 2 {
                     if let Some(proto) = proto {
                         let img = Image::new(proto);
-                        render_lines(img, section.height, y as u16, inner_area, frame);
+                        render_lines(img, section.height, y as u16, inner_area, buf);
                     } else {
                         let big_text = BigText::new(text, *tier, model.theme().header_color);
-                        render_lines(big_text, 2, y as u16, inner_area, frame);
+                        render_lines(big_text, 2, y as u16, inner_area, buf);
                     }
                 }
                 y += section.height as i32;
@@ -174,7 +167,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
                         line.clone()
                     };
                     let p = Paragraph::new(line);
-                    render_lines(p, 1, y as u16, inner_area, frame);
+                    render_lines(p, 1, y as u16, inner_area, buf);
                     y += 1;
                 }
                 y += 1;
@@ -189,7 +182,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
     let status_line_y = inner_area.height - 1;
     match &model.input_queue {
         InputQueue::None => match &model.cursor {
-            Cursor::None => frame.set_cursor_position((0, status_line_y)),
+            Cursor::None => {}
             Cursor::Links(_) => {
                 let (fg, bg) = (Color::Indexed(15), Color::Indexed(32));
                 let line = if model.theme().hide_urls()
@@ -206,10 +199,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
                 };
                 let width = line.width() as u16;
                 let searchbar = Paragraph::new(line);
-                frame.render_widget(searchbar, Rect::new(0, status_line_y, width, 1));
-                if cursor_positioned.is_none() {
-                    frame.set_cursor_position((0, status_line_y));
-                }
+                searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
             }
             Cursor::Search(needle, _) => {
                 let mut line = Line::default();
@@ -218,8 +208,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
                 line.spans.push(needle);
                 let width = line.width() as u16;
                 let searchbar = Paragraph::new(line);
-                frame.render_widget(searchbar, Rect::new(0, status_line_y, width, 1));
-                frame.set_cursor_position((0, status_line_y));
+                searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
             }
         },
         InputQueue::Search(needle) => {
@@ -229,8 +218,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
             line.spans.push(needle);
             let width = line.width() as u16;
             let searchbar = Paragraph::new(line);
-            frame.render_widget(searchbar, Rect::new(0, status_line_y, width, 1));
-            frame.set_cursor_position((width, status_line_y));
+            searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
         }
         InputQueue::MovementCount(movement_count) => {
             let movement_count = movement_count.get();
@@ -242,15 +230,13 @@ pub fn view(model: &Model, frame: &mut Frame) {
             line.spans.push(span);
             let width = line.width() as u16;
             let searchbar = Paragraph::new(line);
-            frame.render_widget(searchbar, Rect::new(0, status_line_y, width, 1));
-            frame.set_cursor_position((width, status_line_y));
+            searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
         }
         InputQueue::CursorPositioningCommands => {
             let line = Line::from(Span::from("z").fg(Color::Indexed(32)));
             let width = line.width() as u16;
             let searchbar = Paragraph::new(line);
-            frame.render_widget(searchbar, Rect::new(0, status_line_y, width, 1));
-            frame.set_cursor_position((width, status_line_y));
+            searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
         }
         InputQueue::Command(command) => {
             let mut line = Line::default();
@@ -259,17 +245,16 @@ pub fn view(model: &Model, frame: &mut Frame) {
             line.spans.push(needle);
             let width = line.width() as u16;
             let searchbar = Paragraph::new(line);
-            frame.render_widget(searchbar, Rect::new(0, status_line_y, width, 1));
-            frame.set_cursor_position((width, status_line_y));
+            searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
         }
     }
 }
 
-fn render_lines<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, f: &mut Frame) {
+fn render_lines<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, buf: &mut Buffer) {
     let mut widget_area = area;
     widget_area.y += y;
     widget_area.height = widget_area.height.min(source_height);
-    f.render_widget(widget, widget_area);
+    widget.render(widget_area, buf);
 }
 
 #[expect(clippy::too_many_arguments)]
