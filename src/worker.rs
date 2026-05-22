@@ -131,7 +131,7 @@ pub fn worker_thread(
                                     }
                                     event_tx.send(Event::Parsed(document_id, section))?;
                                 }
-                                SectionContent::Image(_, _,_) => {
+                                SectionContent::Image(_, _,_,_) => {
                                     unreachable!("SectionIterator produced Image");
                                 }
                                 SectionContent::ImagePlaceholder(link, _) => {
@@ -172,22 +172,28 @@ pub fn worker_thread(
                                     section_id,
                                     link,
                                 ) => {
-                                    if let Some(protos) = image_cache.images.remove(&link.url) {
-                                        log::debug!("image cache hit: {}", link.url);
-                                        event_tx.send(Event::ImageLoaded(
-                                            document_id,
-                                            *section_id,
-                                            link.clone(),
-                                            protos,
-                                        ))?;
+                                    if let Some((proto, size, max_size)) = image_cache.images.remove(&link.url) {
+                                        if width == max_size.width && config_max_image_height >= max_size.height {
+                                            event_tx.send(Event::ImageLoaded(
+                                                document_id,
+                                                *section_id,
+                                                link.clone(),
+                                                (proto, size, max_size),
+                                            ))?;
+                                            log::debug!("image cache hit: {max_size:?} vs {width}x{config_max_image_height}, {size:?}, {}", link.url);
+                                        } else {
+                                            log::debug!("image cache hit but different max width ({width}x{config_max_image_height} vs {max_size}): {size:?}, {}", link.url);
+                                            uncached_image_events.push(event);
+                                        }
                                     } else {
+                                        log::debug!("image cache miss: {}", link.url);
                                         uncached_image_events.push(event);
                                     }
                                 }
                                 SectionEvent::Header(section_id, text, tier) => {
                                     let key = (text.clone(), *tier);
-                                    if let Some(protos) = image_cache.headers.remove(&key) {
-                                        log::debug!("header cache hit: {text}");
+                                    if let Some(protos) = image_cache.headers(width).and_then(|hc| hc.remove(&key)) {
+                                        log::debug!("header cache hit: {key:?}");
                                         event_tx.send(Event::HeaderLoaded(
                                             document_id,
                                             *section_id,
@@ -197,6 +203,7 @@ pub fn worker_thread(
                                                 .collect(),
                                         ))?;
                                     } else {
+                                        log::debug!("header cache miss: {key:?}");
                                         uncached_image_events.push(event);
                                     }
                                 }
@@ -276,14 +283,16 @@ fn process_image_events(
                     .await
                     {
                         Ok(section) => {
-                            let SectionContent::Image(link, protos, size) = section.content else {
+                            let SectionContent::Image(link, protos, size, max_size) =
+                                section.content
+                            else {
                                 unreachable!("image_section should return SectionContent::Image");
                             };
                             task_tx.send(Event::ImageLoaded(
                                 document_id,
                                 section_id,
                                 link,
-                                (protos, size),
+                                (protos, size, max_size),
                             ))?
                         }
                         Err(Error::ImageLoad(url, error)) => {
@@ -323,11 +332,30 @@ fn process_image_events(
 
 #[derive(Default)]
 pub struct ImageCache {
-    pub images: HashMap<String, (SlicedProtocol, Size)>,
-    pub headers: HashMap<(String, u8), Vec<Protocol>>,
+    pub images: HashMap<String, (SlicedProtocol, Size, Size)>,
+    headers_width: u16,
+    headers: HashMap<(String, u8), Vec<Protocol>>,
 }
 impl ImageCache {
     pub fn is_empty(&self) -> bool {
         self.images.is_empty() && self.headers.is_empty()
+    }
+    pub fn headers(&mut self, width: u16) -> Option<&mut HashMap<(String, u8), Vec<Protocol>>> {
+        if self.headers_width == width {
+            Some(&mut self.headers)
+        } else {
+            self.headers = Default::default();
+            None
+        }
+    }
+}
+impl std::fmt::Debug for ImageCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ImageCache(image_count:{},header_count:{})",
+            self.images.len(),
+            self.headers.len(),
+        )
     }
 }

@@ -93,7 +93,7 @@ impl Document {
         &mut self,
         section_id: SectionID,
         link: MarkdownLink,
-        (proto, size): (SlicedProtocol, Size),
+        (proto, size, max_size): (SlicedProtocol, Size, Size),
     ) {
         let Some(section) = self.sections.iter_mut().find(|s| s.id == section_id) else {
             log::error!("update_image: section #{section_id} not found");
@@ -103,7 +103,7 @@ impl Document {
         *section = Section {
             id: section_id,
             height: size.height,
-            content: SectionContent::Image(link, proto, size),
+            content: SectionContent::Image(link, proto, size, max_size),
         };
     }
 
@@ -131,36 +131,40 @@ impl Document {
 
     /// Extract all image protocols from the document for caching before reparse.
     /// Returns Vec<(url, protocol)>. Protocols are moved out, lines revert to height 1.
-    pub fn take_image_protocols(&mut self) -> ImageCache {
+    pub fn take_image_protocols(&mut self, width: u16) -> ImageCache {
         let mut cache = ImageCache::default();
         for section in &mut self.sections {
             match &mut section.content {
-                SectionContent::Image(url, _, _) => {
+                SectionContent::Image(url, _, _, _) => {
                     let url = url.clone();
-                    let SectionContent::Image(link, proto, size) = std::mem::replace(
+                    let SectionContent::Image(link, proto, size, max_size) = std::mem::replace(
                         &mut section.content,
                         SectionContent::ImagePlaceholder(url, vec![]),
                     ) else {
                         unreachable!();
                     };
-                    cache.images.insert(link.url.clone(), (proto, size));
+                    cache
+                        .images
+                        .insert(link.url.clone(), (proto, size, max_size));
                     section.height = 1;
                 }
-                SectionContent::Header(text, tier, proto) => {
-                    if proto.is_some() {
-                        let text = text.clone();
-                        let tier = *tier;
-                        let SectionContent::Header(text, tier, Some(proto)) = std::mem::replace(
-                            &mut section.content,
-                            SectionContent::HeaderPlaceholder(text, tier, vec![]),
-                        ) else {
-                            unreachable!();
-                        };
-                        let key = (text, tier);
-                        if let Some(existing) = cache.headers.get_mut(&key) {
-                            existing.push(proto);
-                        } else {
-                            cache.headers.insert(key, vec![proto]);
+                SectionContent::Header(text, tier, Some(_)) => {
+                    let text = text.clone();
+                    let tier = *tier;
+                    let SectionContent::Header(text, tier, Some(proto)) = std::mem::replace(
+                        &mut section.content,
+                        SectionContent::HeaderPlaceholder(text, tier, vec![]),
+                    ) else {
+                        unreachable!();
+                    };
+                    let key = (text, tier);
+                    if let Some(existing) = cache.headers(width).and_then(|hc| hc.get_mut(&key)) {
+                        log::debug!("cache push into existing: {key:?}");
+                        existing.push(proto);
+                    } else {
+                        log::debug!("cache insert: {key:?}");
+                        if let Some(hc) = cache.headers(width) {
+                            hc.insert(key, vec![proto]);
                         }
                     }
                 }
@@ -474,7 +478,7 @@ pub struct Section {
 }
 
 pub enum SectionContent {
-    Image(MarkdownLink, SlicedProtocol, Size),
+    Image(MarkdownLink, SlicedProtocol, Size, Size),
     ImagePlaceholder(MarkdownLink, Vec<(Line<'static>, Vec<LineExtra>)>),
     Header(String, u8, Option<Protocol>),
     HeaderPlaceholder(String, u8, Vec<(Line<'static>, Vec<LineExtra>)>),
@@ -528,7 +532,7 @@ impl PartialEq for SectionContent {
 impl Debug for SectionContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Image(url, _, _) => f.debug_tuple(format!("Image({url:?})").as_str()).finish(),
+            Self::Image(url, _, _, _) => f.debug_tuple(format!("Image({url:?})").as_str()).finish(),
             Self::ImagePlaceholder(url, _) => f
                 .debug_tuple(format!("ImagePlaceholder({url:?})").as_str())
                 .finish(),
@@ -560,7 +564,7 @@ impl Debug for SectionContent {
 impl Display for SectionContent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Image(url, protocol, _) => {
+            Self::Image(url, protocol, _, _) => {
                 write!(f, "Image({url:?}, {:?})", protocol.type_id())
             }
             Self::ImagePlaceholder(url, _) => {
@@ -583,7 +587,7 @@ impl Section {
 impl Display for Section {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.content {
-            SectionContent::Image(_, _, _) => write!(f, "<image>"),
+            SectionContent::Image(_, _, _, _) => write!(f, "<image>"),
             SectionContent::ImagePlaceholder(_, _) => write!(f, "<image-placeholder>"),
             SectionContent::Lines(lines) => {
                 for (i, (line, _)) in lines.iter().enumerate() {
@@ -889,18 +893,15 @@ pub async fn image_section(
         }
 
         let max_width: u16 = (max_height * 3 / 2).min(width);
+        let max_resize_size = Size::new(max_width, max_height);
+        let size = Resize::Fit(None).size_for(&dyn_img, picker.font_size(), max_resize_size);
 
-        let size = Resize::Fit(None).size_for(
-            &dyn_img,
-            picker.font_size(),
-            Size::new(max_width, max_height),
-        );
-
+        let max_size = Size::new(width, max_height);
         let sliced = SlicedProtocol::new(&picker, dyn_img, Some(size))?;
         Ok::<Section, Error>(Section {
             id,
             height: size.height,
-            content: SectionContent::Image(link, sliced, size),
+            content: SectionContent::Image(link, sliced, size, max_size),
         })
     })
     .await??;

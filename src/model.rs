@@ -109,6 +109,7 @@ impl Model {
     }
 
     pub fn reload(&mut self, screen_size: Size) -> Result<(), Error> {
+        let old_width = self.config.padding.calculate_width(self.screen_size.width);
         self.screen_size = screen_size;
         log::debug!("reload on {:?}", self.document_source.read()?);
         let text = match self.document_source.read()? {
@@ -118,7 +119,7 @@ impl Model {
             ))?,
             _source => todo!("reload for other sources: {_source:?}"),
         };
-        self.reparse(text)
+        self.reparse(text, old_width)
     }
 
     pub fn open(&self, text: String) -> Result<(), Error> {
@@ -156,9 +157,9 @@ impl Model {
         Ok(())
     }
 
-    pub fn reparse(&mut self, text: String) -> Result<(), Error> {
+    pub fn reparse(&mut self, text: String, old_width: u16) -> Result<(), Error> {
         log::info!("reparse with {:?}", self.screen_size);
-        let image_cache = self.document.take_image_protocols();
+        let image_cache = self.document.take_image_protocols(old_width);
         let cache = if image_cache.is_empty() {
             None
         } else {
@@ -243,7 +244,7 @@ impl Model {
                     }
 
                     debug_assert!(
-                        !matches!(section.content, SectionContent::Image(_, _, _),),
+                        !matches!(section.content, SectionContent::Image(_, _, _, _),),
                         "unexpected Event::Parsed with Image: {:?}",
                         section.content
                     );
