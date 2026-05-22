@@ -307,11 +307,7 @@ impl Display for Cmd {
             Cmd::Parse(reload_id, width, _, cache) => {
                 write!(
                     f,
-                    "Cmd::Parse({reload_id:?}, {width}, <text>, cache={})",
-                    cache
-                        .as_ref()
-                        .map(|c| c.images.len() + c.headers.len())
-                        .unwrap_or(0)
+                    "Cmd::Parse({reload_id:?}, {width}, <text>, cache={cache:?})",
                 )
             }
             Cmd::OpenUrl(url) => write!(f, "Cmd::Open({url})"),
@@ -323,13 +319,21 @@ pub enum Event {
     NewDocument(DocumentId),
     ParseDone(DocumentId, Option<SectionID>, String), // Only signals "parsing done", not "images ready"!
     Parsed(DocumentId, Section),
-    ImageLoaded(DocumentId, SectionID, MarkdownLink, (SlicedProtocol, Size)),
+    ImageLoaded(
+        DocumentId,
+        SectionID,
+        MarkdownLink,
+        (SlicedProtocol, Size, Size),
+    ),
     ImageFailed(DocumentId, SectionID, String, String),
     HeaderLoaded(DocumentId, SectionID, Vec<(String, u8, Protocol)>),
     FileChanged,
     Scroll(i16),
     NewSourceContent(String),
-    ReferenceDefinition { id: String, url: String },
+    ReferenceDefinition {
+        id: String,
+        url: String,
+    },
 }
 
 impl Display for Event {
@@ -552,12 +556,15 @@ Goodbye."#,
         poll_images_done(&mut model);
 
         model
-            .reparse(String::from(
-                r#"# Hello
+            .reparse(
+                String::from(
+                    r#"# Hello
 ![image](./assets/NixOS.png)
 This is a test markdown document.
 Goodbye."#,
-            ))
+                ),
+                model.screen_size.width,
+            )
             .unwrap();
         poll_parsed(&mut model);
         log::debug!("poll_parsed before failing done");
@@ -566,12 +573,15 @@ Goodbye."#,
         assert_snapshot!("reload move image up", terminal.backend());
 
         model
-            .reparse(String::from(
-                r#"# Hello
+            .reparse(
+                String::from(
+                    r#"# Hello
 This is a test markdown document.
 ![image](./assets/NixOS.png)
 Goodbye."#,
-            ))
+                ),
+                model.screen_size.width,
+            )
             .unwrap();
         poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
@@ -602,13 +612,16 @@ Goodbye."#,
         poll_images_done(&mut model);
 
         model
-            .reparse(String::from(
-                r#"# Hello
+            .reparse(
+                String::from(
+                    r#"# Hello
 This is a test markdown document.
 ![image](./assets/NixOS.png)
 ![image](./assets/you_fried.png)
 Goodbye."#,
-            ))
+                ),
+                model.screen_size.width,
+            )
             .unwrap();
         poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();
@@ -642,12 +655,15 @@ Goodbye."#,
         poll_images_done(&mut model);
 
         model
-            .reparse(String::from(
-                r#"# Hello
+            .reparse(
+                String::from(
+                    r#"# Hello
 ![image A](./assets/NixOS.png)
 Goodbye.
 ![image B](./assets/NixOS.png)"#,
-            ))
+                ),
+                model.screen_size.width,
+            )
             .unwrap();
         poll_parsed(&mut model);
         terminal.draw(|frame| view(&model, frame)).unwrap();

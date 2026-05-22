@@ -128,7 +128,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
                     y += LINE_HEIGHT as i32;
                 }
             }
-            SectionContent::Image(_markdown_link, sliced_proto, size) => {
+            SectionContent::Image(_markdown_link, sliced_proto, size, _max_size) => {
                 // TODO: just fix up inner_area at once
                 let mut inner_area = inner_area;
                 inner_area.height -= 1;
