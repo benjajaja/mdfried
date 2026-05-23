@@ -687,7 +687,9 @@ Line that should be broken up later
             ))
             .unwrap();
         poll_parsed(&mut model);
-        terminal.draw(|frame| view(&model, frame)).unwrap();
+        terminal
+            .draw(|frame| view(&model, frame.buffer_mut()))
+            .unwrap();
 
         let sections: Vec<&Section> = model.sections().collect();
         assert_eq!(3, sections.len());
@@ -709,7 +711,9 @@ Line that should be broken up later
 
         model.reload(Size::new(20, 20)).unwrap();
         poll_parsed(&mut model);
-        terminal.draw(|frame| view(&model, frame)).unwrap();
+        terminal
+            .draw(|frame| view(&model, frame.buffer_mut()))
+            .unwrap();
 
         let sections: Vec<&Section> = model.sections().collect();
         assert_eq!(6, sections.len());
