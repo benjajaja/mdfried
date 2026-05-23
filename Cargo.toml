@@ -11,7 +11,7 @@ repository = "https://github.com/benjajaja/mdfried"
 homepage = "https://github.com/benjajaja/mdfried"
 readme = "README.md"
 license = "GPL-3.0-or-later"
-exclude = ["assets/*"]
+exclude = ["assets/*", "!assets/help.md"]
 rust-version = "1.86.0"
 
 [features]
