@@ -391,23 +391,24 @@ mod tests {
         let mut frier = MdFrier::new().unwrap();
         // DefaultMapper preserves decorators
         let lines: Vec<_> = frier
-            .parse(80, "This \n*is* a test.", &DefaultMapper)
+            .parse(80, "This\n*is* a test.", &DefaultMapper)
             .unwrap()
             .collect();
-        assert_eq!(lines.len(), 2);
+        assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].spans[0].content, "This");
+        assert_eq!(lines[0].spans[1].content, " ");
         // Second line: "*" (open) + "is" (emphasis) + "*" (close) + " a test."
-        assert_eq!(lines[1].spans[0].content, "*");
+        assert_eq!(lines[0].spans[2].content, "*");
         assert!(
-            lines[1].spans[0]
+            lines[0].spans[2]
                 .modifiers
                 .contains(Modifier::EmphasisWrapper)
         );
-        assert_eq!(lines[1].spans[1].content, "is");
-        assert!(lines[1].spans[1].modifiers.contains(Modifier::Emphasis));
-        assert_eq!(lines[1].spans[2].content, "*");
+        assert_eq!(lines[0].spans[3].content, "is");
+        assert!(lines[0].spans[3].modifiers.contains(Modifier::Emphasis));
+        assert_eq!(lines[0].spans[4].content, "*");
         assert!(
-            lines[1].spans[2]
+            lines[0].spans[4]
                 .modifiers
                 .contains(Modifier::EmphasisWrapper)
         );
@@ -667,8 +668,8 @@ Quote break.
 
     #[test]
     fn inline_image_surrounding_text() {
-        let input = r#"This a paragraph.
-Here we have an "inline" image, ![inline](./notfound.img), and trailing text.
+        let input = r#"This a paragraph.  
+Here we have an "inline" image, ![inline](./notfound.img), and trailing text.  
 Should be split up nicely.
 "#;
 

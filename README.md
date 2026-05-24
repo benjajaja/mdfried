@@ -1,7 +1,6 @@
 ![mdfried](./assets/logo.png)
 
-`mdfried` is a markdown viewer for the terminal that renders headers as **Bigger Text** than the
-rest.
+`mdfried` is a markdown viewer for the terminal that renders headers as **Bigger Text** than the rest.
 
 ## Screenshots
 
@@ -15,8 +14,10 @@ https://github.com/user-attachments/assets/924d29a9-053c-44b0-8c09-39dac8c90329
 
 # Why?
 
-You can *[cook](https://ratatui.rs/)* a terminal. But can you **deep fry** a terminal?
-*YES!* You can **cook *and* fry** your `tty`! ~~Run before it's too late!~~
+You can *[cook](https://ratatui.rs/)* a terminal. 
+But can you **deep fry** a terminal?  
+*YES!* You can **cook *and* fry** your `tty`!
+~~Run before it's too late!~~
 
 > The terminal is usually in "cooked" mode, or canonical mode.
 > With `ratatui`🐁, it's in raw mode, but it "cooks" for you.
@@ -34,8 +35,7 @@ to directly scale text without needing to render as images!
 See [ratatui-image](https://github.com/benjajaja/ratatui-image?tab=readme-ov-file#compatibility-matrix)
 to see if your terminal does even have graphics support, and for further details.
 
-In general, Kitty, WezTerm, iTerm2, Ghostty, Foot, `xterm -ti vt340`, Rio, *should* work.
-
+In general, Kitty, WezTerm, iTerm2, Ghostty, Foot, `xterm -ti vt340`, Rio, *should* work.  
 On terminals without graphics whatsoever, like Alactritty, images are rendered with Chafa.
 
 # Installation
@@ -65,20 +65,12 @@ Packaged in distros:
 mdfried ./path/to.md
 ```
 
-Unless you're using Kitty version 0.40 or greater, or a terminal that does not support any graphics
-protocol, the first time you run `mdfried` you may have to pick a font, if your terminal's font
-could not be automatically detected.  
+Unless you're using Kitty version 0.40 or greater, or a terminal that does not support any graphics protocol, the first time you run `mdfried` you may have to pick a font, if your terminal's font could not be automatically detected.  
 You should pick the same font that your terminal is using, but you could pick any.
 The font is rendered directly as a preview.
 Once confirmed, the choice is written into the configuration file.
 
 Use `--setup` to force the font-setup again if the font is not right.
-
-You can also pipe markdown into it:
-
-```
-readable https://lobste.rs | markdownify | mdfried
-```
 
 See `--help` for all options.
 
@@ -89,8 +81,7 @@ prioritized, but "normal" keys should be usable as well.
 
 Type `:help` in the program to see the exact list, or see [assets/help.md](assets/help.md).
 
-Mouse scroll only works if enabled in settings as `enable_mouse_capture = true`, but then you can't
-select text.
+Mouse scroll only works if enabled in settings as `enable_mouse_capture = true`, but then you can't select text (in most terminals).
 
 ### Configuration
 

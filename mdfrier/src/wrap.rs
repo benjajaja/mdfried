@@ -2,7 +2,7 @@ use textwrap::{Options, wrap};
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    Line, LineKind,
+    Line, LineKind, Mapper,
     link_tracker::{LinkTracker, TrackedUrl},
     markdown::{Modifier, Span},
 };
@@ -17,17 +17,17 @@ fn trim_start_inplace(s: &mut String) {
     }
 }
 
-pub fn wrap_md_spans(
+pub fn wrap_md_spans<M: Mapper>(
     width: u16,
     mdspans: Vec<Span>,
     prefix_width: usize,
-    hide_urls: bool,
+    mapper: &M,
 ) -> Vec<Line> {
     let available_width = width.saturating_sub(prefix_width as u16).max(1);
 
-    let mut tracker = LinkTracker::default().hide_urls(hide_urls);
+    let mut tracker = LinkTracker::default().hide_urls(mapper.hide_urls());
 
-    wrap_md_spans_lines(available_width, mdspans, hide_urls)
+    wrap_md_spans_lines(available_width, mdspans, mapper, prefix_width != 0)
         .into_iter()
         .filter(|line| !line.is_empty())
         .map(|spans| {
@@ -57,18 +57,39 @@ pub fn wrap_md_spans(
 }
 
 // Also used by table cell wrapping.
-pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>, hide_urls: bool) -> Vec<Vec<Span>> {
+pub fn wrap_md_spans_lines<M: Mapper>(
+    width: u16,
+    mdspans: Vec<Span>,
+    mapper: &M,
+    is_indented: bool,
+) -> Vec<Vec<Span>> {
+    let hide_urls = mapper.hide_urls();
+    let hard_softbreaks = mapper.hard_softbreaks();
+
     let mut lines: Vec<Vec<Span>> = Vec::new();
     let mut line: Vec<Span> = Vec::new();
     let mut after_newline = false;
 
     for mdspan in mdspans {
-        if mdspan.modifiers.contains(Modifier::NewLine) {
-            if let Some(last) = line.last_mut() {
-                last.content.truncate(last.content.trim_end().len());
+        if is_indented || hard_softbreaks {
+            if mdspan.modifiers.contains(Modifier::NewLine) {
+                if let Some(last) = line.last_mut() {
+                    last.content.truncate(last.content.trim_end().len());
+                }
+                lines.push(std::mem::take(&mut line));
+                after_newline = true;
             }
-            lines.push(std::mem::take(&mut line));
-            after_newline = true;
+        } else {
+            if mdspan.modifiers.contains(Modifier::HardLineBreak) {
+                if let Some(last) = line.last_mut() {
+                    last.content.truncate(last.content.trim_end().len());
+                }
+                lines.push(std::mem::take(&mut line));
+                after_newline = true;
+            }
+            if mdspan.modifiers.contains(Modifier::NewLine) && !line.is_empty() {
+                line.push(Span::new(String::from(" "), Modifier::default()));
+            }
         }
 
         // Strip leading whitespace from content after a hard line break
@@ -108,13 +129,19 @@ pub fn wrap_md_spans_lines(width: u16, mdspans: Vec<Span>, hide_urls: bool) -> V
             would_overflow = line_width + span_width > width;
         }
         if would_overflow {
-            // Noe: this *was* something weird about moving links that would exceed `width`
+            // Note: this *was* something weird about moving links that would exceed `width`
             // together with their surrounding parens.
             let starting_new_line = !line.is_empty();
 
             // Split once with "remaining width" (`width - line_width`), to append the first part
             // onto the current line (if any, otherwise would just make a new line).
-            let options = Options::new((width - line_width) as usize)
+            let mut remaining_width = width - line_width;
+            if remaining_width == 0 {
+                lines.push(std::mem::take(&mut line));
+                remaining_width = width;
+            }
+
+            let options = Options::new((remaining_width) as usize)
                 .break_words(true)
                 .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation);
             let parts: Vec<_> = wrap(&mdspan.content, options).into_iter().collect();
@@ -216,12 +243,15 @@ mod tests {
     use pretty_assertions::assert_eq;
 
     use super::wrap_md_spans_lines;
-    use crate::markdown::{Modifier, Span};
+    use crate::{
+        DefaultMapper,
+        markdown::{Modifier, Span},
+    };
 
     #[test]
     fn simple_wrap() {
         let mdspans = vec![Span::from("one two")];
-        let lines = wrap_md_spans_lines(4, mdspans, false);
+        let lines = wrap_md_spans_lines(4, mdspans, &DefaultMapper {}, false);
         assert_eq!(
             lines,
             vec![vec![Span::from("one")], vec![Span::from("two")]]
@@ -231,14 +261,14 @@ mod tests {
     #[test]
     fn no_wrap() {
         let mdspans = vec![Span::from("one two")];
-        let lines = wrap_md_spans_lines(10, mdspans, false);
+        let lines = wrap_md_spans_lines(10, mdspans, &DefaultMapper {}, false);
         assert_eq!(lines, vec![vec![Span::from("one two")]]);
     }
 
     #[test]
     fn word_break() {
         let mdspans = vec![Span::from("one two")];
-        let lines = wrap_md_spans_lines(2, mdspans, false);
+        let lines = wrap_md_spans_lines(2, mdspans, &DefaultMapper {}, false);
         assert_eq!(
             lines,
             vec![
@@ -252,14 +282,15 @@ mod tests {
 
     #[test]
     fn newline() {
-        let mdspans = vec![Span::from("one "), Span::with("two", Modifier::NewLine)];
-        let lines = wrap_md_spans_lines(10, mdspans, false);
+        let mdspans = vec![Span::from("one"), Span::with("two", Modifier::NewLine)];
+        let lines = wrap_md_spans_lines(10, mdspans, &DefaultMapper {}, false);
         assert_eq!(
             lines,
-            vec![
-                vec![Span::from("one")],
-                vec![Span::with("two", Modifier::NewLine),]
-            ],
+            vec![vec![
+                Span::from("one"),
+                Span::from(" "),
+                Span::with("two", Modifier::NewLine),
+            ]],
         );
     }
 
@@ -275,7 +306,7 @@ mod tests {
             Span::with("https://example.com", Modifier::LinkURL),
             Span::with(")", Modifier::LinkURLWrapper),
         ];
-        let lines = wrap_md_spans_lines(25, mdspans, false);
+        let lines = wrap_md_spans_lines(25, mdspans, &DefaultMapper {}, false);
         assert_eq!(
             lines
                 .iter()

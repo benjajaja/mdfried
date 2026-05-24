@@ -493,6 +493,7 @@ mod tests {
                 r#"# Hello
 This is a *test* markdown document.
 Another line of same paragraph.
+
 ![image](./assets/NixOS.png)
 
 # Another header
@@ -532,7 +533,9 @@ Goodbye."#,
             .open(String::from(
                 r#"# Hello
 This is a test markdown document.
+
 ![image](./assets/NixOS.png)
+
 Goodbye."#,
             ))
             .unwrap();
@@ -543,8 +546,11 @@ Goodbye."#,
             .reparse(
                 String::from(
                     r#"# Hello
+
 ![image](./assets/NixOS.png)
+
 This is a test markdown document.
+
 Goodbye."#,
                 ),
                 model.screen_size.width,
@@ -563,7 +569,9 @@ Goodbye."#,
                 String::from(
                     r#"# Hello
 This is a test markdown document.
+
 ![image](./assets/NixOS.png)
+
 Goodbye."#,
                 ),
                 model.screen_size.width,
@@ -592,7 +600,9 @@ Goodbye."#,
             .open(String::from(
                 r#"# Hello
 This is a test markdown document.
+
 ![image](./assets/NixOS.png)
+
 Goodbye."#,
             ))
             .unwrap();
@@ -604,8 +614,11 @@ Goodbye."#,
                 String::from(
                     r#"# Hello
 This is a test markdown document.
+
 ![image](./assets/NixOS.png)
+
 ![image](./assets/you_fried.png)
+
 Goodbye."#,
                 ),
                 model.screen_size.width,
@@ -639,7 +652,9 @@ Goodbye."#,
         model
             .open(String::from(
                 r#"# Hello
+
 ![image](./assets/NixOS.png)
+
 Goodbye."#,
             ))
             .unwrap();
@@ -650,8 +665,11 @@ Goodbye."#,
             .reparse(
                 String::from(
                     r#"# Hello
+
 ![image A](./assets/NixOS.png)
-Goodbye.
+
+Goodbye.  
+
 ![image B](./assets/NixOS.png)"#,
                 ),
                 model.screen_size.width,

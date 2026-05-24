@@ -442,6 +442,7 @@ bitflags! {
         // Strikethrough
         const Strikethrough = 1 << 18;
         const StrikethroughWrapper = 1 << 19;
+        const HardLineBreak = 1 << 20;
     }
 }
 
@@ -689,10 +690,12 @@ impl MdParagraph {
                     .push(Span::new(stripped.to_owned(), extra.union(Modifier::Code)));
                 return;
             }
-            "hard_line_break" | "soft_break" => {
-                // GFM hard line break (two trailing spaces + newline) or soft break
-                self.spans
-                    .push(Span::new(String::new(), extra.union(Modifier::NewLine)));
+            "hard_line_break" => {
+                // GFM hard line break (two trailing spaces + newline)
+                self.spans.push(Span::new(
+                    String::new(), // Awkward, but we can't otherwise target the next node.
+                    extra.union(Modifier::NewLine | Modifier::HardLineBreak),
+                ));
                 return;
             }
             "[" | "]" => Modifier::LinkDescriptionWrapper,

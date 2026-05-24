@@ -78,6 +78,7 @@ pub struct Theme {
     // Other options
     pub header_color: Option<Color>,
     pub hide_urls: Option<bool>,
+    pub hard_softbreaks: Option<bool>,
     pub has_text_size_protocol: Option<bool>,
 }
 
@@ -191,6 +192,9 @@ impl Mapper for Theme {
     fn hide_urls(&self) -> bool {
         self.hide_urls.unwrap_or(true)
     }
+    fn hard_softbreaks(&self) -> bool {
+        self.hard_softbreaks.unwrap_or(false)
+    }
     fn has_text_size_protocol(&self) -> bool {
         self.has_text_size_protocol.unwrap_or_default()
     }
@@ -280,6 +284,7 @@ impl Theme {
             table_border_color: Some(Theme::table_border_color(&theme)),
             table_header_color: Some(Theme::table_header_color(&theme)),
             hide_urls: Some(Theme::hide_urls(&theme)),
+            hard_softbreaks: Some(Theme::hard_softbreaks(&theme)),
             header_color: Some(Color::from_str("#FFFFFF").unwrap_or_default()),
             has_text_size_protocol: None,
         }
