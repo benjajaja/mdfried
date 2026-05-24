@@ -2,9 +2,42 @@
 
 ## [Unreleased]
 
+### Added
+- Render thread, mitigates slow terminal sixel or iterm2 rendering.
+- `:help` command that displays `assets/help.md`.
+- Track document history, `:back` command to go back to previous.
+- Link references, or reference-style links, e.g. `Text[1]` and then `[1]: url`.
+- Links in headers produce additional lines with the links below.
+
+### Fixed
+- Resizing on `stdin` source (piped).
+- Rendering stale (wrong sized) header images after resizing.
+- Do not render on navigation events if the scroll did not change.
+
 ## [0.20.2] - 2026-05-15
 
+### Added
+- If a link is `#kebab-case`, assume it links to a header and jump there
+
+### Fixed
+- Link jumping logic.
+- Bare links not showing in some case.
+- Use the "document source", file / URL / github / stdin, for fetching images.
+- Fix images nested in links.
+
 ## [0.20.1] - 2026-05-14
+
+### Fixed
+- Line-breaking URLs rendering.
+- Stricter image-only-lines.
+
+### Removed
+- Logger UI, superseded by `--log-to-stderr` and stderr redirect.
+
+### Added
+- Can open URLs: `mdfried http://example.com/markdown.md`.
+- Can open github repo `README.md`:, `mdfried github:owner/repo`.
+- Config option to transform opened URLs, e.g. `url_transform_command = "readable | html2text"`.
 
 ## [0.20.0] - 2026-05-12
 
