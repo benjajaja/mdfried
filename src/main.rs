@@ -57,26 +57,29 @@ pub static VERSION: OnceLock<String> = OnceLock::new();
 
 fn main() -> io::Result<()> {
     let mut cmd = command!() // requires `cargo` feature
-        .arg(arg!(-d --"deep-fry" "Extra deep fried images").value_parser(value_parser!(bool)))
-        .arg(arg!(-w --"watch" "Watch markdown file").value_parser(value_parser!(bool)))
-        .arg(arg!(-s --"setup" "Force font setup").value_parser(value_parser!(bool)))
         .arg(
-            arg!(--"print-config" "Write out full config file example to stdout")
+            arg!([SOURCE] "The markdown source.\nCan be a file path, a URL, a github repo in \"github:[owner]/[repo]\" format, or '-' or omit, for stdin.")
+        )
+        .arg(arg!(-d --"deep-fry" "Extra deep fried images.").value_parser(value_parser!(bool)))
+        .arg(arg!(-w --"watch" "Watch markdown file, reload on changes.").value_parser(value_parser!(bool)))
+        .arg(arg!(-s --"setup" "Force font setup (again).").value_parser(value_parser!(bool)))
+        .arg(
+            arg!(--"print-config" "Write out a mostly complete config file example to stdout.")
                 .value_parser(value_parser!(bool)),
         )
         .arg(
-            arg!(--"no-cap-checks" "Don't query the terminal stdin for capabilities")
+            arg!(--"no-cap-checks" "Do not query the terminal stdin for capabilities.")
                 .value_parser(value_parser!(bool)),
         )
-        .arg(arg!(--"debug-override-protocol-type" <PROTOCOL> "Force graphics protocol to a specific type"))
+        .arg(arg!(--"debug-override-protocol-type" <PROTOCOL> "Force graphics protocol to a specific type."))
         .arg(
-            arg!(--"log-to-stderr" "Log to stderr.\nMust be used with stderr redirection, otherwise garbled text will appear.\nFor example, in another terminal, get and copy the filename of stdin with `tty`,\nlet's say it's `/dev/pts/7`. Then run:\nmdfried FILE.md --log-to-stderr 2>/dev/pts/7\nThe logs will appear nicely colored in the other terminal.")
-                .value_parser(value_parser!(bool)),
+            arg!(--log [FILE] "Log to a file with RUST_LOG, or stderr if omitted with RUST_LOG=debug.\nStderr should always be redirected, e.g. 2>/dev/pts/<tty> to pipe into another terminal.")
+                .num_args(0..=1)
+                .default_missing_value("")
+                .value_parser(value_parser!(String)),
         )
-        .arg(arg!(--"animate" "Animate scrolling on startup (for demo recordings)").hide(true).value_parser(value_parser!(bool)))
-        .arg(
-            arg!([source] "The markdown source.\nCan be a file path, a URL, a github repo in \"github:[owner]/[repo]\" format, or '-' or omit, for stdin")
-        );
+        .arg(arg!(--"animate" "Animate scrolling on startup (for demo recordings).").hide(true).value_parser(value_parser!(bool)))
+        ;
     let matches = cmd.get_matches_mut();
 
     if let Some(version) = cmd.get_version() {
@@ -128,9 +131,10 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         return Ok(());
     }
 
-    debug::init_logger(*matches.get_one("log-to-stderr").unwrap_or(&false))?;
+    let log = matches.get_one::<String>("log");
+    debug::init_logger(debug::LogTarget::from(log))?;
 
-    let source: Option<String> = matches.get_one::<String>("source").cloned();
+    let source: Option<String> = matches.get_one::<String>("SOURCE").cloned();
 
     let mut user_config = config::load_or_ask()?;
     let config = Config::from(user_config.clone());

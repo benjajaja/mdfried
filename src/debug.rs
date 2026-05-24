@@ -1,23 +1,44 @@
 use std::{
+    path::PathBuf,
     sync::{OnceLock, mpsc::Sender},
     thread,
     time::Duration,
 };
 
-use flexi_logger::{FlexiLoggerError, Logger, LoggerHandle};
+use flexi_logger::{FileSpec, FlexiLoggerError, Logger, LoggerHandle};
 use log::LevelFilter;
 
 use crate::Event;
 
+#[derive(Clone, Debug, Default)]
+pub enum LogTarget {
+    #[default]
+    None,
+    Stderr,
+    Path(PathBuf),
+}
+
+impl From<Option<&String>> for LogTarget {
+    fn from(value: Option<&String>) -> Self {
+        match value {
+            None => LogTarget::None,
+            Some(s) if s.is_empty() => LogTarget::Stderr,
+            Some(s) => LogTarget::Path(PathBuf::from(s)),
+        }
+    }
+}
+
 static LOGGER: OnceLock<LoggerHandle> = OnceLock::new();
 
-pub fn init_logger(log_to_stderr: bool) -> Result<(), FlexiLoggerError> {
-    let logger = if log_to_stderr {
-        Logger::try_with_env_or_str("info")?
+pub fn init_logger(log_target: LogTarget) -> Result<(), FlexiLoggerError> {
+    let logger = match log_target {
+        LogTarget::None => Logger::with(LevelFilter::Off).do_not_log().start(),
+        LogTarget::Stderr => Logger::try_with_env_or_str("debug")?
             .duplicate_to_stderr(flexi_logger::Duplicate::All)
-            .start()
-    } else {
-        Logger::with(LevelFilter::Off).do_not_log().start()
+            .start(),
+        LogTarget::Path(path) => Logger::try_with_env()?
+            .log_to_file(FileSpec::try_from(path)?)
+            .start(),
     }?;
     if let Err(_logger) = LOGGER.set(logger) {
         panic!("error initializing global logger: already initialized.");
