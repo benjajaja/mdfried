@@ -401,10 +401,10 @@ impl Model {
                     && let Ok(text) = fs::read_to_string(url_as_path)
                 {
                     self.open_new_source(source, text)?;
-                }
-
-                if let Err(err) = open::that(&link_url) {
-                    log::error!("{err}");
+                } else if Url::parse(&link_url).is_ok() {
+                    if let Err(err) = open::that(&link_url) {
+                        log::error!("{err}");
+                    }
                 }
             }
             DocumentSource::Github { repo, branch } => {
@@ -428,7 +428,9 @@ impl Model {
                 }
             }
         }
-        Ok(())
+        Err(Error::Generic(
+            "don't know how to open link: {link_url}".to_owned(),
+        ))
     }
 
     /// Returns the URL of the currently selected link, if any.

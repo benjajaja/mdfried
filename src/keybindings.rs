@@ -255,7 +255,9 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
                 });
                 if let Some(url) = url {
                     log::debug!("open link_cursor {}", *url);
-                    model.open_link(url.to_string())?;
+                    if let Err(err) = model.open_link(url.to_string()) {
+                        log::error!("open_link failed: {err}");
+                    }
                 }
             }
         }
