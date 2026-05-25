@@ -22,7 +22,7 @@ jobs:
           workflow: build.yml
           run_id: ${{ github.event.workflow_run.id }}
           name: screenshots
-          path: pages
+          path: .
           github_token: ${{ github.token }}
 
       - name: Deploy to GitHub Pages
@@ -30,7 +30,7 @@ jobs:
         with:
           personal_token: ${{ secrets.SCREENSHOTS_PAT }}
           external_repository: benjajaja/mdfried-screenshots
-          publish_dir: ./pages
+          publish_dir: ./result
           publish_branch: gh-pages
 
   comment-pr-diffs:
@@ -41,12 +41,12 @@ jobs:
       pull-requests: write
       actions: read
     steps:
-      - name: Download diffs artifact
+      - name: Download screenshots artifact
         uses: dawidd6/action-download-artifact@v6
         with:
           workflow: build.yml
           run_id: ${{ github.event.workflow_run.id }}
-          name: pr-diffs
+          name: screenshots
           path: .
           github_token: ${{ github.token }}
 
@@ -61,16 +61,16 @@ jobs:
       - name: Upload images to catbox.moe
         run: |
           declare -A URL_MAP
-          for file in diffs/images/*.png diffs/diffs/*.png; do
+          for file in result/diffs/*.png result/images/*.png; do
             if [ -f "$file" ]; then
               echo "Uploading $file..."
               url=$(curl -s -F "reqtype=fileupload" -F "userhash=${{ secrets.CATBOX_USERHASH }}" -F "fileToUpload=@$file" https://catbox.moe/user/api.php)
-              relpath="${file#diffs/}"
+              relpath="${file#result/}"
               URL_MAP["$relpath"]="$url"
               echo "  -> $url"
             fi
           done
-          cp diffs/body.html comment.html
+          cp result/body.html comment.html
           for relpath in "${!URL_MAP[@]}"; do
             sed -i "s|IMAGE_BASE_URL/${relpath}|${URL_MAP[$relpath]}|g" comment.html
           done

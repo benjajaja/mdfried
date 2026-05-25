@@ -69,9 +69,9 @@ pkgs.testers.nixosTest {
 
     # Copy assets
     machine.succeed("mkdir -p /tmp/test-assets")
-    machine.copy_from_host("${builtins.path { path = ./README.md; name = "README.md"; }}", "/tmp/test-assets/README.md")
-    machine.copy_from_host("${builtins.path { path = ./assets/logo.png; name = "logo.png"; }}", "/tmp/test-assets/assets/logo.png")
-    machine.copy_from_host("${builtins.path { path = ./assets/screenshot_1.png; name = "screenshot_1.png"; }}", "/tmp/test-assets/assets/screenshot_1.png")
+    machine.copy_from_host("${builtins.path { path = ../README.md; name = "README.md"; }}", "/tmp/test-assets/README.md")
+    machine.copy_from_host("${builtins.path { path = ../assets/logo.png; name = "logo.png"; }}", "/tmp/test-assets/assets/logo.png")
+    machine.copy_from_host("${builtins.path { path = ../assets/screenshot_1.png; name = "screenshot_1.png"; }}", "/tmp/test-assets/assets/screenshot_1.png")
 
     # Wait for Wayland compositor to be ready
     machine.wait_until_succeeds("systemd-run --uid=test --setenv=XDG_RUNTIME_DIR=/run/user/1000 --setenv=WAYLAND_DISPLAY=wayland-1 -- swaymsg -t get_version")

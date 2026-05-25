@@ -174,7 +174,7 @@
 
         # Screenshot tests (only on Linux)
         screenshotTests = if pkgs.stdenv.isLinux then
-          import ./screenshot-tests.nix {
+          import ./nix/screenshot-tests.nix {
             inherit pkgs src;
             mdfriedStatic = mdfriedStatic;
           }
@@ -232,7 +232,7 @@
           );
         }
         // screenshotTests
-        // { screen-recording = (import ./screen-recording.nix { inherit pkgs src mdfriedStatic; }).driver; };
+        // { screen-recording = (import ./nix/screen-recording.nix { inherit pkgs src mdfriedStatic; }).driver; };
 
         apps.default = flake-utils.lib.mkApp {
           drv = mdfried;
@@ -252,11 +252,8 @@
                   nix build ".#screenshot-test-$terminal" --print-build-logs
                 done
 
-                echo "Building master screenshots..."
-                REFERENCE=$(nix build "git+file://$PWD?ref=master#screenshots" --print-out-paths --impure)
-
-                echo "Building diffs..."
-                REFERENCE=$REFERENCE nix build .#screenshotDiffs --impure --print-build-logs
+                echo "Building diffs (impure, against benjajaja.github.io/mdfried-screenshots/images/screenshot-<terminal>.png)..."
+                nix build .#screenshotDiffs --impure --print-build-logs
 
                 URL="file://$(readlink -f result)/index.html"
                 echo ""
@@ -279,6 +276,8 @@
             ];
           LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.chafa ];
         };
+
+        screenshotDiffs = import ./nix/screenshot-diffs.nix { inherit pkgs src mdfriedStatic; };
       }
     );
 }
