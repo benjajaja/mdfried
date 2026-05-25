@@ -246,9 +246,6 @@ jobs:
     needs: [nix-build]
     permissions:
       contents: read
-    strategy:
-      matrix:
-        terminal: [kitty, foot, wezterm, alacritty]
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -263,23 +260,34 @@ jobs:
         with:
           name: mdfried-ci
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+          skipPush: true # never cache the screenshot stuff
 
-      - name: Run screenshot test for ${{ matrix.terminal }}
-        run: |
-          SCREENSHOT_CACHE_KEY=${{ github.run_id }} nix build .#screenshot-test-${{ matrix.terminal }} --impure --print-build-logs
+      - name: Build screenshotDiffs
+        run: nix build .#screenshotDiffs.x86_64-linux --impure
 
-  nix-flake-screenshots-combined:
-    name: Combine screenshots ❄️
+      - name: Save PR number
+        if: github.event_name == 'pull_request'
+        run: echo ${{ github.event.pull_request.number }} > pr_number.txt
+
+      - name: Upload combined screenshots artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: |
+            result/
+            pr_number.txt
+
+  nix-flake-screen-recording:
+    name: Screen recording ❄️
     runs-on: ubuntu-latest
-    needs: [nix-flake-screenshots]
+    needs: [nix-build]
     permissions:
       contents: read
-      pull-requests: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Need full history for git+file ref to master
+          fetch-depth: 0
 
       - name: Install Nix
         uses: cachix/install-nix-action@v31
@@ -289,39 +297,20 @@ jobs:
         with:
           name: mdfried-ci
           authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+          skipPush: true # never cache the screenshot stuff
 
-      - name: Build combined screenshots
-        run: |
-          SCREENSHOT_CACHE_KEY=${{ github.run_id }} nix build .#screenshots --impure --print-build-logs
-
-      - name: Upload combined screenshots artifact
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        uses: actions/upload-artifact@v4
-        with:
-          name: screenshots
-          path: result/
-
-      - name: Fetch master branch (PR only)
-        if: github.event_name == 'pull_request'
-        run: git fetch origin master:master
-
-      - name: Build screenshot diffs (PR only)
-        if: github.event_name == 'pull_request'
-        run: |
-          REFERENCE=$(nix build "git+file://$PWD?ref=master#screenshots" --print-out-paths --impure)
-          echo "Master REFERENCE: $REFERENCE"
-          SCREENSHOT_CACHE_KEY=${{ github.run_id }} REFERENCE=$REFERENCE nix build .#screenshotDiffs --impure --print-build-logs
-          cp -rL result diffs
+      - name: Run screen-recording
+        run: nix run .#screen-recording
 
       - name: Save PR number
         if: github.event_name == 'pull_request'
         run: echo ${{ github.event.pull_request.number }} > pr_number.txt
-      
-      - name: Upload artifacts
-        if: github.event_name == 'pull_request'
+
+      - name: Upload recording
         uses: actions/upload-artifact@v4
         with:
-          name: pr-diffs
+          name: recording
           path: |
-            diffs/
+            recording/
             pr_number.txt
+
