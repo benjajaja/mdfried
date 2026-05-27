@@ -69,6 +69,7 @@ let
       machine.wait_until_succeeds("systemd-run --uid=test --setenv=XDG_RUNTIME_DIR=/run/user/1000 --setenv=WAYLAND_DISPLAY=wayland-1 -- swaymsg -t get_version")
 
       machine.succeed("${if setup != null then setup else "true"}")
+      machine.succeed("sleep 10")
 
       # Use systemd-run to ensure proper environment
       machine.succeed("""
