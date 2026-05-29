@@ -8,7 +8,7 @@ use ratatui::{
     widgets::{Block, Paragraph, Widget},
 };
 
-use mdfrier::Mapper as _;
+use mdfrier::{Mapper as _, SourceContent};
 use ratatui_image::{
     Image,
     sliced::{SignedPosition, SlicedImage},
@@ -44,85 +44,28 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
             continue;
         }
         match &section.content {
-            SectionContent::Lines(lines) => {
-                let mut flat_index = 0;
-                for (line_idx, (line, extras)) in lines.iter().enumerate() {
-                    const LINE_HEIGHT: u16 = 1;
-
-                    if y < 0 {
-                        y += LINE_HEIGHT as i32;
-                        continue; // skip this line.
-                    }
-
-                    // Positive Y
-                    let line_y = y as u16;
-                    if line_y >= inner_area.height - 1 {
-                        break;
-                    }
-
-                    let p = Paragraph::new(line.clone());
-                    render_lines(p, LINE_HEIGHT, line_y, inner_area, buf);
-
-                    // Highlight all links that share the same URL as the selected link
-                    if let Cursor::Links(CursorPointer { .. }) = &model.cursor {
-                        if let Some(selected) = &selected_url {
-                            for extra in extras.iter() {
-                                if let LineExtra::Link {
-                                    source: url,
-                                    start,
-                                    end,
-                                    lines: lines_count,
-                                    ..
-                                } = extra
-                                {
-                                    if url.as_ptr() == selected.as_ptr() {
-                                        for (link_overlay, area) in link_overlays(
-                                            line,
-                                            *start,
-                                            *end,
-                                            lines_count,
-                                            line_idx,
-                                            lines,
-                                            inner_area,
-                                            line_y,
-                                        ) {
-                                            link_overlay.render(area, buf);
-                                        }
-                                        // TODO: Find out if positioning the cursor on the link
-                                        // would help with screen readers, or anything else in
-                                        // general.
-                                    }
-                                }
-                            }
-                        }
-                    } else if let Cursor::Search(_, pointer) = &model.cursor {
-                        for (i, extra) in extras.iter().enumerate() {
-                            if let LineExtra::SearchMatch(start, end, text) = extra {
-                                let x = inner_area.x + (*start as u16);
-                                let width = *end as u16 - *start as u16;
-                                let area = Rect::new(x, line_y, width, 1);
-                                let mut search_highlight_overlay = Paragraph::new(text.clone());
-                                search_highlight_overlay = if let Some(CursorPointer { id, index }) =
-                                    pointer
-                                    && section.id == *id
-                                    && flat_index + i == *index
-                                {
-                                    search_highlight_overlay
-                                        .fg(Color::Black)
-                                        .bg(Color::Indexed(197))
-                                } else {
-                                    search_highlight_overlay
-                                        .fg(Color::Black)
-                                        .bg(Color::Indexed(148))
-                                };
-                                search_highlight_overlay.render(area, buf);
-                            }
-                        }
-                    }
-                    flat_index += extras.len();
-                    y += LINE_HEIGHT as i32;
-                }
+            SectionContent::Lines(lines) | SectionContent::Code { code: lines } => {
+                section_lines(
+                    lines,
+                    buf,
+                    &mut y,
+                    inner_area,
+                    model,
+                    &selected_url,
+                    section.id,
+                );
             }
+            // SectionContent::Code { language, code } => {
+            // section_lines(
+            // code,
+            // buf,
+            // &mut y,
+            // inner_area,
+            // model,
+            // &selected_url,
+            // section.id,
+            // );
+            // }
             SectionContent::Image(_markdown_link, sliced_proto, size, _max_size) => {
                 // TODO: just fix up inner_area at once
                 let mut inner_area = inner_area;
@@ -254,6 +197,93 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
         }
     };
     cursor_position
+}
+
+fn section_lines(
+    lines: &[(Line<'static>, Vec<LineExtra>)],
+    buf: &mut Buffer,
+    y: &mut i32,
+    inner_area: Rect,
+    model: &Model,
+    selected_url: &Option<SourceContent>,
+    section_id: usize,
+) {
+    let mut flat_index = 0;
+    for (line_idx, (line, extras)) in lines.iter().enumerate() {
+        const LINE_HEIGHT: u16 = 1;
+
+        if *y < 0 {
+            *y += LINE_HEIGHT as i32;
+            continue; // skip this line.
+        }
+
+        // Positive Y
+        let line_y = *y as u16;
+        if line_y >= inner_area.height - 1 {
+            break;
+        }
+
+        let p = Paragraph::new(line.clone());
+        render_lines(p, LINE_HEIGHT, line_y, inner_area, buf);
+
+        // Highlight all links that share the same URL as the selected link
+        if let Cursor::Links(CursorPointer { .. }) = &model.cursor {
+            if let Some(selected) = selected_url {
+                for extra in extras.iter() {
+                    if let LineExtra::Link {
+                        source: url,
+                        start,
+                        end,
+                        lines: lines_count,
+                        ..
+                    } = extra
+                    {
+                        if url.as_ptr() == selected.as_ptr() {
+                            for (link_overlay, area) in link_overlays(
+                                line,
+                                *start,
+                                *end,
+                                lines_count,
+                                line_idx,
+                                lines,
+                                inner_area,
+                                line_y,
+                            ) {
+                                link_overlay.render(area, buf);
+                            }
+                            // TODO: Find out if positioning the cursor on the link
+                            // would help with screen readers, or anything else in
+                            // general.
+                        }
+                    }
+                }
+            }
+        } else if let Cursor::Search(_, pointer) = &model.cursor {
+            for (i, extra) in extras.iter().enumerate() {
+                if let LineExtra::SearchMatch(start, end, text) = extra {
+                    let x = inner_area.x + (*start as u16);
+                    let width = *end as u16 - *start as u16;
+                    let area = Rect::new(x, line_y, width, 1);
+                    let mut search_highlight_overlay = Paragraph::new(text.clone());
+                    search_highlight_overlay = if let Some(CursorPointer { id, index }) = pointer
+                        && section_id == *id
+                        && flat_index + i == *index
+                    {
+                        search_highlight_overlay
+                            .fg(Color::Black)
+                            .bg(Color::Indexed(197))
+                    } else {
+                        search_highlight_overlay
+                            .fg(Color::Black)
+                            .bg(Color::Indexed(148))
+                    };
+                    search_highlight_overlay.render(area, buf);
+                }
+            }
+        }
+        flat_index += extras.len();
+        *y += LINE_HEIGHT as i32;
+    }
 }
 
 fn render_lines<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, buf: &mut Buffer) {
