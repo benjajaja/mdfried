@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.20.3] - 2026-05-29
+
 ### Changed
 - Soft breaks, or normal line breaks preceded with less than two spaces, are no longer treated as
   hard breaks, except in list items or blockquotes or code blocks. The lines are joined with a 
