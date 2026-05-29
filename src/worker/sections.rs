@@ -233,6 +233,36 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
             content: SectionContent::Lines(rendered_lines),
         })
     }
+
+    fn process_codeblock(&mut self, first: Line, language: String) -> Section {
+        let (ratatui_line, _) = render_line(first, self.theme);
+        let mut lines = vec![ratatui_line];
+
+        // Aggregate consecutive non-header, non-image lines
+        while let Some(peeked) = self.inner.peek() {
+            match &peeked.kind {
+                // Stop aggregating at headers or images
+                LineKind::CodeBlock {
+                    language: next_language,
+                } => {
+                    if *next_language == language {
+                        let line = self.inner.next().expect("peeked value should exist");
+                        let (ratatui_line, _) = render_line(line, self.theme);
+                        lines.push(ratatui_line);
+                    }
+                }
+                _ => {
+                    break;
+                }
+            }
+        }
+
+        let id = self.next_section_id();
+        Section {
+            id,
+            height: lines.len() as u16,
+        }
+    }
 }
 
 impl<I: Iterator<Item = Line>> Iterator for SectionIterator<'_, I> {
@@ -257,6 +287,11 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<'_, I> {
                 // Skip blank lines at the start of a section
                 LineKind::Blank => {
                     continue;
+                }
+
+                LineKind::CodeBlock { ref language } => {
+                    let language = language.clone();
+                    return Some(self.process_codeblock(first, language));
                 }
 
                 // All other line types get aggregated into text sections
