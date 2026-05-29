@@ -334,6 +334,7 @@ pub enum Event {
         id: String,
         url: String,
     },
+    CodeLoaded(DocumentId, usize, ratatui::prelude::Text<'static>),
 }
 
 impl Display for Event {
@@ -367,6 +368,9 @@ impl Display for Event {
                         .map(|(text, _, _)| text.clone())
                         .unwrap_or_default()
                 )
+            }
+            Event::CodeLoaded(document_id, section_id, _text) => {
+                write!(f, "Event::CodeLoaded({document_id}, {section_id}, <code>)",)
             }
             Event::ReferenceDefinition { id, url } => {
                 write!(f, "Event::ReferenceDefinition {{ id: {id}, url: {url} }}")

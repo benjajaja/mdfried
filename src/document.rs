@@ -483,6 +483,7 @@ pub enum SectionContent {
     Header(String, u8, Option<Protocol>),
     HeaderPlaceholder(String, u8, Vec<(Line<'static>, Vec<LineExtra>)>),
     Lines(Vec<(Line<'static>, Vec<LineExtra>)>),
+    Code(String, Vec<(Line<'static>, Vec<LineExtra>)>),
 }
 
 impl SectionContent {
@@ -557,6 +558,9 @@ impl Debug for SectionContent {
                 }
                 tuple.finish()
             }
+            Self::Code(language, lines) => {
+                f.debug_tuple("Code").field(language).field(lines).finish()
+            }
         }
     }
 }
@@ -573,6 +577,7 @@ impl Display for SectionContent {
             Self::Lines(lines) => write!(f, "Line({lines:?})"),
             Self::Header(text, tier, _) => write!(f, "Header({text}, {tier})"),
             Self::HeaderPlaceholder(_, _, lines) => write!(f, "HeaderPlaceholder({lines:?})"),
+            Self::Code(language, lines) => write!(f, "Code({language}, {lines:?})"),
         }
     }
 }
@@ -602,6 +607,16 @@ impl Display for Section {
                 write!(f, "{} {}", "#".repeat(*tier as usize), text)
             }
             SectionContent::HeaderPlaceholder(_, _, lines) => {
+                for (i, (line, _)) in lines.iter().enumerate() {
+                    if i > 0 {
+                        writeln!(f)?;
+                    }
+                    write!(f, "{}", line)?;
+                }
+                Ok(())
+            }
+            SectionContent::Code(language, lines) => {
+                write!(f, "```{language}")?;
                 for (i, (line, _)) in lines.iter().enumerate() {
                     if i > 0 {
                         writeln!(f)?;

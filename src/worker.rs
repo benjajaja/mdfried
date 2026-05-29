@@ -18,7 +18,10 @@ use std::{
     thread::{self, JoinHandle},
 };
 
+use ansi_to_tui::IntoText as _;
+use arborium::AnsiHighlighter;
 use cosmic_text::fontdb::Database;
+use itertools::Itertools as _;
 use mdfrier::MdFrier;
 use ratatui::layout::Size;
 use ratatui_image::{picker::Picker, sliced::SlicedProtocol};
@@ -131,6 +134,11 @@ pub fn worker_thread(
                                     }
                                     event_tx.send(Event::Parsed(document_id, section))?;
                                 }
+                                SectionContent::Code(language, lines) => {
+                                    log::debug!("code: {language}");
+                                    post_parse_events.push(SectionEvent::Code(section.id, language.clone(), lines.iter().map(|(line,_)| line.clone()).collect()));
+                                    event_tx.send(Event::Parsed(document_id, section))?;
+                                }
                                 SectionContent::Image(_, _,_,_) => {
                                     unreachable!("SectionIterator produced Image");
                                 }
@@ -210,6 +218,7 @@ pub fn worker_thread(
                                 SectionEvent::ReferenceDefinition { id, url } => {
                                     event_tx.send(Event::ReferenceDefinition { id: format!("[{id}]"), url: url.clone() })?;
                                 }
+                                _ => uncached_image_events.push(event),
                             }
                         }
 
@@ -324,6 +333,23 @@ fn process_image_events(
                     task_tx.send(Event::HeaderLoaded(document_id, section_id, images))?;
                 }
                 SectionEvent::ReferenceDefinition { .. } => {}
+                SectionEvent::Code(section_id, language, lines) => {
+                    let theme = arborium::theme::builtin::catppuccin_mocha().clone();
+                    let mut hl = AnsiHighlighter::new(theme);
+                    let code = lines.into_iter().map(|line| line.to_string()).join("\n");
+                    let text = match hl
+                        .highlight(&language, &code)
+                        .map_err(Into::<Error>::into)
+                        .and_then(|colored| colored.into_text().map_err(Into::<Error>::into))
+                    {
+                        Err(err) => {
+                            log::warn!("code highlight error: {err}");
+                            continue;
+                        }
+                        Ok(c) => c,
+                    };
+                    task_tx.send(Event::CodeLoaded(document_id, section_id, text))?;
+                }
             }
         }
         Ok::<(), Error>(())

@@ -44,7 +44,7 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
             continue;
         }
         match &section.content {
-            SectionContent::Lines(lines) | SectionContent::Code { code: lines } => {
+            SectionContent::Lines(lines) | SectionContent::Code(_, lines) => {
                 section_lines(
                     lines,
                     buf,
@@ -55,17 +55,6 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
                     section.id,
                 );
             }
-            // SectionContent::Code { language, code } => {
-            // section_lines(
-            // code,
-            // buf,
-            // &mut y,
-            // inner_area,
-            // model,
-            // &selected_url,
-            // section.id,
-            // );
-            // }
             SectionContent::Image(_markdown_link, sliced_proto, size, _max_size) => {
                 // TODO: just fix up inner_area at once
                 let mut inner_area = inner_area;

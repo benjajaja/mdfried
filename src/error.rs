@@ -31,6 +31,7 @@ pub enum Error {
     Notify(notify::Error),
     MarkdownParse,
     UrlParse(Option<url::ParseError>),
+    CodeHighlight(String),
     // Do not overuse this one!
     Generic(String),
 }
@@ -64,6 +65,7 @@ impl fmt::Display for Error {
                 Some(err) => write!(f, "URL parsing failed: {err}"),
                 None => write!(f, "URL parsing failed"),
             },
+            Error::CodeHighlight(err) => write!(f, "Code highlight error: {err}"),
             Error::Generic(msg) => write!(f, "Generic error: {msg}"),
         }
     }
@@ -171,5 +173,17 @@ impl From<mdfrier::MarkdownParseError> for Error {
 impl From<url::ParseError> for Error {
     fn from(value: url::ParseError) -> Self {
         Self::UrlParse(Some(value))
+    }
+}
+
+impl From<arborium::Error> for Error {
+    fn from(value: arborium::Error) -> Self {
+        Self::CodeHighlight(format!("{value}"))
+    }
+}
+
+impl From<ansi_to_tui::Error> for Error {
+    fn from(value: ansi_to_tui::Error) -> Self {
+        Self::CodeHighlight(format!("{value}"))
     }
 }

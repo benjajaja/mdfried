@@ -21,6 +21,7 @@ pub enum SectionEvent {
     Image(SectionID, MarkdownLink),
     Header(SectionID, String, u8),
     ReferenceDefinition { id: String, url: String },
+    Code(SectionID, String, Vec<ratatui::prelude::Line<'static>>),
 }
 
 /// Iterator that groups lines into sections and renders them.
@@ -120,7 +121,7 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
         while let Some(peeked) = self.inner.peek() {
             match &peeked.kind {
                 // Stop aggregating at headers or images
-                LineKind::Header(_) | LineKind::Image { .. } => break,
+                LineKind::Header(_) | LineKind::Image { .. } | LineKind::CodeBlock { .. } => break,
                 // Continue aggregating all other lines (including blanks)
                 _ => {
                     let line = self.inner.next().expect("peeked value should exist");
@@ -238,18 +239,15 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
         let (ratatui_line, _) = render_line(first, self.theme);
         let mut lines = vec![ratatui_line];
 
-        // Aggregate consecutive non-header, non-image lines
+        // Aggregate consecutive code lines
         while let Some(peeked) = self.inner.peek() {
             match &peeked.kind {
-                // Stop aggregating at headers or images
                 LineKind::CodeBlock {
                     language: next_language,
-                } => {
-                    if *next_language == language {
-                        let line = self.inner.next().expect("peeked value should exist");
-                        let (ratatui_line, _) = render_line(line, self.theme);
-                        lines.push(ratatui_line);
-                    }
+                } if *next_language == language => {
+                    let line = self.inner.next().expect("peeked value should exist");
+                    let (ratatui_line, _) = render_line(line, self.theme);
+                    lines.push(ratatui_line);
                 }
                 _ => {
                     break;
@@ -257,10 +255,13 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
             }
         }
 
+        let height = lines.len() as u16;
         let id = self.next_section_id();
+        let lines = lines.into_iter().map(|line| (line, Vec::new())).collect();
         Section {
             id,
-            height: lines.len() as u16,
+            height,
+            content: SectionContent::Code(language, lines),
         }
     }
 }
@@ -289,6 +290,7 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<'_, I> {
                     continue;
                 }
 
+                #[expect(clippy::ref_patterns)]
                 LineKind::CodeBlock { ref language } => {
                     let language = language.clone();
                     return Some(self.process_codeblock(first, language));

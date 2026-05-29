@@ -301,6 +301,22 @@ impl Model {
                 Event::NewSourceContent(text) => {
                     self.open_new_source(self.document_source.read()?, text)?;
                 }
+                Event::CodeLoaded(document_id, section_id, text) => {
+                    if !self.document_id.is_same_document(&document_id) {
+                        log::debug!("stale event, ignoring");
+                        continue;
+                    }
+                    let lines: Vec<_> = text
+                        .lines
+                        .into_iter()
+                        .map(|line| (line, Vec::new()))
+                        .collect();
+                    self.document.update(vec![Section {
+                        id: section_id,
+                        height: lines.len() as u16,
+                        content: SectionContent::Lines(lines),
+                    }])
+                }
             }
         }
         Ok((had_events, had_done, had_reload))
