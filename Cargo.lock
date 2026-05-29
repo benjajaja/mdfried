@@ -119,6 +119,59 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
 
 [[package]]
+name = "arborium"
+version = "2.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66464d43ce8ad5a81f59a9dac02d33dfe384e8fe9cd334fc607a0b81699d2594"
+dependencies = [
+ "arborium-highlight",
+ "arborium-theme",
+ "arborium-tree-sitter",
+ "dlmalloc",
+]
+
+[[package]]
+name = "arborium-highlight"
+version = "2.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3e19dccfe05568006e5919b0e157695fb4c90a6a4c07582b51454e0c85c4365"
+dependencies = [
+ "arborium-theme",
+ "arborium-tree-sitter",
+ "streaming-iterator",
+]
+
+[[package]]
+name = "arborium-sysroot"
+version = "2.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "260e0358abe4ede3af8b4df7a311bc9b6e4a60e4bd50af16deddfcd13759a908"
+dependencies = [
+ "cc",
+ "dlmalloc",
+]
+
+[[package]]
+name = "arborium-theme"
+version = "2.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "747d16e6679f93cd84e7a9e8e47bec0055eb900fd3caaa3f3c2bbb31286e6c8d"
+
+[[package]]
+name = "arborium-tree-sitter"
+version = "2.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4879b6a79798d45d29d54bf000fd4d1b88a8e654e0b0cb762ac402944129233b"
+dependencies = [
+ "arborium-sysroot",
+ "cc",
+ "regex",
+ "regex-syntax",
+ "streaming-iterator",
+ "tree-sitter-language",
+]
+
+[[package]]
 name = "arg_enum_proc_macro"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -877,6 +930,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.111",
+]
+
+[[package]]
+name = "dlmalloc"
+version = "0.2.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad5208a115eaba24916f7456929832e310a81518c641f93fee4f89aa93aa3675"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2005,6 +2069,7 @@ dependencies = [
 name = "mdfried"
 version = "0.20.3"
 dependencies = [
+ "arborium",
  "bitflags 2.10.0",
  "clap",
  "color-eyre",
@@ -2033,8 +2098,6 @@ dependencies = [
  "serde",
  "textwrap",
  "tokio",
- "tree-sitter",
- "tree-sitter-md",
  "unicode-width",
  "url",
  "what-terminal-font",
@@ -2044,6 +2107,7 @@ dependencies = [
 name = "mdfrier"
 version = "3.0.2"
 dependencies = [
+ "arborium-tree-sitter",
  "bitflags 2.10.0",
  "insta",
  "log",
@@ -2051,7 +2115,6 @@ dependencies = [
  "ratatui",
  "regex",
  "textwrap",
- "tree-sitter",
  "tree-sitter-md",
  "unicode-width",
 ]
@@ -3334,7 +3397,6 @@ version = "1.0.146"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "217ca874ae0207aac254aa02c957ded05585a90892cc8d87f9e5fa49669dadd8"
 dependencies = [
- "indexmap",
  "itoa",
  "memchr",
  "ryu",
@@ -4075,20 +4137,6 @@ dependencies = [
  "sharded-slab",
  "thread_local",
  "tracing-core",
-]
-
-[[package]]
-name = "tree-sitter"
-version = "0.26.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "974d205cc395652cfa8b37daa053fe56eebd429acf8dc055503fee648dae981e"
-dependencies = [
- "cc",
- "regex",
- "regex-syntax",
- "serde_json",
- "streaming-iterator",
- "tree-sitter-language",
 ]
 
 [[package]]

@@ -17,7 +17,7 @@ bitflags = "2.10.0"
 log = { optional = true, version = "0.4.28" }
 regex = "1"
 textwrap = "0.16.2"
-tree-sitter = "0.26"
+tree-sitter = { package = "arborium-tree-sitter", version = "2.17.0" }
 tree-sitter-md = "0.5"
 unicode-width = "0.2.2"
 
