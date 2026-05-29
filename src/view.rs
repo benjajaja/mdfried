@@ -2,7 +2,7 @@ use unicode_width::UnicodeWidthStr as _;
 
 use ratatui::{
     buffer::Buffer,
-    layout::Rect,
+    layout::{Position, Rect},
     style::{Color, Stylize as _},
     text::{Line, Span},
     widgets::{Block, Paragraph, Widget},
@@ -21,7 +21,7 @@ use crate::{
     model::{InputQueue, Model},
 };
 
-pub fn view(model: &Model, buf: &mut Buffer) {
+pub fn view(model: &Model, buf: &mut Buffer) -> Position {
     let inner_area = {
         let frame_area = *buf.area();
         let padding = model.block_padding(frame_area);
@@ -180,6 +180,7 @@ pub fn view(model: &Model, buf: &mut Buffer) {
     }
 
     let status_line_y = inner_area.height - 1;
+    let mut cursor_position = Position::from((0, buf.area.height - 1));
     match &model.input_queue {
         InputQueue::None => match &model.cursor {
             Cursor::None => {}
@@ -219,6 +220,7 @@ pub fn view(model: &Model, buf: &mut Buffer) {
             let width = line.width() as u16;
             let searchbar = Paragraph::new(line);
             searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
+            cursor_position.x = width;
         }
         InputQueue::MovementCount(movement_count) => {
             let movement_count = movement_count.get();
@@ -231,12 +233,14 @@ pub fn view(model: &Model, buf: &mut Buffer) {
             let width = line.width() as u16;
             let searchbar = Paragraph::new(line);
             searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
+            cursor_position.x = width;
         }
         InputQueue::CursorPositioningCommands => {
             let line = Line::from(Span::from("z").fg(Color::Indexed(32)));
             let width = line.width() as u16;
             let searchbar = Paragraph::new(line);
             searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
+            cursor_position.x = width;
         }
         InputQueue::Command(command) => {
             let mut line = Line::default();
@@ -246,8 +250,10 @@ pub fn view(model: &Model, buf: &mut Buffer) {
             let width = line.width() as u16;
             let searchbar = Paragraph::new(line);
             searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
+            cursor_position.x = width;
         }
-    }
+    };
+    cursor_position
 }
 
 fn render_lines<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, buf: &mut Buffer) {

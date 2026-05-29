@@ -28,11 +28,14 @@ use crate::{
 /// movement speed is consistent, and there is also no other "input buildup".
 pub fn run_loop(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), Error> {
     // Quick, say hi!
-    terminal.draw(|frame| view(&model, frame.buffer_mut()))?;
+    terminal.draw(|frame| {
+        let cursor_position = view(&model, frame.buffer_mut());
+        frame.set_cursor_position(cursor_position);
+    })?;
 
     // Send the buffer back and forth to avoid allocating every frame, also serves as "dropped"
     // signal, when not returned already.
-    let (buf_in_tx, buf_in_rx) = mpsc::sync_channel::<Buffer>(1);
+    let (buf_in_tx, buf_in_rx) = mpsc::sync_channel::<(Buffer, Position)>(1);
     let (buf_out_tx, buf_out_rx) = mpsc::sync_channel::<Buffer>(1);
     buf_out_tx
         .send(Buffer::empty(model.screen_size.into()))
@@ -74,8 +77,8 @@ pub fn run_loop(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), E
                 }
             };
 
-            view(&model, &mut buf);
-            if let Err(err) = buf_in_tx.try_send(buf) {
+            let cursor_position = view(&model, &mut buf);
+            if let Err(err) = buf_in_tx.try_send((buf, cursor_position)) {
                 match err {
                     TrySendError::Full(_) => {
                         // How did we get here?
@@ -101,12 +104,11 @@ pub fn run_loop(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), E
 
 fn render(
     mut terminal: DefaultTerminal,
-    buf_in: Receiver<Buffer>,
+    buf_in: Receiver<(Buffer, Position)>,
     buf_out: SyncSender<Buffer>,
 ) -> Result<(), Error> {
-    while let Ok(mut buf) = buf_in.recv() {
+    while let Ok((mut buf, cursor_position)) = buf_in.recv() {
         terminal.draw(|frame| {
-            let cursor_position = Position::from((0, buf.area.height - 1));
             std::mem::swap(frame.buffer_mut(), &mut buf);
             frame.set_cursor_position(cursor_position);
         })?;

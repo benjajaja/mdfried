@@ -505,14 +505,20 @@ Goodbye."#,
             .unwrap();
         poll_parsed(&mut model);
         terminal
-            .draw(|frame| view(&model, frame.buffer_mut()))
+            .draw(|frame| {
+                let cursor_position = view(&model, frame.buffer_mut());
+                frame.set_cursor_position(cursor_position);
+            })
             .unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("first parse image previews", terminal.backend());
         // Must load an image.
         poll_images_done(&mut model);
         terminal
-            .draw(|frame| view(&model, frame.buffer_mut()))
+            .draw(|frame| {
+                let cursor_position = view(&model, frame.buffer_mut());
+                frame.set_cursor_position(cursor_position);
+            })
             .unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("first parse done", terminal.backend());
@@ -559,7 +565,10 @@ Goodbye."#,
         poll_parsed(&mut model);
         log::debug!("poll_parsed before failing done");
         terminal
-            .draw(|frame| view(&model, frame.buffer_mut()))
+            .draw(|frame| {
+                let cursor_position = view(&model, frame.buffer_mut());
+                frame.set_cursor_position(cursor_position);
+            })
             .unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("reload move image up", terminal.backend());
@@ -579,7 +588,10 @@ Goodbye."#,
             .unwrap();
         poll_parsed(&mut model);
         terminal
-            .draw(|frame| view(&model, frame.buffer_mut()))
+            .draw(|frame| {
+                let cursor_position = view(&model, frame.buffer_mut());
+                frame.set_cursor_position(cursor_position);
+            })
             .unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("reload move image down", terminal.backend());
@@ -626,14 +638,20 @@ Goodbye."#,
             .unwrap();
         poll_parsed(&mut model);
         terminal
-            .draw(|frame| view(&model, frame.buffer_mut()))
+            .draw(|frame| {
+                let cursor_position = view(&model, frame.buffer_mut());
+                frame.set_cursor_position(cursor_position);
+            })
             .unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("reload add image preview", terminal.backend());
         // Must load an image.
         poll_images_done(&mut model);
         terminal
-            .draw(|frame| view(&model, frame.buffer_mut()))
+            .draw(|frame| {
+                let cursor_position = view(&model, frame.buffer_mut());
+                frame.set_cursor_position(cursor_position);
+            })
             .unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("reload add image done", terminal.backend());
@@ -677,14 +695,20 @@ Goodbye.
             .unwrap();
         poll_parsed(&mut model);
         terminal
-            .draw(|frame| view(&model, frame.buffer_mut()))
+            .draw(|frame| {
+                let cursor_position = view(&model, frame.buffer_mut());
+                frame.set_cursor_position(cursor_position);
+            })
             .unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("duplicate image preview", terminal.backend());
         // Must load an image.
         poll_images_done(&mut model);
         terminal
-            .draw(|frame| view(&model, frame.buffer_mut()))
+            .draw(|frame| {
+                let cursor_position = view(&model, frame.buffer_mut());
+                frame.set_cursor_position(cursor_position);
+            })
             .unwrap();
         #[cfg(not(target_os = "macos"))]
         assert_snapshot!("duplicate image done", terminal.backend());
@@ -710,7 +734,10 @@ Line that should be broken up later
             .unwrap();
         poll_parsed(&mut model);
         terminal
-            .draw(|frame| view(&model, frame.buffer_mut()))
+            .draw(|frame| {
+                let cursor_position = view(&model, frame.buffer_mut());
+                frame.set_cursor_position(cursor_position);
+            })
             .unwrap();
 
         let sections: Vec<&Section> = model.sections().collect();
@@ -734,7 +761,10 @@ Line that should be broken up later
         model.reload(Size::new(20, 20)).unwrap();
         poll_parsed(&mut model);
         terminal
-            .draw(|frame| view(&model, frame.buffer_mut()))
+            .draw(|frame| {
+                let cursor_position = view(&model, frame.buffer_mut());
+                frame.set_cursor_position(cursor_position);
+            })
             .unwrap();
 
         let sections: Vec<&Section> = model.sections().collect();
