@@ -135,7 +135,7 @@ pub fn wrap_md_spans_lines<M: Mapper>(
 
             // Split once with "remaining width" (`width - line_width`), to append the first part
             // onto the current line (if any, otherwise would just make a new line).
-            let mut remaining_width = width - line_width;
+            let mut remaining_width = width.saturating_sub(line_width);
             if remaining_width == 0 {
                 lines.push(std::mem::take(&mut line));
                 remaining_width = width;

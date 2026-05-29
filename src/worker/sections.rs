@@ -285,11 +285,6 @@ impl<I: Iterator<Item = Line>> Iterator for SectionIterator<'_, I> {
                     return Some(self.process_image(first, link));
                 }
 
-                // Skip blank lines at the start of a section
-                LineKind::Blank => {
-                    continue;
-                }
-
                 #[expect(clippy::ref_patterns)]
                 LineKind::CodeBlock { ref language } => {
                     let language = language.clone();
