@@ -2042,7 +2042,7 @@ dependencies = [
 
 [[package]]
 name = "mdfrier"
-version = "3.0.1"
+version = "3.0.2"
 dependencies = [
  "bitflags 2.10.0",
  "insta",
