@@ -216,7 +216,7 @@ impl Model {
         while let Ok(event) = self.event_rx.try_recv() {
             had_events = true;
 
-            if !matches!(event, Event::Parsed(_, _)) {
+            if !matches!(event, Event::Parsed(..) | Event::CodeLoaded(..)) {
                 log::debug!("{event}");
             }
 

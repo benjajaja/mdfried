@@ -284,8 +284,10 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     }
     crossterm::terminal::disable_raw_mode()?;
 
-    if let Err(e) = cmd_thread.join() {
-        eprintln!("Thread error: {e:?}");
+    match cmd_thread.join() {
+        Err(e) => eprintln!("Worker thread panic: {e:?}"),
+        Ok(Err(e)) => eprintln!("Worker thread error: {e}"),
+        _ => {}
     }
     Ok(())
 }
@@ -369,8 +371,12 @@ impl Display for Event {
                         .unwrap_or_default()
                 )
             }
-            Event::CodeLoaded(document_id, section_id, _text) => {
-                write!(f, "Event::CodeLoaded({document_id}, {section_id}, <code>)",)
+            Event::CodeLoaded(document_id, section_id, text) => {
+                write!(
+                    f,
+                    "Event::CodeLoaded({document_id}, {section_id}, {}...)",
+                    text.to_string().chars().take(10).collect::<String>()
+                )
             }
             Event::ReferenceDefinition { id, url } => {
                 write!(f, "Event::ReferenceDefinition {{ id: {id}, url: {url} }}")
