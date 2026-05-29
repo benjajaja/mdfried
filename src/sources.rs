@@ -28,7 +28,7 @@ pub enum DocumentSource {
     HyperText {
         url: Url,
     },
-    BuiltInHelp,
+    BuiltIn(&'static str),
 }
 impl DocumentSource {
     pub fn return_text(self, returned_text: String) -> Option<Self> {

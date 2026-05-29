@@ -394,7 +394,7 @@ impl Model {
         match self.document_source.read()? {
             source @ DocumentSource::File { .. }
             | source @ DocumentSource::Stdin { .. }
-            | source @ DocumentSource::BuiltInHelp => {
+            | source @ DocumentSource::BuiltIn(_) => {
                 let url_as_path = Path::new(&link_url);
                 if url_as_path.extension() == Some(std::ffi::OsStr::new("md"))
                     && fs::exists(url_as_path).unwrap_or_default()
@@ -614,8 +614,15 @@ impl Model {
     pub fn user_command_str(&mut self, command: String) -> Result<(), Error> {
         match command.as_str() {
             "help" => {
-                const HELP_MD: &str = include_str!("../assets/help.md");
-                self.open_new_source(DocumentSource::BuiltInHelp, String::from(HELP_MD))
+                const HELP_MD: &str = include_str!("../assets/docs/help.md");
+                self.open_new_source(DocumentSource::BuiltIn("help"), String::from(HELP_MD))
+            }
+            "changelog" => {
+                const CHANGELOG_MD: &str = include_str!("../assets/docs/CHANGELOG.md");
+                self.open_new_source(
+                    DocumentSource::BuiltIn("changelog"),
+                    String::from(CHANGELOG_MD),
+                )
             }
             "back" => self.history_pop(),
             _ => Err(Error::Generic("unknown command: {command}".to_owned())),
@@ -623,7 +630,7 @@ impl Model {
     }
 
     pub fn is_help_screen(&self) -> Result<bool, Error> {
-        Ok(self.document_source.read()? == DocumentSource::BuiltInHelp)
+        Ok(self.document_source.read()? == DocumentSource::BuiltIn("help"))
     }
 }
 

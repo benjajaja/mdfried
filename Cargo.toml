@@ -11,7 +11,7 @@ repository = "https://github.com/benjajaja/mdfried"
 homepage = "https://github.com/benjajaja/mdfried"
 readme = "README.md"
 license = "GPL-3.0-or-later"
-exclude = ["assets/*", "!assets/help.md"]
+exclude = ["assets/*", "!assets/docs"]
 rust-version = "1.86.0"
 
 [features]
@@ -76,7 +76,7 @@ opt-level = 3
 
 [workspace.metadata.release]
 pre-release-replacements = [
-  {file="CHANGELOG.md", search="## \\[Unreleased\\]", replace="## [Unreleased]\n\n## [{{version}}] - {{date}}", exactly=1},
+  {file="assets/docs/CHANGELOG.md", search="## \\[Unreleased\\]", replace="## [Unreleased]\n\n## [{{version}}] - {{date}}", exactly=1},
 ]
 
 [lints.rust]

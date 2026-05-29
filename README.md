@@ -79,7 +79,7 @@ See `--help` for all options.
 The keybindings should follow the basics of general CLI pagers. Vi-style keybindings are 
 prioritized, but "normal" keys should be usable as well.
 
-Type `:help` in the program to see the exact list, or see [assets/help.md](assets/help.md).
+Type `:help` in the program to see the exact list, or see [assets/docs/help.md](assets/docs/help.md).
 
 Mouse scroll only works if enabled in settings as `enable_mouse_capture = true`, but then you can't select text (in most terminals).
 
@@ -91,4 +91,4 @@ Mouse scroll only works if enabled in settings as `enable_mouse_capture = true`,
 
 ### Changelog
 
-See [CHANGELOG.md](./CHANGELOG.md).
+See [CHANGELOG.md](./assets/docs/CHANGELOG.md).

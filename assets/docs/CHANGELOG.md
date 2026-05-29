@@ -12,7 +12,7 @@
 
 ### Added
 - Render thread, mitigates slow terminal sixel or iterm2 rendering.
-- `:help` command that displays `assets/help.md`.
+- `:help` command that displays `assets/docs/help.md`.
 - Track document history, `:back` command to go back to previous.
 - Link references, or reference-style links, e.g. `Text[1]` and then `[1]: url`.
 - Links in headers produce additional lines with the links below.
