@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Changed
+- Soft breaks, or normal line breaks preceded with less than two spaces, are no longer treated as
+  hard breaks, except in list items or blockquotes or code blocks. The lines are joined with a 
+  single whitespace, like most markdown renderers do.
+- Simplified `--log` argument, replaces `--log-to-stderr`.
+
 ### Added
 - Render thread, mitigates slow terminal sixel or iterm2 rendering.
 - `:help` command that displays `assets/help.md`.
@@ -13,6 +19,7 @@
 - Resizing on `stdin` source (piped).
 - Rendering stale (wrong sized) header images after resizing.
 - Do not render on navigation events if the scroll did not change.
+- Links no longer open on the system (browser) in addition to being navigated to.
 
 ## [0.20.2] - 2026-05-15
 
