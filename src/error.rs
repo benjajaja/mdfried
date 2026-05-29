@@ -11,7 +11,7 @@ use flexi_logger::FlexiLoggerError;
 use image::ImageError;
 use tokio::task::JoinError;
 
-use crate::{Cmd, Event, config, setup::FontRenderer};
+use crate::{Cmd, Event, config, setup::FontRenderer, worker::highlighter::Highlighter};
 
 #[derive(Debug)]
 pub enum Error {
@@ -142,6 +142,12 @@ impl From<JoinError> for Error {
 
 impl From<PoisonError<std::sync::MutexGuard<'_, Box<FontRenderer>>>> for Error {
     fn from(err: PoisonError<std::sync::MutexGuard<'_, Box<FontRenderer>>>) -> Self {
+        Self::Thread(format!("PoisonError: {err}"))
+    }
+}
+
+impl From<PoisonError<std::sync::MutexGuard<'_, Highlighter>>> for Error {
+    fn from(err: PoisonError<std::sync::MutexGuard<'_, Highlighter>>) -> Self {
         Self::Thread(format!("PoisonError: {err}"))
     }
 }

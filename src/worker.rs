@@ -7,6 +7,7 @@
 //!
 //! For example, text search could benefit from running in the worker, but it's not clear how the
 //! text should then actually be shared.
+pub mod highlighter;
 pub mod sections;
 
 use std::{
@@ -18,10 +19,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 
-use ansi_to_tui::IntoText as _;
-use arborium::AnsiHighlighter;
 use cosmic_text::fontdb::Database;
-use itertools::Itertools as _;
 use mdfrier::MdFrier;
 use ratatui::layout::Size;
 use ratatui_image::{picker::Picker, sliced::SlicedProtocol};
@@ -38,7 +36,10 @@ use crate::{
     model::DocumentId,
     setup::FontRenderer,
     sources::{SharedDocumentSource, open_source},
-    worker::sections::{SectionEvent, SectionIterator},
+    worker::{
+        highlighter::Highlighter,
+        sections::{SectionEvent, SectionIterator},
+    },
 };
 
 #[expect(clippy::too_many_arguments)]
@@ -103,6 +104,8 @@ pub fn worker_thread(
                 });
             #[cfg(not(feature = "svg"))]
             let fontdb = None;
+
+            let highlighter = Arc::new(std::sync::Mutex::new(Highlighter::new(&theme)));
 
             // Specifically not a tokio Mutex, because we use it in spawn_blocking.
             let thread_renderer =
@@ -232,6 +235,7 @@ pub fn worker_thread(
                                 thread_picker.clone(),
                                 thread_renderer.clone(),
                                 fontdb.clone(),
+                                highlighter.clone(),
                                 width,
                                 config_max_image_height,
                                 deep_fry,
@@ -266,6 +270,7 @@ fn process_image_events(
     picker: Arc<Picker>,
     font_renderer: Option<Arc<std::sync::Mutex<Box<FontRenderer>>>>,
     fontdb: Option<Arc<Database>>,
+    highlighter: Arc<std::sync::Mutex<Highlighter>>,
     width: u16,
     config_max_image_height: u16,
     deep_fry: bool,
@@ -334,20 +339,26 @@ fn process_image_events(
                 }
                 SectionEvent::ReferenceDefinition { .. } => {}
                 SectionEvent::Code(section_id, language, lines) => {
-                    let theme = arborium::theme::builtin::catppuccin_mocha().clone();
-                    let mut hl = AnsiHighlighter::new(theme);
-                    let code = lines.into_iter().map(|line| line.to_string()).join("\n");
-                    let text = match hl
-                        .highlight(&language, &code)
-                        .map_err(Into::<Error>::into)
-                        .and_then(|colored| colored.into_text().map_err(Into::<Error>::into))
-                    {
-                        Err(err) => {
-                            log::warn!("code highlight error: {err}");
-                            continue;
-                        }
-                        Ok(c) => c,
-                    };
+                    let highlighter = highlighter.clone();
+                    let text = tokio::task::spawn_blocking(move || {
+                        let mut hl = highlighter.lock()?;
+                        hl.highlight(&language, lines)
+                    })
+                    .await??;
+                    // let theme = arborium::theme::builtin::catppuccin_mocha().clone();
+                    // let mut hl = AnsiHighlighter::new(theme);
+                    // let code = lines.into_iter().map(|line| line.to_string()).join("\n");
+                    // let text = match hl
+                    // .highlight(&language, &code)
+                    // .map_err(Into::<Error>::into)
+                    // .and_then(|colored| colored.into_text().map_err(Into::<Error>::into))
+                    // {
+                    // Err(err) => {
+                    // log::warn!("code highlight error: {err}");
+                    // continue;
+                    // }
+                    // Ok(c) => c,
+                    // };
                     task_tx.send(Event::CodeLoaded(document_id, section_id, text))?;
                 }
             }
