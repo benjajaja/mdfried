@@ -199,6 +199,8 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             _ => ProtocolType::Halfblocks,
         }));
 
+    crossterm::terminal::enable_raw_mode()?;
+
     let (picker, renderer, has_text_size_protocol) = {
         let setup_result = setup_graphics(
             &mut user_config,
@@ -253,7 +255,6 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         config_max_image_height,
     );
 
-    crossterm::terminal::enable_raw_mode()?;
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
     let enable_mouse_capture = config.enable_mouse_capture;
