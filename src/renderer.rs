@@ -99,7 +99,9 @@ pub fn run_loop(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), E
     drop(buf_in_tx); // Must drop before joining the threads!
     render_thread
         .join()
-        .map_err(|err| Error::Thread(format!("{err:?}")))?
+        .map_err(|err| Error::Thread(format!("{err:?}")))??;
+
+    Ok(())
 }
 
 fn render(

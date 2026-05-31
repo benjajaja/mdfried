@@ -20,11 +20,12 @@ use std::{
 };
 
 use cosmic_text::fontdb::Database;
+use itertools::Itertools;
 use mdfrier::MdFrier;
 use ratatui::layout::Size;
 use ratatui_image::{picker::Picker, sliced::SlicedProtocol};
 use reqwest::Client;
-use tokio::{runtime::Builder, sync::RwLock};
+use tokio::{runtime::Builder, sync::RwLock, task::JoinSet};
 
 use crate::{
     Cmd, Event, Protocol, VERSION,
@@ -32,7 +33,7 @@ use crate::{
     document::{
         LineExtra, LinkReference, SectionContent, header_images, header_sections, image_section,
     },
-    error::Error,
+    error::{Error, ThreadClosedError},
     model::DocumentId,
     setup::FontRenderer,
     sources::{SharedDocumentSource, open_source},
@@ -58,7 +59,7 @@ pub fn worker_thread(
             .worker_threads(2)
             .enable_all()
             .build()?;
-        runtime.block_on(async {
+        let fut = runtime.block_on(async {
 
             let builder = Client::builder().user_agent(format!(
                 "mdfried/{}",
@@ -175,7 +176,7 @@ pub fn worker_thread(
 
                         // Send cached images synchronously before ParseDone
                         let mut image_cache = image_cache.unwrap_or_default();
-                        let mut uncached_image_events = Vec::new();
+                        let mut uncached_post_parse_events = Vec::new();
                         for event in post_parse_events {
                             match &event {
                                 SectionEvent::Image(
@@ -193,11 +194,11 @@ pub fn worker_thread(
                                             log::debug!("image cache hit: {max_size:?} vs {width}x{config_max_image_height}, {size:?}, {}", link.url);
                                         } else {
                                             log::debug!("image cache hit but different max width ({width}x{config_max_image_height} vs {max_size}): {size:?}, {}", link.url);
-                                            uncached_image_events.push(event);
+                                            uncached_post_parse_events.push(event);
                                         }
                                     } else {
                                         log::debug!("image cache miss: {}", link.url);
-                                        uncached_image_events.push(event);
+                                        uncached_post_parse_events.push(event);
                                     }
                                 }
                                 SectionEvent::Header(section_id, text, tier) => {
@@ -214,20 +215,20 @@ pub fn worker_thread(
                                         ))?;
                                     } else {
                                         log::debug!("header cache miss: {key:?}");
-                                        uncached_image_events.push(event);
+                                        uncached_post_parse_events.push(event);
                                     }
                                 }
                                 SectionEvent::ReferenceDefinition { id, url } => {
                                     event_tx.send(Event::ReferenceDefinition { id: format!("[{id}]"), url: url.clone() })?;
                                 }
-                                _ => uncached_image_events.push(event),
+                                _ => uncached_post_parse_events.push(event),
                             }
                         }
 
                         event_tx.send(Event::ParseDone(document_id, section_id, text))?;
 
-                        if !uncached_image_events.is_empty() {
-                            process_image_events(
+                        if !uncached_post_parse_events.is_empty() {
+                            process_post_parse_events(
                                 event_tx.clone(),
                                 document_source.clone(),
                                 client.clone(),
@@ -239,7 +240,7 @@ pub fn worker_thread(
                                 config_max_image_height,
                                 deep_fry,
                                 document_id,
-                                uncached_image_events,
+                                uncached_post_parse_events,
                             ).await?;
                         }
                     }
@@ -256,13 +257,19 @@ pub fn worker_thread(
                 }
             }
             Ok::<(), Error>(())
-        })?;
-        Ok::<(), Error>(())
+        });
+        match &fut {
+            Ok(()) => log::error!("worker runtime succeeded"),
+            Err(err) => log::error!("worker runtime error: {err}"),
+        }
+        log::debug!("goodbye!");
+        fut
+        // Ok::<(), Error>(())
     })
 }
 
 #[expect(clippy::too_many_arguments)]
-async fn process_image_events(
+async fn process_post_parse_events(
     task_tx: Sender<Event>,
     document_source: SharedDocumentSource,
     client: Arc<RwLock<Client>>,
@@ -276,97 +283,116 @@ async fn process_image_events(
     document_id: DocumentId,
     post_parse_events: Vec<SectionEvent>,
 ) -> Result<(), Error> {
+    log::debug!(
+        "process_post_parse_events: {}",
+        post_parse_events.iter().map(|e| format!("{e}")).join(", ")
+    );
     // TODO: handle spawned task result errors, right now it's just discarded.
-    let handle = tokio::spawn(async move {
-        for event in post_parse_events {
-            let result: Result<(), Error> = async {
-                match event {
-                    SectionEvent::Image(section_id, url) => {
-                        // Load fresh image
-                        match image_section(
-                            &picker,
-                            config_max_image_height,
-                            width,
-                            document_source.clone(),
-                            client.clone(),
-                            section_id,
-                            url,
-                            deep_fry,
-                            fontdb.clone(),
-                        )
-                        .await
-                        {
-                            Ok(section) => {
-                                let SectionContent::Image(link, protos, size, max_size) =
-                                    section.content
-                                else {
-                                    unreachable!(
-                                        "image_section should return SectionContent::Image"
-                                    );
-                                };
-                                task_tx.send(Event::ImageLoaded(
-                                    document_id,
-                                    section_id,
-                                    link,
-                                    (protos, size, max_size),
-                                ))?
-                            }
-                            Err(Error::ImageLoad(url, error)) => {
-                                log::warn!("ImageError {url}: {error}");
-                                task_tx.send(Event::ImageFailed(
-                                    document_id,
-                                    section_id,
-                                    url,
-                                    error,
-                                ))?
-                            }
-                            Err(err) => {
-                                log::error!("image_section error: {err}");
-                                // Leave the image line as-is (shows ![alt](url))
-                            }
+
+    let mut set: JoinSet<Result<(), Error>> = JoinSet::new();
+    for event in post_parse_events {
+        let task_tx = task_tx.clone();
+        let picker = picker.clone();
+        let client = client.clone();
+        let font_renderer = font_renderer.clone();
+        let fontdb = fontdb.clone();
+        let highlighter = highlighter.clone();
+        let document_source = document_source.clone();
+
+        set.spawn(async move {
+            match event {
+                SectionEvent::Image(section_id, url) => {
+                    // Load fresh image
+                    match image_section(
+                        &picker,
+                        config_max_image_height,
+                        width,
+                        document_source.clone(),
+                        client.clone(),
+                        section_id,
+                        url,
+                        deep_fry,
+                        fontdb.clone(),
+                    )
+                    .await
+                    {
+                        Ok(section) => {
+                            let SectionContent::Image(link, protos, size, max_size) =
+                                section.content
+                            else {
+                                unreachable!("image_section should return SectionContent::Image");
+                            };
+                            task_tx.send(Event::ImageLoaded(
+                                document_id,
+                                section_id,
+                                link,
+                                (protos, size, max_size),
+                            ))?
+                        }
+                        Err(Error::ImageLoad(url, error)) => {
+                            log::warn!("ImageError {url}: {error}");
+                            task_tx.send(Event::ImageFailed(document_id, section_id, url, error))?
+                        }
+                        Err(err) => {
+                            log::error!("image_section error: {err}");
+                            // Leave the image line as-is (shows ![alt](url))
                         }
                     }
-                    SectionEvent::Header(section_id, text, tier) => {
-                        log::debug!("SectionEvent::Header: {text}");
-                        let Some(font_renderer) = &font_renderer else {
-                            panic!(
-                                "should not have produced SectionEvent::Header without renderer"
-                            );
-                        };
-                        let font_renderer = font_renderer.clone();
-                        let images = tokio::task::spawn_blocking(move || {
-                            let mut r = font_renderer.lock()?;
-                            header_images(&mut r, width, text, tier, deep_fry)
-                        })
-                        .await??;
-                        let picker = picker.clone();
-                        let images = tokio::task::spawn_blocking(move || {
-                            header_sections(&picker, width, images, deep_fry)
-                        })
-                        .await??;
-                        task_tx.send(Event::HeaderLoaded(document_id, section_id, images))?;
-                    }
-                    SectionEvent::ReferenceDefinition { .. } => {}
-                    SectionEvent::Code(section_id, language, lines) => {
-                        let highlighter = highlighter.clone();
-                        let text = tokio::task::spawn_blocking(move || {
-                            let mut hl = highlighter.lock()?;
-                            hl.highlight(&language, lines)
-                        })
-                        .await??;
-                        task_tx.send(Event::CodeLoaded(document_id, section_id, text))?;
-                    }
                 }
-                Ok(())
+                SectionEvent::Header(section_id, text, tier) => {
+                    log::debug!("SectionEvent::Header: {text}");
+                    let Some(font_renderer) = &font_renderer else {
+                        panic!("should not have produced SectionEvent::Header without renderer");
+                    };
+                    let font_renderer = font_renderer.clone();
+                    let images = tokio::task::spawn_blocking(move || {
+                        let mut r = font_renderer.lock()?;
+                        header_images(&mut r, width, text, tier, deep_fry)
+                    })
+                    .await??;
+                    let picker = picker.clone();
+                    let images = tokio::task::spawn_blocking(move || {
+                        header_sections(&picker, width, images, deep_fry)
+                    })
+                    .await??;
+                    task_tx.send(Event::HeaderLoaded(document_id, section_id, images))?;
+                }
+                SectionEvent::ReferenceDefinition { .. } => {}
+                SectionEvent::Code(section_id, language, lines) => {
+                    let highlighter = highlighter.clone();
+                    let language_dbg = language.clone();
+                    log::debug!("spawn_blocking: {language_dbg}");
+                    let text = tokio::task::spawn_blocking(move || {
+                        let mut hl = highlighter.lock()?;
+                        hl.highlight(&language, lines)
+                    })
+                    .await??;
+                    log::debug!("spawn_blocking done: {language_dbg}");
+                    task_tx.send(Event::CodeLoaded(document_id, section_id, text))?;
+                }
             }
-            .await;
-            if let Err(e) = result {
-                log::error!("{e}");
+            Ok(())
+            // if let Err(e) = result {
+            // log::error!("{e}");
+            // }
+        });
+    }
+
+    while let Some(result) = set.join_next().await {
+        match result {
+            Ok(Ok(())) => {}
+            Err(e) => log::error!("process_post_parse_events join error: {e}"),
+            Ok(Err(e)) => {
+                if let Error::ThreadClosed(ThreadClosedError::SendEvent(_)) = e {
+                    log::error!("process_post_parse_events channel closed: {e}");
+                    return Err(e);
+                }
+                log::error!("process_post_parse_events task error: {e}")
             }
         }
-        Ok::<(), Error>(())
-    });
-    handle.await??;
+    }
+
+    log::debug!("process_post_parse_events done");
     Ok(())
 }
 

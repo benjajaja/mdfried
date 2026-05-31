@@ -24,6 +24,17 @@ pub enum SectionEvent {
     Code(SectionID, String, Vec<ratatui::prelude::Line<'static>>),
 }
 
+impl std::fmt::Display for SectionEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SectionEvent::Image(_, link) => write!(f, "Image({link})"),
+            SectionEvent::Header(_, text, level) => write!(f, "H{level}({text})"),
+            SectionEvent::ReferenceDefinition { id, url } => write!(f, "Ref({id} => {url})"),
+            SectionEvent::Code(_, lang, _) => write!(f, "Code({lang})"),
+        }
+    }
+}
+
 /// Iterator that groups lines into sections and renders them.
 pub struct SectionIterator<'a, I: Iterator<Item = Line>> {
     inner: Peekable<I>,

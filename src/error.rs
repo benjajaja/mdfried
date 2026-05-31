@@ -11,7 +11,7 @@ use flexi_logger::FlexiLoggerError;
 use image::ImageError;
 use tokio::task::JoinError;
 
-use crate::{Cmd, Event, config, setup::FontRenderer, worker::highlighter::Highlighter};
+use crate::{Cmd, Event, config};
 
 #[derive(Debug)]
 pub enum Error {
@@ -26,6 +26,7 @@ pub enum Error {
     Protocol(ratatui_image::errors::Errors),
     Download(reqwest::Error),
     NoFont,
+    ThreadClosed(ThreadClosedError),
     Thread(String),
     ImageLoad(String, String),
     Notify(notify::Error),
@@ -57,7 +58,8 @@ impl fmt::Display for Error {
             Error::Protocol(err) => write!(f, "Terminal graphics error: {err}"),
             Error::Download(err) => write!(f, "HTTP request error: {err}"),
             Error::NoFont => write!(f, "No font available"),
-            Error::Thread(msg) => write!(f, "Thread error: {msg}"),
+            Error::Thread(err) => err.fmt(f),
+            Error::ThreadClosed(err) => err.fmt(f),
             Error::ImageLoad(url, err) => write!(f, "Image error {url}: {err}"),
             Error::Notify(err) => write!(f, "Watch error: {err}"),
             Error::MarkdownParse => write!(f, "Markdown parsing failed"),
@@ -67,6 +69,21 @@ impl fmt::Display for Error {
             },
             Error::CodeHighlight(err) => write!(f, "Code highlight error: {err}"),
             Error::Generic(msg) => write!(f, "Generic error: {msg}"),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ThreadClosedError {
+    SendEvent(SendError<Event>),
+    SendCmd(SendError<Cmd>),
+}
+
+impl fmt::Display for ThreadClosedError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ThreadClosedError::SendEvent(err) => write!(f, "SendEvent: {err}"),
+            ThreadClosedError::SendCmd(err) => write!(f, "SendCmd: {err}"),
         }
     }
 }
@@ -124,13 +141,13 @@ impl From<reqwest::Error> for Error {
 
 impl From<SendError<Event>> for Error {
     fn from(err: SendError<Event>) -> Self {
-        Self::Thread(format!("SendError<Event>: {err}"))
+        Self::ThreadClosed(ThreadClosedError::SendEvent(err))
     }
 }
 
 impl From<SendError<Cmd>> for Error {
     fn from(err: SendError<Cmd>) -> Self {
-        Self::Thread(format!("SendError<Cmd>: {err}"))
+        Self::ThreadClosed(ThreadClosedError::SendCmd(err))
     }
 }
 
@@ -140,15 +157,12 @@ impl From<JoinError> for Error {
     }
 }
 
-impl From<PoisonError<std::sync::MutexGuard<'_, Box<FontRenderer>>>> for Error {
-    fn from(err: PoisonError<std::sync::MutexGuard<'_, Box<FontRenderer>>>) -> Self {
-        Self::Thread(format!("PoisonError: {err}"))
-    }
-}
-
-impl From<PoisonError<std::sync::MutexGuard<'_, Highlighter>>> for Error {
-    fn from(err: PoisonError<std::sync::MutexGuard<'_, Highlighter>>) -> Self {
-        Self::Thread(format!("PoisonError: {err}"))
+impl<T> From<PoisonError<T>> for Error {
+    fn from(err: PoisonError<T>) -> Self {
+        Self::Thread(format!(
+            "PoisonError<{}>: {err}",
+            std::any::type_name::<T>()
+        ))
     }
 }
 

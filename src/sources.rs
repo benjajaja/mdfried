@@ -53,14 +53,11 @@ impl SharedDocumentSource {
     }
 
     pub fn read(&self) -> Result<DocumentSource, Error> {
-        self.0
-            .read()
-            .map(|g| g.clone())
-            .map_err(|e| Error::Thread(e.to_string()))
+        Ok(self.0.read().map(|g| g.clone())?)
     }
 
     pub fn write(&self, source: DocumentSource) -> Result<(), Error> {
-        let mut inner = self.0.write().map_err(|e| Error::Thread(e.to_string()))?;
+        let mut inner = self.0.write()?;
         *inner = source;
         Ok(())
     }

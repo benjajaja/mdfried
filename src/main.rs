@@ -242,7 +242,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let config_max_image_height = config.max_image_height;
     let mut worker_theme = config.theme.clone();
     worker_theme.has_text_size_protocol = Some(has_text_size_protocol);
-    let cmd_thread = worker_thread(
+    let worker_thread = worker_thread(
         document_source.clone(),
         picker,
         renderer,
@@ -284,15 +284,18 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     }
     crossterm::terminal::disable_raw_mode()?;
 
-    match cmd_thread.join() {
+    log::debug!("join cmd_thread");
+    match worker_thread.join() {
         Err(e) => eprintln!("Worker thread panic: {e:?}"),
         Ok(Err(e)) => eprintln!("Worker thread error: {e}"),
-        _ => {}
+        _ => {
+            log::debug!("worker_thread joined successfully");
+        }
     }
     Ok(())
 }
 
-enum Cmd {
+pub enum Cmd {
     Parse(DocumentId, u16, String, Option<ImageCache>),
     OpenUrl(String),
 }
