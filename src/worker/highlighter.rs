@@ -1,4 +1,4 @@
-use ansi_to_tui::IntoText as _;
+use ansi_to_tui::IntoText;
 use arborium::AnsiHighlighter;
 use itertools::Itertools as _;
 use mdfrier::ratatui::Theme as _;
@@ -7,7 +7,6 @@ use ratatui::{
     text::{Line, Text},
 };
 
-// use crate::config::Theme as _;
 use crate::error::Error;
 
 pub struct Highlighter {
@@ -26,13 +25,13 @@ impl Highlighter {
     pub fn highlight(
         &mut self,
         language: &str,
-        lines: Vec<Line<'static>>,
+        lines: Vec<Line<'_>>,
     ) -> Result<Text<'static>, Error> {
         let code = lines.into_iter().map(|line| line.to_string()).join("\n");
         self.hl
             .highlight(language, &code)
             .map_err(Into::<Error>::into)
-            .and_then(|colored| colored.into_text().map_err(Into::<Error>::into))
+            .and_then(|colored| IntoText::into_text(&colored).map_err(Into::<Error>::into))
             .map(|mut text| {
                 text.lines = text
                     .lines
@@ -48,5 +47,38 @@ impl Highlighter {
                     .collect();
                 text
             })
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn highlight_languages() {
+        let theme = crate::config::Theme::default();
+        let mut hl = Highlighter::new(&theme);
+
+        let result = hl
+            .highlight(
+                "ada",
+                vec![
+                    Line::from("with Ada.Text_IO;"),
+                    Line::from("procedure Hello is"),
+                    Line::from("begin"),
+                    Line::from("   Ada.Text_IO.Put_Line (\"Hello, World!\");"),
+                    Line::from("end Hello;"),
+                ],
+            )
+            .unwrap();
+
+        assert!(
+            result
+                .lines
+                .into_iter()
+                .flat_map(|line| line.spans)
+                .any(|span| span.style.fg.is_some())
+        );
     }
 }
