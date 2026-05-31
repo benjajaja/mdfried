@@ -22,6 +22,10 @@ use reqwest::{
     Client,
     header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue},
 };
+
+#[cfg(feature = "svg")]
+use resvg::usvg::Tree;
+
 use tokio::sync::RwLock;
 use unicode_width::UnicodeWidthStr as _;
 
@@ -846,6 +850,7 @@ pub fn header_sections(
 enum ImageSource {
     Bytes(Vec<u8>, ImageFormat),
     Path(String),
+    #[cfg_attr(not(feature = "svg"), allow(dead_code))]
     DynamicImage(DynamicImage),
 }
 
@@ -925,7 +930,7 @@ pub async fn image_section(
 
 async fn download_image(
     client: Arc<RwLock<Client>>,
-    fontdb: Option<Arc<Database>>,
+    #[cfg_attr(not(feature = "svg"), allow(unused_variables))] fontdb: Option<Arc<Database>>,
     url: &str,
 ) -> Result<ImageSource, Error> {
     let mut headers = HeaderMap::new();
@@ -962,7 +967,7 @@ async fn download_image(
                 ));
             };
             let bytes = response.bytes().await?.to_vec();
-            let dyn_img = svg_to_png(&bytes, fontdb)?;
+            let dyn_img = svg_to_rgba(&bytes, fontdb)?;
             Ok(ImageSource::DynamicImage(dyn_img))
         }
         #[cfg(not(feature = "svg"))]
@@ -988,16 +993,23 @@ async fn download_image(
 }
 
 #[cfg(feature = "svg")]
-fn svg_to_png(bytes: &[u8], fontdb: Arc<Database>) -> Result<DynamicImage, Error> {
-    use resvg::{tiny_skia, usvg};
-
+fn svg_to_rgba(bytes: &[u8], fontdb: Arc<Database>) -> Result<DynamicImage, Error> {
+    use resvg::usvg;
     let options = usvg::Options {
         fontdb,
         ..Default::default()
     };
-    let tree = usvg::Tree::from_data(bytes, &options)
+    let tree = Tree::from_data(bytes, &options)
         .map_err(|err| Error::ImageLoad("(svg)".to_owned(), format!("{err}")))?;
+    svg_tree_to_rgba(tree)
+}
+
+#[cfg(feature = "svg")]
+pub fn svg_tree_to_rgba(tree: Tree) -> Result<DynamicImage, Error> {
+    use resvg::tiny_skia;
+
     let size = tree.size().to_int_size();
+
     let mut pixmap = tiny_skia::Pixmap::new(size.width(), size.height()).ok_or(
         Error::ImageLoad("(svg)".to_owned(), "could not allocate pixmap".to_owned()),
     )?;

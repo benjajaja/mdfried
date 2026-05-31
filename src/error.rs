@@ -33,6 +33,8 @@ pub enum Error {
     MarkdownParse,
     UrlParse(Option<url::ParseError>),
     CodeHighlight(String),
+    MermaidTooBig,
+    Mermaid(Box<dyn std::error::Error + Send + Sync>),
     // Do not overuse this one!
     Generic(String),
 }
@@ -68,6 +70,8 @@ impl fmt::Display for Error {
                 None => write!(f, "URL parsing failed"),
             },
             Error::CodeHighlight(err) => write!(f, "Code highlight error: {err}"),
+            Error::MermaidTooBig => write!(f, "Mermaid image too big"),
+            Error::Mermaid(err) => write!(f, "Mermaid error: {err}"),
             Error::Generic(msg) => write!(f, "Generic error: {msg}"),
         }
     }

@@ -11,7 +11,7 @@ use crate::error::Error;
 // The configuration struct used throughout the program.
 //
 // Has implicit `Default` in `From<UserConfig>`.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub padding: PaddingConfig,
     pub max_image_height: u16,
@@ -20,6 +20,7 @@ pub struct Config {
     pub debug_override_protocol_type: Option<ProtocolType>,
     pub url_transform_command: Option<String>,
     pub theme: Theme,
+    pub mermaid: MermaidConfig,
 }
 
 impl From<UserConfig> for Config {
@@ -31,6 +32,7 @@ impl From<UserConfig> for Config {
             enable_mouse_capture: uc.enable_mouse_capture.unwrap_or(false),
             debug_override_protocol_type: uc.debug_override_protocol_type,
             url_transform_command: uc.url_transform_command,
+            mermaid: uc.mermaid.unwrap_or_default(),
             theme: uc.theme.unwrap_or_else(|| Theme {
                 hide_urls: Some(true),
                 ..Default::default()
@@ -51,6 +53,30 @@ pub struct UserConfig {
     pub debug_override_protocol_type: Option<ProtocolType>,
     pub url_transform_command: Option<String>,
     pub theme: Option<Theme>,
+    pub mermaid: Option<MermaidConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum MermaidConfig {
+    Disabled,
+    #[cfg(feature = "mermaid")]
+    Builtin,
+    Command(String),
+}
+
+#[expect(clippy::derivable_impls)]
+impl Default for MermaidConfig {
+    fn default() -> Self {
+        #[cfg(feature = "mermaid")]
+        {
+            MermaidConfig::Builtin
+        }
+        #[cfg(not(feature = "mermaid"))]
+        {
+            MermaidConfig::Disabled
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -382,6 +408,7 @@ pub fn print_default() -> Result<(), Error> {
         debug_override_protocol_type: None,
         url_transform_command: Some("readable | html2text".to_owned()),
         theme: Some(Theme::defaults_for_print()),
+        mermaid: Some(MermaidConfig::Command("mmdc -i - -o - -e png".to_owned())),
     };
 
     let default_config_path = get_configuration_file_path()

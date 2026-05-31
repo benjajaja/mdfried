@@ -8,6 +8,7 @@
 //! For example, text search could benefit from running in the worker, but it's not clear how the
 //! text should then actually be shared.
 pub mod highlighter;
+pub mod mermaid;
 pub mod sections;
 
 use std::{
@@ -28,7 +29,7 @@ use tokio::{runtime::Builder, sync::RwLock, task::JoinSet};
 
 use crate::{
     Cmd, Event, Protocol, VERSION,
-    config::Theme,
+    config::{Config, MermaidConfig},
     document::{
         LineExtra, LinkReference, SectionContent, header_images, header_sections, image_section,
     },
@@ -47,7 +48,7 @@ pub fn worker_thread(
     document_source: SharedDocumentSource,
     picker: Picker,
     renderer: Option<Box<FontRenderer>>,
-    theme: Theme,
+    config: Config,
     deep_fry: bool,
     cmd_rx: Receiver<Cmd>,
     event_tx: Sender<Event>,
@@ -94,7 +95,7 @@ pub fn worker_thread(
                     #[expect(clippy::cfg_not_test)]
                     #[cfg(not(test))]
                     {
-                        if !theme.has_text_size_protocol.unwrap_or_default() {
+                        if !config.theme.has_text_size_protocol.unwrap_or_default() {
                             log::warn!("loading system fonts for SVG despite not using text-size-protocol");
                         }
                         let mut fontdb = Database::new();
@@ -105,7 +106,7 @@ pub fn worker_thread(
             #[cfg(not(feature = "svg"))]
             let fontdb = None;
 
-            let highlighter = Arc::new(Highlighter::new(&theme));
+            let highlighter = Arc::new(Highlighter::new(&config.theme));
 
             // Specifically not a tokio Mutex, because we use it in spawn_blocking.
             let thread_renderer =
@@ -121,8 +122,8 @@ pub fn worker_thread(
 
                         event_tx.send(Event::NewDocument(document_id))?;
 
-                        let lines = parser.parse(width, &text, &theme)?;
-                        let mut section_iter = SectionIterator::new(lines, &theme);
+                        let lines = parser.parse(width, &text, &config.theme)?;
+                        let mut section_iter = SectionIterator::new(lines, &config.theme);
                         let mut post_parse_events = Vec::new();
                         for section in &mut section_iter {
                             match &section.content {
@@ -151,13 +152,13 @@ pub fn worker_thread(
                                     post_parse_events.push(SectionEvent::Image(section_id, link));
                                 },
                                 SectionContent::Header(_, _, _) => {
-                                    if !theme.has_text_size_protocol.unwrap_or_default() {
+                                    if !config.theme.has_text_size_protocol.unwrap_or_default() {
                                         unreachable!("SectionIterator produced Header without text-size-protocol");
                                     }
                                     event_tx.send(Event::Parsed(document_id, section))?;
                                 }
                                 SectionContent::HeaderPlaceholder(text,tier,_) => {
-                                    if theme.has_text_size_protocol.unwrap_or_default() {
+                                    if config.theme.has_text_size_protocol.unwrap_or_default() {
                                         unreachable!("SectionIterator produced HeaderPlaceholder with text-size-protocol");
                                     }
                                     let section_id = section.id;
@@ -236,7 +237,7 @@ pub fn worker_thread(
                                 fontdb.clone(),
                                 highlighter.clone(),
                                 width,
-                                config_max_image_height,
+                                &config,
                                 deep_fry,
                                 document_id,
                                 uncached_post_parse_events,
@@ -276,12 +277,13 @@ async fn process_post_parse_events(
     fontdb: Option<Arc<Database>>,
     highlighter: Arc<Highlighter>,
     width: u16,
-    config_max_image_height: u16,
+    config: &Config,
     deep_fry: bool,
     document_id: DocumentId,
     post_parse_events: Vec<SectionEvent>,
 ) -> Result<(), Error> {
     // TODO: handle spawned task result errors, right now it's just logged and discarded.
+    let config_max_image_height = config.max_image_height;
 
     let mut set: JoinSet<Result<(), Error>> = JoinSet::new();
     for event in post_parse_events {
@@ -292,6 +294,7 @@ async fn process_post_parse_events(
         let fontdb = fontdb.clone();
         let highlighter = highlighter.clone();
         let document_source = document_source.clone();
+        let mermaid_config = config.mermaid.clone();
 
         set.spawn(async move {
             match event {
@@ -353,6 +356,52 @@ async fn process_post_parse_events(
                 }
                 SectionEvent::ReferenceDefinition { .. } => {}
                 SectionEvent::Code(section_id, language, lines) => {
+                    if language == "mermaid" {
+                        let result = match mermaid_config {
+                            MermaidConfig::Disabled => Ok::<_, Error>(None),
+                            #[cfg(feature = "mermaid")]
+                            MermaidConfig::Builtin => {
+                                if let Some(fontdb) = fontdb {
+                                    Ok(Some(
+                                        mermaid::internal::render(
+                                            &lines,
+                                            width,
+                                            config_max_image_height,
+                                            fontdb,
+                                            picker,
+                                        )
+                                        .await?,
+                                    ))
+                                } else {
+                                    log::error!("mermaid: no fontdb available");
+                                    Err(Error::Mermaid("your message here".into()))
+                                }
+                            }
+                            MermaidConfig::Command(cmd) => Ok(Some(
+                                mermaid::render_with_cmd(
+                                    &cmd,
+                                    &lines,
+                                    width,
+                                    config_max_image_height,
+                                    picker,
+                                )
+                                .await?,
+                            )),
+                        };
+                        match result {
+                            Ok(Some((sliced, size, max_size, link))) => {
+                                task_tx.send(Event::ImageLoaded(
+                                    document_id,
+                                    section_id,
+                                    link,
+                                    (sliced, size, max_size),
+                                ))?;
+                                return Ok(());
+                            }
+                            Ok(None) => {} // Fall through to regular syntax highlighter.
+                            Err(err) => log::error!("{err}"),
+                        }
+                    }
                     let mut hl = highlighter.fork();
                     let text = tokio::task::spawn_blocking(move || hl.highlight(&language, lines))
                         .await??;
@@ -377,7 +426,6 @@ async fn process_post_parse_events(
         }
     }
 
-    log::debug!("process_post_parse_events done");
     Ok(())
 }
 

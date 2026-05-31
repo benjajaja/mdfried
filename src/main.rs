@@ -242,13 +242,13 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     }
 
     let config_max_image_height = config.max_image_height;
-    let mut worker_theme = config.theme.clone();
-    worker_theme.has_text_size_protocol = Some(has_text_size_protocol);
+    let mut worker_config = config.clone();
+    worker_config.theme.has_text_size_protocol = Some(has_text_size_protocol);
     let worker_thread = worker_thread(
         document_source.clone(),
         picker,
         renderer,
-        worker_theme,
+        worker_config,
         deep_fry,
         cmd_rx,
         event_tx,
@@ -433,14 +433,14 @@ mod tests {
 
         let picker = Picker::halfblocks();
         assert_eq!(picker.protocol_type(), ProtocolType::Halfblocks);
-        let mut worker_theme = config.theme.clone();
-        worker_theme.has_text_size_protocol = Some(true);
+        let mut worker_config = config.clone();
+        worker_config.theme.has_text_size_protocol = Some(true);
         let document_source = SharedDocumentSource::test();
         let worker = worker_thread(
             document_source.clone(),
             picker,
             None,
-            worker_theme,
+            worker_config,
             false,
             cmd_rx,
             event_tx,

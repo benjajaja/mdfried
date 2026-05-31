@@ -1,3 +1,27 @@
+### Mermaid!
+
+```mermaid
+flowchart TD
+    main["Main thread & Input"]
+    render["Render thread"]
+    worker["Worker thread"]
+    mdfrier["mdfrier (parser)"]
+    sections["Section grouper"]
+    specialized["Headers, Images, Syntax, Mermaid"]
+
+    main -->|Parse| worker
+    main -->|Buffer| render
+    render -->|Buffer| main
+
+    worker -->|Parse| mdfrier
+    mdfrier -->|Lines| sections
+
+    sections -->|Basic Sections| main
+    sections -->|Specialized Sections| specialized
+
+    specialized -->|Update| main
+```
+
 ### Ada
 
 ```ada

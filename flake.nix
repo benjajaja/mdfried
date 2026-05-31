@@ -269,6 +269,7 @@
               chafa
               glib.dev # for glib-2.0.pc (chafa dependency)
               cargo-insta
+              nodePackages."@mermaid-js/mermaid-cli"
               screenshotDiffsScript
             ]
             ++ lib.optionals pkgs.stdenv.isLinux [
