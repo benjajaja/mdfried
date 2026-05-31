@@ -105,7 +105,7 @@ pub fn worker_thread(
             #[cfg(not(feature = "svg"))]
             let fontdb = None;
 
-            let highlighter = Arc::new(std::sync::Mutex::new(Highlighter::new(&theme)));
+            let highlighter = Arc::new(Highlighter::new(&theme));
 
             // Specifically not a tokio Mutex, because we use it in spawn_blocking.
             let thread_renderer =
@@ -274,7 +274,7 @@ async fn process_post_parse_events(
     picker: Arc<Picker>,
     font_renderer: Option<Arc<std::sync::Mutex<Box<FontRenderer>>>>,
     fontdb: Option<Arc<Database>>,
-    highlighter: Arc<std::sync::Mutex<Highlighter>>,
+    highlighter: Arc<Highlighter>,
     width: u16,
     config_max_image_height: u16,
     deep_fry: bool,
@@ -353,12 +353,9 @@ async fn process_post_parse_events(
                 }
                 SectionEvent::ReferenceDefinition { .. } => {}
                 SectionEvent::Code(section_id, language, lines) => {
-                    let highlighter = highlighter.clone();
-                    let text = tokio::task::spawn_blocking(move || {
-                        let mut hl = highlighter.lock()?;
-                        hl.highlight(&language, lines)
-                    })
-                    .await??;
+                    let mut hl = highlighter.fork();
+                    let text = tokio::task::spawn_blocking(move || hl.highlight(&language, lines))
+                        .await??;
                     task_tx.send(Event::CodeLoaded(document_id, section_id, text))?;
                 }
             }

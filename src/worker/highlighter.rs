@@ -48,6 +48,13 @@ impl Highlighter {
                 text
             })
     }
+
+    pub fn fork(&self) -> Self {
+        Self {
+            hl: self.hl.fork(),
+            bg: self.bg,
+        }
+    }
 }
 
 #[cfg(test)]
