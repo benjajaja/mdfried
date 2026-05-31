@@ -284,9 +284,11 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     }
     crossterm::terminal::disable_raw_mode()?;
 
-    log::debug!("join cmd_thread");
     match worker_thread.join() {
         Err(e) => eprintln!("Worker thread panic: {e:?}"),
+        Ok(Err(Error::ThreadClosed)) => {
+            log::debug!("worker_thread channel closed");
+        }
         Ok(Err(e)) => eprintln!("Worker thread error: {e}"),
         _ => {
             log::debug!("worker_thread joined successfully");

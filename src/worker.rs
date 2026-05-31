@@ -20,7 +20,6 @@ use std::{
 };
 
 use cosmic_text::fontdb::Database;
-use itertools::Itertools;
 use mdfrier::MdFrier;
 use ratatui::layout::Size;
 use ratatui_image::{picker::Picker, sliced::SlicedProtocol};
@@ -33,7 +32,7 @@ use crate::{
     document::{
         LineExtra, LinkReference, SectionContent, header_images, header_sections, image_section,
     },
-    error::{Error, ThreadClosedError},
+    error::Error,
     model::DocumentId,
     setup::FontRenderer,
     sources::{SharedDocumentSource, open_source},
@@ -59,7 +58,7 @@ pub fn worker_thread(
             .worker_threads(2)
             .enable_all()
             .build()?;
-        let fut = runtime.block_on(async {
+        let result = runtime.block_on(async {
 
             let builder = Client::builder().user_agent(format!(
                 "mdfried/{}",
@@ -258,13 +257,12 @@ pub fn worker_thread(
             }
             Ok::<(), Error>(())
         });
-        match &fut {
-            Ok(()) => log::error!("worker runtime succeeded"),
-            Err(err) => log::error!("worker runtime error: {err}"),
+
+        if let Err(Error::ThreadClosed) = result {
+            log::info!("ThreadClosedError: Abandoning blocking worker threads");
+            runtime.shutdown_background();
         }
-        log::debug!("goodbye!");
-        fut
-        // Ok::<(), Error>(())
+        result
     })
 }
 
@@ -283,11 +281,7 @@ async fn process_post_parse_events(
     document_id: DocumentId,
     post_parse_events: Vec<SectionEvent>,
 ) -> Result<(), Error> {
-    log::debug!(
-        "process_post_parse_events: {}",
-        post_parse_events.iter().map(|e| format!("{e}")).join(", ")
-    );
-    // TODO: handle spawned task result errors, right now it's just discarded.
+    // TODO: handle spawned task result errors, right now it's just logged and discarded.
 
     let mut set: JoinSet<Result<(), Error>> = JoinSet::new();
     for event in post_parse_events {
@@ -360,21 +354,15 @@ async fn process_post_parse_events(
                 SectionEvent::ReferenceDefinition { .. } => {}
                 SectionEvent::Code(section_id, language, lines) => {
                     let highlighter = highlighter.clone();
-                    let language_dbg = language.clone();
-                    log::debug!("spawn_blocking: {language_dbg}");
                     let text = tokio::task::spawn_blocking(move || {
                         let mut hl = highlighter.lock()?;
                         hl.highlight(&language, lines)
                     })
                     .await??;
-                    log::debug!("spawn_blocking done: {language_dbg}");
                     task_tx.send(Event::CodeLoaded(document_id, section_id, text))?;
                 }
             }
             Ok(())
-            // if let Err(e) = result {
-            // log::error!("{e}");
-            // }
         });
     }
 
@@ -383,8 +371,8 @@ async fn process_post_parse_events(
             Ok(Ok(())) => {}
             Err(e) => log::error!("process_post_parse_events join error: {e}"),
             Ok(Err(e)) => {
-                if let Error::ThreadClosed(ThreadClosedError::SendEvent(_)) = e {
-                    log::error!("process_post_parse_events channel closed: {e}");
+                if let Error::ThreadClosed = e {
+                    log::debug!("process_post_parse_events JoinSet::join_next early exit: {e}");
                     return Err(e);
                 }
                 log::error!("process_post_parse_events task error: {e}")

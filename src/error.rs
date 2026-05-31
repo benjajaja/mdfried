@@ -26,7 +26,7 @@ pub enum Error {
     Protocol(ratatui_image::errors::Errors),
     Download(reqwest::Error),
     NoFont,
-    ThreadClosed(ThreadClosedError),
+    ThreadClosed,
     Thread(String),
     ImageLoad(String, String),
     Notify(notify::Error),
@@ -59,7 +59,7 @@ impl fmt::Display for Error {
             Error::Download(err) => write!(f, "HTTP request error: {err}"),
             Error::NoFont => write!(f, "No font available"),
             Error::Thread(err) => err.fmt(f),
-            Error::ThreadClosed(err) => err.fmt(f),
+            Error::ThreadClosed => write!(f, "Thread event channel closed"),
             Error::ImageLoad(url, err) => write!(f, "Image error {url}: {err}"),
             Error::Notify(err) => write!(f, "Watch error: {err}"),
             Error::MarkdownParse => write!(f, "Markdown parsing failed"),
@@ -69,21 +69,6 @@ impl fmt::Display for Error {
             },
             Error::CodeHighlight(err) => write!(f, "Code highlight error: {err}"),
             Error::Generic(msg) => write!(f, "Generic error: {msg}"),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub enum ThreadClosedError {
-    SendEvent(SendError<Event>),
-    SendCmd(SendError<Cmd>),
-}
-
-impl fmt::Display for ThreadClosedError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            ThreadClosedError::SendEvent(err) => write!(f, "SendEvent: {err}"),
-            ThreadClosedError::SendCmd(err) => write!(f, "SendCmd: {err}"),
         }
     }
 }
@@ -140,14 +125,14 @@ impl From<reqwest::Error> for Error {
 }
 
 impl From<SendError<Event>> for Error {
-    fn from(err: SendError<Event>) -> Self {
-        Self::ThreadClosed(ThreadClosedError::SendEvent(err))
+    fn from(_: SendError<Event>) -> Self {
+        Self::ThreadClosed
     }
 }
 
 impl From<SendError<Cmd>> for Error {
     fn from(err: SendError<Cmd>) -> Self {
-        Self::ThreadClosed(ThreadClosedError::SendCmd(err))
+        Self::Thread(format!("SendError<Cmd>: {err}"))
     }
 }
 
