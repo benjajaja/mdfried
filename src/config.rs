@@ -43,6 +43,7 @@ impl From<UserConfig> for Config {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct UserConfig {
     pub font_family: Option<String>,
+    pub stdio_query_timeout_ms: Option<u64>,
     pub padding: Option<PaddingConfig>,
     pub max_image_height: Option<u16>,
     pub watch_debounce_milliseconds: Option<u64>,
@@ -372,8 +373,9 @@ pub fn load_or_ask() -> Result<UserConfig, Error> {
 pub fn print_default() -> Result<(), Error> {
     let config = Config::from(UserConfig::default());
     let user_config = UserConfig {
-        padding: Some(config.padding),
         font_family: Some("your-font-name".to_owned()),
+        stdio_query_timeout_ms: Some(2000),
+        padding: Some(config.padding),
         max_image_height: Some(config.max_image_height),
         watch_debounce_milliseconds: Some(config.watch_debounce_milliseconds),
         enable_mouse_capture: Some(config.enable_mouse_capture),

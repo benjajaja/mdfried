@@ -63,7 +63,7 @@ let
 
       # Create mdfried config to skip font setup wizard
       machine.succeed("mkdir -p /home/test/.config/mdfried")
-      machine.succeed("echo 'font_family = \"Noto Sans Mono\"' > /home/test/.config/mdfried/config.toml")
+      machine.succeed("echo 'font_family = \"Noto Sans Mono\"\nstdio_query_timeout_ms = 4000' > /home/test/.config/mdfried/config.toml")
       machine.succeed("chown -R test:users /home/test/.config")
 
       machine.wait_until_succeeds("systemd-run --uid=test --setenv=XDG_RUNTIME_DIR=/run/user/1000 --setenv=WAYLAND_DISPLAY=wayland-1 -- swaymsg -t get_version")
