@@ -92,11 +92,33 @@ TERMEOF
   cat > $out/index.html << 'HTMLEOF'
 <!DOCTYPE html>
 <html>
-<head><title>Screenshot Diffs</title></head>
+<head>
+  <title>Screenshots</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 2rem; }
+    .terminal { margin: 2rem 0; }
+    img { max-width: 100%; border: 1px solid #ddd; border-radius: 8px; }
+    h1 { text-align: center; }
+    .container { max-width: 1200px; margin: 0 auto; }
+  </style>
+</head>
 <body>
+  <div class="container">
+    <h1>mdfried Terminal Screenshots</h1>
+    <p style="text-align: center; color: #666;">Screenshots from various terminal emulators</p>
 HTMLEOF
-  sed 's|IMAGE_BASE_URL/||g' $out/body.html >> $out/index.html
+
+  ${lib.concatMapStringsSep "\n" (terminal: ''
+    cat >> $out/index.html << TERMEOF
+    <div class="terminal">
+      <h2 id="${terminal}">${terminal}</h2>
+      <img src="images/screenshot-${terminal}.png" alt="${terminal} screenshot">
+    </div>
+TERMEOF
+  '') terminals}
+
   cat >> $out/index.html << 'HTMLEOF'
+  </div>
 </body>
 </html>
 HTMLEOF
