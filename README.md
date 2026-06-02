@@ -4,7 +4,7 @@
 
 ## Screenshots
 
-![Screenshot](./assets/screenshot_1.png)
+![Screenshot](./assets/screenshot.png)
 
 [Latest test screenshot array from `master`](https://benjajaja.github.io/mdfried-screenshots/)
 

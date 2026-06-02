@@ -3,11 +3,11 @@
 let
   inherit (pkgs) lib;
 
-  mdfriedCmd = "${mdfriedStatic}/bin/mdfried README.md --animate";
+  mdfriedCmd = "${mdfriedStatic}/bin/mdfried README.md";
 
 in
 pkgs.testers.nixosTest {
-  name = "mdfried-screen-recording";
+  name = "mdfried-screenshot";
 
   nodes.machine = { pkgs, ... }: {
     virtualisation.memorySize = 4096;
@@ -59,7 +59,8 @@ pkgs.testers.nixosTest {
     environment.systemPackages = with pkgs; [
       kitty
       chafa
-      wf-recorder
+      grim
+      imagemagick
     ];
   };
 
@@ -72,6 +73,7 @@ pkgs.testers.nixosTest {
     machine.copy_from_host("${builtins.path { path = ../README.md; name = "README.md"; }}", "/tmp/test-assets/README.md")
     machine.copy_from_host("${builtins.path { path = ../assets/logo.png; name = "logo.png"; }}", "/tmp/test-assets/assets/logo.png")
     machine.copy_from_host("${builtins.path { path = ../assets/screenshot.png; name = "screenshot.png"; }}", "/tmp/test-assets/assets/screenshot.png")
+    machine.copy_from_host("${builtins.path { path = ../assets/backdrop.png; name = "backdrop.png"; }}", "/tmp/backdrop.png")
 
     # Wait for Wayland compositor to be ready
     machine.wait_until_succeeds("systemd-run --uid=test --setenv=XDG_RUNTIME_DIR=/run/user/1000 --setenv=WAYLAND_DISPLAY=wayland-1 -- swaymsg -t get_version")
@@ -89,23 +91,16 @@ pkgs.testers.nixosTest {
     machine.succeed("sleep 5")
 
     machine.succeed("""
-      systemd-run --uid=test \
+      systemd-run --uid=test --wait \
         --setenv=XDG_RUNTIME_DIR=/run/user/1000 \
         --setenv=WAYLAND_DISPLAY=wayland-1 \
-        -- wf-recorder -f /tmp/recording.mp4 --codec libx264 --pixel-format yuv420p -r 30 -p crf=20 -p preset=medium &
+        -- grim /tmp/screenshot.png
     """)
-    machine.succeed("sleep 1")
 
-    machine.succeed("kill -USR1 $(pgrep mdfried)")
+    machine.succeed("mogrify -resize 900x /tmp/screenshot.png")
+    machine.succeed("composite -gravity center -geometry +0+12 /tmp/screenshot.png /tmp/backdrop.png /tmp/screenshot.png")
 
-    machine.succeed("sleep 4")
-
-    # Stop the recorder gracefully
-    machine.succeed("pkill -SIGINT wf-recorder || true")
-    machine.succeed("sleep 1")
-
-    machine.copy_from_vm("/tmp/recording.mp4", "recording")
-    print("Screen recording saved as result/recording.mp4")
+    machine.copy_from_vm("/tmp/screenshot.png", "recording")
+    print("Screenshot saved as recording/screenshot.png")
   '';
 }
-

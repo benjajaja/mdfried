@@ -232,7 +232,8 @@
           );
         }
         // screenshotTests
-        // { screen-recording = (import ./nix/screen-recording.nix { inherit pkgs src mdfriedStatic; }).driver; };
+        // { screen-recording = (import ./nix/screen-recording.nix { inherit pkgs src mdfriedStatic; }).driver; }
+        // { screenshot = (import ./nix/screenshot.nix { inherit pkgs src mdfriedStatic; }).driver; };
 
         apps.default = flake-utils.lib.mkApp {
           drv = mdfried;
