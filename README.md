@@ -1,42 +1,41 @@
 ![mdfried](./assets/logo.png)
 
-`mdfried` is a markdown viewer for the terminal that renders headers as **Bigger Text** than the rest.
+# What is this?
 
-## Screenshots
+`mdfried` is a markdown viewer for the terminal that renders headers as **Bigger Text** than the rest, if your terminal supports some graphics protocol. Not **bold**, not just *styled*, actually BIGGER, making markdown much more readable in a terminal.
+
+# Screenshots and Video
+
+Don't believe it, just watch!
 
 ![Screenshot](./assets/screenshot.png)
 
 [Latest test screenshot array from `master`](https://benjajaja.github.io/mdfried-screenshots/)
 
-## Video
-
 https://github.com/user-attachments/assets/924d29a9-053c-44b0-8c09-39dac8c90329
 
-# Why?
+# Features
 
-You can *[cook](https://ratatui.rs/)* a terminal. 
-But can you **deep fry** a terminal?  
-*YES!* You can **cook *and* fry** your `tty`!
-~~Run before it's too late!~~
+* Big Headers™
+  Headers are actually rendered as images, or with the [Text Sizing Protocol](https://sw.kovidgoyal.net/kitty/text-sizing-protocol/).
+* Image previews with multiple graphics protocols
+  Sixel, Kitty, and iTerm2 are supported in a long list of terminals. If no protocol is supported, falls back to [chafa](https://github.com/hpjansson/chafa/).
+  See [ratatui-image](https://github.com/benjajaja/ratatui-image?tab=readme-ov-file#compatibility-matrix) to see if your terminal does even have graphics support, and for further details.
+* Pager with basic unix-page and Vi-style keybindings
+* Search
+* Links
+  * Opens URLs with xdg-open (or equivalent on macos/windows).
+  * Can follow local `.md` links.
+* URL opening
+  * Can directly open a URL that serves a markdown document.
+  * Can directly open `github:<owner>/<repo>`, if it contains a `README.md` on `master` or `main`.
+  * Transform any URL before opening with a configurable command.
+    For example, `url_transform_command = "readable | html2text"` first transforms the webpage into something like FireFox's "reader mode", and then converts to markdown.
+* Syntax highlighting in codeblocks
+* Mermaid diagram rendering 
+  Via internal renderer (fast) or external mermaid-cli command (accurate).
+* Theme [configuration](#configuration) support
 
-> The terminal is usually in "cooked" mode, or canonical mode.
-> With `ratatui`🐁, it's in raw mode, but it "cooks" for you.
-
-Markdown can obviously be rendered pretty well in terminals, but one key aspect is missing: 
-Big Headers™ make text more readable, and rendering images inline is very convenient.
-
-# How?
-
-By rendering the headers as [images with ratatui](https://github.com/benjajaja/ratatui-image),
-and using one of several terminal graphics protocols: Sixels, Kitty, or iTerm2.
-The Kitty terminal also implements a [Text Sizing Protocol](https://sw.kovidgoyal.net/kitty/text-sizing-protocol/)
-to directly scale text without needing to render as images!
-
-See [ratatui-image](https://github.com/benjajaja/ratatui-image?tab=readme-ov-file#compatibility-matrix)
-to see if your terminal does even have graphics support, and for further details.
-
-In general, Kitty, WezTerm, iTerm2, Ghostty, Foot, `xterm -ti vt340`, Rio, *should* work.  
-On terminals without graphics whatsoever, like Alactritty, images are rendered with Chafa.
 
 # Installation
 
@@ -52,7 +51,7 @@ Packaged in distros:
 * Arch, Manjaro, Parabola: `pacman -S mdfried` ([extra repository](https://archlinux.org/packages/extra/x86_64/mdfried/))
 * FreeBSD: `pkg install mdfried`
 * Ubuntu: [Download release .deb](https://github.com/benjajaja/mdfried/releases/latest)
-* Mac: `brew install mdfried` or `port install mdfried` or [realease binaries](https://github.com/benjajaja/mdfried/releases/latest)
+* Mac: `brew install mdfried` or `port install mdfried` or [release binaries](https://github.com/benjajaja/mdfried/releases/latest)
 * Windows: [Download release .exe](https://github.com/benjajaja/mdfried/releases/latest)
 
 [![Packaging status](https://repology.org/badge/vertical-allrepos/mdfried.svg)](https://repology.org/project/mdfried/versions)
@@ -65,14 +64,14 @@ Packaged in distros:
 mdfried ./path/to.md
 ```
 
-Unless you're using Kitty version 0.40 or greater, or a terminal that does not support any graphics protocol, the first time you run `mdfried` you may have to pick a font, if your terminal's font could not be automatically detected.  
+If the font could not be autodetected, you may have to pick a font the first time.
 You should pick the same font that your terminal is using, but you could pick any.
 The font is rendered directly as a preview.
 Once confirmed, the choice is written into the configuration file.
 
-Use `--setup` to force the font-setup again if the font is not right.
+Use `--setup` to force the font-setup again if the font is not right (anymore).
 
-See `--help` for all options.
+See `--help` for all options, and `--print-config` to see a mostly complete [configuration](#configuration) example.
 
 ### Key bindings
 
@@ -80,8 +79,6 @@ The keybindings should follow the basics of general CLI pagers. Vi-style keybind
 prioritized, but "normal" keys should be usable as well.
 
 Type `:help` in the program to see the exact list, or see [assets/docs/help.md](assets/docs/help.md).
-
-Mouse scroll only works if enabled in settings as `enable_mouse_capture = true`, but then you can't select text (in most terminals).
 
 ### Configuration
 

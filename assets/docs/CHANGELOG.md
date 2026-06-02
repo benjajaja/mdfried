@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+- Code syntax highlight.
+  Uses arborium, supports over 100 languages.
+- Mermaid diagram rendering.
+  A code block annotated as `mermaid` gets rendered either via builtin `mermaid-rs-renderer` (can be disabled with the `mermaid` feature), or via external command in config, e.g. `mermaid = "mmdc -i - -o - -e png"`.
+
 ## [0.20.3] - 2026-05-29
 
 ### Changed
