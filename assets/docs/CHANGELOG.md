@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-06-02
+
 ### Added
 - Code syntax highlight.
   Uses arborium, supports over 100 languages.
