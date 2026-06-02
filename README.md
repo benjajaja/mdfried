@@ -16,11 +16,12 @@ https://github.com/user-attachments/assets/924d29a9-053c-44b0-8c09-39dac8c90329
 
 # Features
 
-* Big Headers™
+* Big Headers™  
   Headers are actually rendered as images, or with the [Text Sizing Protocol](https://sw.kovidgoyal.net/kitty/text-sizing-protocol/).
-* Image previews with multiple graphics protocols
+* Image previews with multiple graphics protocols  
   Sixel, Kitty, and iTerm2 are supported in a long list of terminals. If no protocol is supported, falls back to [chafa](https://github.com/hpjansson/chafa/).
   See [ratatui-image](https://github.com/benjajaja/ratatui-image?tab=readme-ov-file#compatibility-matrix) to see if your terminal does even have graphics support, and for further details.
+  The images are "sliced" in rows, so that images scroll in and out of the viewport naturally.
 * Pager with basic unix-page and Vi-style keybindings
 * Search
 * Links
@@ -31,7 +32,7 @@ https://github.com/user-attachments/assets/924d29a9-053c-44b0-8c09-39dac8c90329
   * Can directly open `github:<owner>/<repo>`, if it contains a `README.md` on `master` or `main`.
   * Transform any URL before opening with a configurable command.
     For example, `url_transform_command = "readable | html2text"` first transforms the webpage into something like FireFox's "reader mode", and then converts to markdown.
-* Syntax highlighting in codeblocks
+* Syntax highlighting in codeblocks with [arborium](https://arborium.bearcove.eu)
 * Mermaid diagram rendering 
   Via internal renderer (fast) or external mermaid-cli command (accurate).
 * Theme [configuration](#configuration) support
