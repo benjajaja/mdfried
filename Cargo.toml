@@ -42,7 +42,7 @@ notify = "8.1.0"
 notify-debouncer-mini = "0.6.0"
 open = "5.3.3"
 ratatui = { version = "^0.30.0", features = ["serde", "crossterm_0_29"] }
-ratatui-image = { version = "11.0.2", default-features = false, features = ["serde"] }
+ratatui-image = { version = "11.0.3", default-features = false, features = ["serde"] }
 regex = "1.11.1"
 mermaid-rs-renderer = { version = "0.2.2", optional = true }
 resvg = { version = "0.47.0", optional = true }

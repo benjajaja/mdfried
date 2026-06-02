@@ -917,7 +917,12 @@ pub async fn image_section(
         let size = Resize::Fit(None).size_for(&dyn_img, picker.font_size(), max_resize_size);
 
         let max_size = Size::new(width, max_height);
-        let sliced = SlicedProtocol::new(&picker, dyn_img, Some(size))?;
+        let sliced = SlicedProtocol::new_with_resize(
+            &picker,
+            dyn_img,
+            size,
+            Resize::Fit(Some(FilterType::Lanczos3)),
+        )?;
         Ok::<Section, Error>(Section {
             id,
             height: size.height,
