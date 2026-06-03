@@ -227,8 +227,7 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
             };
 
             if let Err(err) = model.user_command_str(command) {
-                // Once we display error messages, let this return and be catched higher up.
-                log::error!("{err}");
+                model.set_last_error(err);
             }
         }
         KeyCode::Enter => {
@@ -257,8 +256,7 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
                 if let Some(url) = url {
                     log::debug!("open link_cursor {}", *url);
                     if let Err(err) = model.open_link(url.to_string()) {
-                        log::error!("open_link failed: {err}");
-                        model.last_error.replace(err);
+                        model.set_last_error(err);
                     }
                 }
             }

@@ -15,26 +15,33 @@ use crate::{Cmd, Event, config};
 
 #[derive(Debug)]
 pub enum Error {
+    // General and startup errors
     Usage(Option<&'static str>),
     UserAbort(&'static str),
     Cli(clap::error::Error),
     Logger(FlexiLoggerError),
     Config(String, ConfyError),
     Io(io::Error),
-    Parse(&'static str),
+    UrlParse(Option<url::ParseError>),
+    Watch(String),
+    ThreadClosed,
+    Thread(String),
+
+    // Markdown and document processing errors
+    MarkdownParse,
     Image(ImageError),
+    ImageLoad(String, String),
     Protocol(ratatui_image::errors::Errors),
     Download(reqwest::Error),
     NoFont,
-    ThreadClosed,
-    Thread(String),
-    ImageLoad(String, String),
-    Notify(notify::Error),
-    MarkdownParse,
-    UrlParse(Option<url::ParseError>),
     CodeHighlight(String),
     MermaidTooBig,
     Mermaid(Box<dyn std::error::Error + Send + Sync>),
+
+    // User flow errors
+    Command(CommandError),
+    Navigation(NavigationError),
+
     // Do not overuse this one!
     Generic(String),
 }
@@ -55,7 +62,7 @@ impl fmt::Display for Error {
                 )
             }
             Error::Io(err) => write!(f, "I/O error: {err}"),
-            Error::Parse(msg) => write!(f, "Parse error: {msg}"),
+            Error::Watch(msg) => write!(f, "Watch error: {msg}"),
             Error::Image(err) => write!(f, "Image manipulation error: {err}"),
             Error::Protocol(err) => write!(f, "Terminal graphics error: {err}"),
             Error::Download(err) => write!(f, "HTTP request error: {err}"),
@@ -63,7 +70,6 @@ impl fmt::Display for Error {
             Error::Thread(err) => err.fmt(f),
             Error::ThreadClosed => write!(f, "Thread event channel closed"),
             Error::ImageLoad(url, err) => write!(f, "Image error {url}: {err}"),
-            Error::Notify(err) => write!(f, "Watch error: {err}"),
             Error::MarkdownParse => write!(f, "Markdown parsing failed"),
             Error::UrlParse(err) => match err {
                 Some(err) => write!(f, "URL parsing failed: {err}"),
@@ -72,11 +78,44 @@ impl fmt::Display for Error {
             Error::CodeHighlight(err) => write!(f, "Code highlight error: {err}"),
             Error::MermaidTooBig => write!(f, "Mermaid image too big"),
             Error::Mermaid(err) => write!(f, "Mermaid error: {err}"),
+            Error::Command(err) => err.fmt(f),
+            Error::Navigation(err) => err.fmt(f),
             Error::Generic(msg) => write!(f, "Generic error: {msg}"),
         }
     }
 }
 
+#[derive(Debug)]
+pub enum CommandError {
+    UnknownCommand(String),
+}
+
+impl fmt::Display for CommandError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CommandError::UnknownCommand(cmd) => write!(f, "Unknown command: {cmd}"),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum NavigationError {
+    NoHistory,
+    HeaderNotFound(String),
+    UnknownLinkType(String),
+}
+
+impl fmt::Display for NavigationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NavigationError::NoHistory => write!(f, "No history"),
+            NavigationError::HeaderNotFound(link_url) => write!(f, "Header not found: {link_url}"),
+            NavigationError::UnknownLinkType(link_url) => {
+                write!(f, "Don't know how to open link: {link_url}")
+            }
+        }
+    }
+}
 impl From<Error> for io::Error {
     fn from(value: Error) -> Self {
         match value {
@@ -163,7 +202,7 @@ impl From<FlexiLoggerError> for Error {
 
 impl From<notify::Error> for Error {
     fn from(value: notify::Error) -> Self {
-        Self::Notify(value)
+        Self::Watch(value.to_string())
     }
 }
 

@@ -19,13 +19,13 @@ pub fn watch(
 ) -> Result<Debouncer<RecommendedWatcher>, Error> {
     let parent = path
         .parent()
-        .ok_or(Error::Generic(String::from("cannot watch without path")))?
+        .ok_or(Error::Watch("cannot watch without path".to_owned()))?
         .to_owned();
     let filename = path
         .file_name()
-        .ok_or(Error::Generic(String::from(
-            "could not get filename part of path",
-        )))?
+        .ok_or(Error::Watch(
+            "could not get filename part of path".to_owned(),
+        ))?
         .to_owned();
 
     let mtime = Some(fs::metadata(path).and_then(|m| m.modified())?);

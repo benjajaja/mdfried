@@ -22,7 +22,7 @@ use crate::{
     config::{Config, PaddingConfig, Theme},
     cursor::{Cursor, CursorPointer},
     document::{Document, FindMode, FindTarget, LineExtra, Section, SectionContent},
-    error::Error,
+    error::{CommandError, Error, NavigationError},
     sources::{DocumentHistoryEntry, DocumentSource, extend_url, github_usercontent_url},
     worker::ImageCache,
 };
@@ -149,7 +149,7 @@ impl Model {
         } = self
             .document_history
             .pop()
-            .ok_or(Error::Generic("No history to go back".to_owned()))?;
+            .ok_or(Error::Navigation(NavigationError::NoHistory))?;
         self.document_source.write(source)?;
         self.document = document;
         self.cursor = Cursor::None;
@@ -380,9 +380,8 @@ impl Model {
                         if text.to_lowercase().replace(' ', "-") == header_reference {
                             let Some(y) = self.document.get_y(&CursorPointer { id: *id, index: 0 })
                             else {
-                                return Err(Error::Generic(format!(
-                                    "Header position not found: {}",
-                                    link_url
+                                return Err(Error::Navigation(NavigationError::HeaderNotFound(
+                                    link_url,
                                 )));
                             };
                             target = Some((y, 0));
@@ -395,10 +394,7 @@ impl Model {
                 target
             };
             let Some((y, remaining_document_height)) = pointer else {
-                return Err(Error::Generic(format!(
-                    "Header link not found: {}",
-                    link_url
-                )));
+                return Err(Error::Navigation(NavigationError::HeaderNotFound(link_url)));
             };
 
             self.cursor = Cursor::None;
@@ -410,10 +406,9 @@ impl Model {
         }
 
         match self.document_source.read()? {
-            source @ DocumentSource::File { .. }
-            | source @ DocumentSource::Stdin { .. }
-            | source @ DocumentSource::BuiltIn(_) => {
+            source @ DocumentSource::File { .. } | source @ DocumentSource::Stdin { .. } => {
                 let url_as_path = Path::new(&link_url);
+                log::debug!("open md? {url_as_path:?}");
                 if url_as_path.extension() == Some(std::ffi::OsStr::new("md"))
                     && fs::exists(url_as_path).unwrap_or_default()
                     && let Ok(text) = fs::read_to_string(url_as_path)
@@ -424,6 +419,14 @@ impl Model {
                         log::error!("{err}");
                     }
                 }
+            }
+            DocumentSource::BuiltIn(builtin) => {
+                return match &*link_url {
+                    "./help_configuration.md" => self.open_builtin("help configuration"),
+                    _ => Err(Error::Navigation(NavigationError::UnknownLinkType(
+                        format!("unknown builtin link: {link_url} (from builtin {builtin})"),
+                    ))),
+                };
             }
             DocumentSource::Github { repo, branch } => {
                 if Url::parse(&link_url).is_ok() {
@@ -446,8 +449,8 @@ impl Model {
                 }
             }
         }
-        Err(Error::Generic(format!(
-            "don't know how to open link: {link_url}"
+        Err(Error::Navigation(NavigationError::UnknownLinkType(
+            link_url,
         )))
     }
 
@@ -631,9 +634,34 @@ impl Model {
     /// User has typed `:some_command<Enter>`.
     pub fn user_command_str(&mut self, command: String) -> Result<(), Error> {
         match command.as_str() {
+            builtin @ ("help" | "help configuration" | "changelog") => self.open_builtin(builtin),
+            "back" => self.history_pop(),
+            _ => Err(Error::Command(CommandError::UnknownCommand(command))),
+        }
+    }
+
+    pub fn is_help_screen(&self) -> Result<bool, Error> {
+        Ok(self.document_source.read()? == DocumentSource::BuiltIn("help"))
+    }
+
+    pub fn set_last_error(&mut self, err: Error) {
+        log::error!("Last error: {err}");
+        self.last_error = Some(err);
+    }
+
+    fn open_builtin(&mut self, builtin: &str) -> Result<(), Error> {
+        match builtin {
             "help" => {
                 const HELP_MD: &str = include_str!("../assets/docs/help.md");
                 self.open_new_source(DocumentSource::BuiltIn("help"), String::from(HELP_MD))
+            }
+            "help configuration" => {
+                const HELP_CONFIGURATION_MD: &str =
+                    include_str!("../assets/docs/help_configuration.md");
+                self.open_new_source(
+                    DocumentSource::BuiltIn("help configuration"),
+                    String::from(HELP_CONFIGURATION_MD),
+                )
             }
             "changelog" => {
                 const CHANGELOG_MD: &str = include_str!("../assets/docs/CHANGELOG.md");
@@ -642,13 +670,10 @@ impl Model {
                     String::from(CHANGELOG_MD),
                 )
             }
-            "back" => self.history_pop(),
-            _ => Err(Error::Generic("unknown command: {command}".to_owned())),
+            _ => Err(Error::Navigation(NavigationError::UnknownLinkType(
+                format!("builtin: {builtin}"),
+            ))),
         }
-    }
-
-    pub fn is_help_screen(&self) -> Result<bool, Error> {
-        Ok(self.document_source.read()? == DocumentSource::BuiltIn("help"))
     }
 }
 

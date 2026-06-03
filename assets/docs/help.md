@@ -32,3 +32,6 @@ Command | Description
 `:help` | Opens this help markdown document
 `:back` | Go back one entry in history
 
+### Configuration
+
+Type `:help configuration` to open [configuration.md](./help_configuration.md).
