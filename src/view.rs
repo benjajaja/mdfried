@@ -19,6 +19,7 @@ use crate::{
     cursor::{Cursor, CursorPointer},
     document::{LineExtra, SectionContent},
     model::{InputQueue, Model},
+    sources::BuiltIn,
 };
 
 pub fn view(model: &Model, buf: &mut Buffer) -> Position {
@@ -109,6 +110,13 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
             // Do not render into last line, nor beyond area.
             break;
         }
+    }
+
+    if let Some(BuiltIn::Welcome) = model.builtin_override_view() {
+        let line = Line::from("Welcome!");
+        let width = line.width() as u16;
+        let welcome = Paragraph::new(line).fg(Color::Magenta);
+        welcome.render(Rect::new(0, 0, width, 1), buf);
     }
 
     let status_line_y = inner_area.height - 1;

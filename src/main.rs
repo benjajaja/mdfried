@@ -46,7 +46,7 @@ use crate::{
     error::Error,
     model::{DocumentId, Model},
     renderer::run_loop,
-    sources::{DocumentSource, SharedDocumentSource, open_source},
+    sources::{BuiltIn, DocumentSource, SharedDocumentSource, open_source},
     watch::watch,
     worker::{ImageCache, worker_thread},
 };
@@ -149,20 +149,19 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         }
         None => {
             if io::stdin().is_tty() {
-                return Err(Error::Usage(Some(
-                    "no source nor '-', and stdin is a tty (not a pipe)",
-                )));
+                (String::new(), DocumentSource::BuiltIn(BuiltIn::Welcome))
+            } else {
+                let mut text = String::new();
+                print!("Reading stdin...");
+                io::stdin().read_to_string(&mut text)?;
+                println!("{OK_END}");
+                (text, DocumentSource::Stdin { text: None })
             }
-            let mut text = String::new();
-            print!("Reading stdin...");
-            io::stdin().read_to_string(&mut text)?;
-            println!("{OK_END}");
-            (text, DocumentSource::Stdin { text: None })
         }
         Some(source) => open_source(&source, config.url_transform_command.clone())?,
     };
 
-    if text.is_empty() {
+    if text.is_empty() && document_source != DocumentSource::BuiltIn(BuiltIn::Welcome) {
         return Err(Error::Usage(Some("no input or empty")));
     }
 

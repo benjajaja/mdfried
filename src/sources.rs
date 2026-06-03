@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     fs::read_to_string,
     io::{self, Write as _},
     path::{Path, PathBuf},
@@ -10,7 +11,11 @@ use ghrepo::GHRepo;
 use reqwest::header::CONTENT_TYPE;
 use url::Url;
 
-use crate::{OK_END, VERSION, document::Document, error::Error};
+use crate::{
+    OK_END, VERSION,
+    document::Document,
+    error::{Error, NavigationError},
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum DocumentSource {
@@ -28,8 +33,9 @@ pub enum DocumentSource {
     HyperText {
         url: Url,
     },
-    BuiltIn(&'static str),
+    BuiltIn(BuiltIn),
 }
+
 impl DocumentSource {
     pub fn return_text(self, returned_text: String) -> Option<Self> {
         match self {
@@ -40,6 +46,78 @@ impl DocumentSource {
             // File is OK to just reload from disk.
             _ => None,
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BuiltIn {
+    Help,
+    HelpConfiguration,
+    Welcome,
+    Changelog,
+}
+impl BuiltIn {
+    pub fn source(&self) -> (DocumentSource, Option<String>) {
+        match self {
+            BuiltIn::Help => {
+                const HELP_MD: &str = include_str!("../assets/docs/help.md");
+                (DocumentSource::BuiltIn(*self), Some(String::from(HELP_MD)))
+            }
+            BuiltIn::HelpConfiguration => {
+                const HELP_CONFIGURATION_MD: &str =
+                    include_str!("../assets/docs/help_configuration.md");
+                (
+                    DocumentSource::BuiltIn(*self),
+                    Some(String::from(HELP_CONFIGURATION_MD)),
+                )
+            }
+            BuiltIn::Changelog => {
+                const CHANGELOG_MD: &str = include_str!("../assets/docs/CHANGELOG.md");
+                (
+                    DocumentSource::BuiltIn(*self),
+                    Some(String::from(CHANGELOG_MD)),
+                )
+            }
+            BuiltIn::Welcome => (DocumentSource::BuiltIn(*self), None),
+        }
+    }
+
+    pub fn relative_link(&self, link_url: &str) -> Option<(DocumentSource, Option<String>)> {
+        return match &*link_url {
+            "./help_configuration.md" => Some(BuiltIn::HelpConfiguration.source()),
+            _ => None,
+        };
+    }
+}
+
+impl TryFrom<&str> for BuiltIn {
+    type Error = Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "help" => Ok(Self::Help),
+            "help configuration" => Ok(Self::HelpConfiguration),
+            "changelog" => Ok(Self::Changelog),
+            "welcome" => Ok(Self::Welcome),
+            _ => Err(Error::Navigation(NavigationError::UnknownLinkType(
+                value.to_owned(),
+            ))),
+        }
+    }
+}
+
+impl fmt::Display for BuiltIn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}",
+            match self {
+                BuiltIn::Help => "help",
+                BuiltIn::HelpConfiguration => "help configuration",
+                BuiltIn::Welcome => "welcome",
+                BuiltIn::Changelog => "changelog",
+            }
+        )
     }
 }
 
