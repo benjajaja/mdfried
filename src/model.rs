@@ -757,6 +757,7 @@ mod tests {
             document_source: SharedDocumentSource::test(),
             document_history: Vec::new(),
             last_error: None,
+            root_image_proto: None,
         }
     }
 

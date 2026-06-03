@@ -83,10 +83,10 @@ impl BuiltIn {
     }
 
     pub fn relative_link(&self, link_url: &str) -> Option<(DocumentSource, Option<String>)> {
-        return match &*link_url {
+        match link_url {
             "./help_configuration.md" => Some(BuiltIn::HelpConfiguration.source()),
             _ => None,
-        };
+        }
     }
 }
 
