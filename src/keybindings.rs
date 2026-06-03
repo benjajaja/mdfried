@@ -32,6 +32,7 @@ pub fn poll(had_events: bool, model: &mut Model) -> Result<PollResult, Error> {
         match event::read()? {
             event::Event::Key(key) => {
                 if key.kind == KeyEventKind::Press {
+                    model.last_error = None;
                     return match_keycode(key, model);
                 }
             }
@@ -257,6 +258,7 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
                     log::debug!("open link_cursor {}", *url);
                     if let Err(err) = model.open_link(url.to_string()) {
                         log::error!("open_link failed: {err}");
+                        model.last_error.replace(err);
                     }
                 }
             }

@@ -113,78 +113,86 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
 
     let status_line_y = inner_area.height - 1;
     let mut cursor_position = Position::from((0, buf.area.height - 1));
-    match &model.input_queue {
-        InputQueue::None => match &model.cursor {
-            Cursor::None => {}
-            Cursor::Links(_) => {
-                let (fg, bg) = (Color::Indexed(15), Color::Indexed(32));
-                let line = if model.theme().hide_urls()
-                    && let Some(selected_url) = selected_url
-                {
-                    let url_display = selected_url.as_ref().to_owned();
-                    Line::from(vec![
-                        Span::from(model.theme().link_url_open()).fg(bg),
-                        Span::from(url_display).fg(fg).bg(bg),
-                        Span::from(model.theme().link_url_close()).fg(bg),
-                    ])
-                } else {
-                    Line::from(Span::from("Links").fg(Color::Indexed(32)))
-                };
-                let width = line.width() as u16;
-                let searchbar = Paragraph::new(line);
-                searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
-            }
-            Cursor::Search(needle, _) => {
+    if let Some(err) = &model.last_error {
+        let line = Line::from(err.to_string());
+        let width = line.width() as u16;
+        let searchbar = Paragraph::new(line).fg(Color::Red);
+        searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
+        cursor_position.x = width;
+    } else {
+        match &model.input_queue {
+            InputQueue::None => match &model.cursor {
+                Cursor::None => {}
+                Cursor::Links(_) => {
+                    let (fg, bg) = (Color::Indexed(15), Color::Indexed(32));
+                    let line = if model.theme().hide_urls()
+                        && let Some(selected_url) = selected_url
+                    {
+                        let url_display = selected_url.as_ref().to_owned();
+                        Line::from(vec![
+                            Span::from(model.theme().link_url_open()).fg(bg),
+                            Span::from(url_display).fg(fg).bg(bg),
+                            Span::from(model.theme().link_url_close()).fg(bg),
+                        ])
+                    } else {
+                        Line::from(Span::from("Links").fg(Color::Indexed(32)))
+                    };
+                    let width = line.width() as u16;
+                    let searchbar = Paragraph::new(line);
+                    searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
+                }
+                Cursor::Search(needle, _) => {
+                    let mut line = Line::default();
+                    line.spans.push(Span::from("/").fg(Color::Indexed(148)));
+                    let needle = Span::from(needle.as_str()).fg(Color::Indexed(148));
+                    line.spans.push(needle);
+                    let width = line.width() as u16;
+                    let searchbar = Paragraph::new(line);
+                    searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
+                }
+            },
+            InputQueue::Search(needle) => {
                 let mut line = Line::default();
                 line.spans.push(Span::from("/").fg(Color::Indexed(148)));
-                let needle = Span::from(needle.as_str()).fg(Color::Indexed(148));
+                let needle = Span::from(needle.as_str());
                 line.spans.push(needle);
                 let width = line.width() as u16;
                 let searchbar = Paragraph::new(line);
                 searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
+                cursor_position.x = width;
             }
-        },
-        InputQueue::Search(needle) => {
-            let mut line = Line::default();
-            line.spans.push(Span::from("/").fg(Color::Indexed(148)));
-            let needle = Span::from(needle.as_str());
-            line.spans.push(needle);
-            let width = line.width() as u16;
-            let searchbar = Paragraph::new(line);
-            searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
-            cursor_position.x = width;
-        }
-        InputQueue::MovementCount(movement_count) => {
-            let movement_count = movement_count.get();
-            let mut line = Line::default();
-            let mut span = Span::from(movement_count.to_string()).fg(Color::Indexed(250));
-            if movement_count == u16::MAX {
-                span = span.fg(Color::Indexed(167));
+            InputQueue::MovementCount(movement_count) => {
+                let movement_count = movement_count.get();
+                let mut line = Line::default();
+                let mut span = Span::from(movement_count.to_string()).fg(Color::Indexed(250));
+                if movement_count == u16::MAX {
+                    span = span.fg(Color::Indexed(167));
+                }
+                line.spans.push(span);
+                let width = line.width() as u16;
+                let searchbar = Paragraph::new(line);
+                searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
+                cursor_position.x = width;
             }
-            line.spans.push(span);
-            let width = line.width() as u16;
-            let searchbar = Paragraph::new(line);
-            searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
-            cursor_position.x = width;
-        }
-        InputQueue::CursorPositioningCommands => {
-            let line = Line::from(Span::from("z").fg(Color::Indexed(32)));
-            let width = line.width() as u16;
-            let searchbar = Paragraph::new(line);
-            searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
-            cursor_position.x = width;
-        }
-        InputQueue::Command(command) => {
-            let mut line = Line::default();
-            line.spans.push(Span::from(":").fg(Color::Indexed(148)));
-            let needle = Span::from(command.as_str());
-            line.spans.push(needle);
-            let width = line.width() as u16;
-            let searchbar = Paragraph::new(line);
-            searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
-            cursor_position.x = width;
-        }
-    };
+            InputQueue::CursorPositioningCommands => {
+                let line = Line::from(Span::from("z").fg(Color::Indexed(32)));
+                let width = line.width() as u16;
+                let searchbar = Paragraph::new(line);
+                searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
+                cursor_position.x = width;
+            }
+            InputQueue::Command(command) => {
+                let mut line = Line::default();
+                line.spans.push(Span::from(":").fg(Color::Indexed(148)));
+                let needle = Span::from(command.as_str());
+                line.spans.push(needle);
+                let width = line.width() as u16;
+                let searchbar = Paragraph::new(line);
+                searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
+                cursor_position.x = width;
+            }
+        };
+    }
     cursor_position
 }
 

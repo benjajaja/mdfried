@@ -33,6 +33,7 @@ pub struct Model {
     pub cursor: Cursor,
     pub input_queue: InputQueue,
     pub screen_size: Size,
+    pub last_error: Option<Error>,
     document: Document,
     document_id: DocumentId,
     document_source: SharedDocumentSource,
@@ -100,6 +101,7 @@ impl Model {
             document_history: Vec::new(),
             cmd_tx,
             event_rx,
+            last_error: None,
         }
     }
 
@@ -444,9 +446,9 @@ impl Model {
                 }
             }
         }
-        Err(Error::Generic(
-            "don't know how to open link: {link_url}".to_owned(),
-        ))
+        Err(Error::Generic(format!(
+            "don't know how to open link: {link_url}"
+        )))
     }
 
     /// Returns the URL of the currently selected link, if any.
@@ -733,6 +735,7 @@ mod tests {
             document_id: DocumentId::default(),
             document_source: SharedDocumentSource::test(),
             document_history: Vec::new(),
+            last_error: None,
         }
     }
 
