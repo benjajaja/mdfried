@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+- Display error on commands
+  Last error on commands, or similar interactions like opening links, is displayed in status line.
+  Cleared by any new input.
+- Welcome screen
+  Can start mdfried without any source, displays a small message and the logo.
+
 ## [0.21.0] - 2026-06-02
 
 ### Added

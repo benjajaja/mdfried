@@ -46,7 +46,7 @@ use crate::{
     error::Error,
     model::{DocumentId, Model},
     renderer::run_loop,
-    sources::{DocumentSource, SharedDocumentSource, open_source},
+    sources::{BuiltIn, DocumentSource, SharedDocumentSource, open_source},
     watch::watch,
     worker::{ImageCache, worker_thread},
 };
@@ -137,7 +137,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let source: Option<String> = matches.get_one::<String>("SOURCE").cloned();
 
     let mut user_config = config::load_or_ask()?;
-    let config = Config::from(user_config.clone());
+    let mut config = Config::from(user_config.clone());
 
     let (text, document_source) = match source {
         Some(source) if source == "-" => {
@@ -149,20 +149,19 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         }
         None => {
             if io::stdin().is_tty() {
-                return Err(Error::Usage(Some(
-                    "no source nor '-', and stdin is a tty (not a pipe)",
-                )));
+                (String::new(), DocumentSource::BuiltIn(BuiltIn::Welcome))
+            } else {
+                let mut text = String::new();
+                print!("Reading stdin...");
+                io::stdin().read_to_string(&mut text)?;
+                println!("{OK_END}");
+                (text, DocumentSource::Stdin { text: None })
             }
-            let mut text = String::new();
-            print!("Reading stdin...");
-            io::stdin().read_to_string(&mut text)?;
-            println!("{OK_END}");
-            (text, DocumentSource::Stdin { text: None })
         }
         Some(source) => open_source(&source, config.url_transform_command.clone())?,
     };
 
-    if text.is_empty() {
+    if text.is_empty() && document_source != DocumentSource::BuiltIn(BuiltIn::Welcome) {
         return Err(Error::Usage(Some("no input or empty")));
     }
 
@@ -242,8 +241,8 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     }
 
     let config_max_image_height = config.max_image_height;
-    let mut worker_config = config.clone();
-    worker_config.theme.has_text_size_protocol = Some(has_text_size_protocol);
+    config.theme.has_text_size_protocol = Some(has_text_size_protocol);
+    let worker_config = config.clone();
     let worker_thread = worker_thread(
         document_source.clone(),
         picker,
@@ -264,6 +263,9 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let watch_debounce_milliseconds = config.watch_debounce_milliseconds;
     terminal.clear()?;
 
+    if document_source.read()? == DocumentSource::BuiltIn(BuiltIn::Welcome) {
+        cmd_tx.send(Cmd::LoadImage(None))?;
+    }
     let model = Model::new(document_source, cmd_tx, event_rx, terminal.size()?, config);
     model.open(text)?;
 
@@ -301,6 +303,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 pub enum Cmd {
     Parse(DocumentId, u16, String, Option<ImageCache>),
     OpenUrl(String),
+    LoadImage(Option<String>), // TODO: either included welcome logo, or a path, make an enum?
 }
 
 impl std::fmt::Debug for Cmd {
@@ -319,6 +322,7 @@ impl Display for Cmd {
                 )
             }
             Cmd::OpenUrl(url) => write!(f, "Cmd::Open({url})"),
+            Cmd::LoadImage(path) => write!(f, "Cmd::LoadImage({path:?})"),
         }
     }
 }
@@ -335,6 +339,7 @@ pub enum Event {
     ),
     ImageFailed(DocumentId, SectionID, String, String),
     HeaderLoaded(DocumentId, SectionID, Vec<(String, u8, Protocol)>),
+    RootImageLoaded(Protocol), // Not markdown related, e.g. the welcome logo image.
     FileChanged,
     Scroll(i16),
     NewSourceContent(String),
@@ -387,6 +392,7 @@ impl Display for Event {
             Event::ReferenceDefinition { id, url } => {
                 write!(f, "Event::ReferenceDefinition {{ id: {id}, url: {url} }}")
             }
+            Event::RootImageLoaded(_) => write!(f, "Event::WelcomeLogoLoaded"),
             Event::FileChanged => write!(f, "Event::FileChanged"),
             Event::Scroll(s) => write!(f, "Event::Scroll({s})"),
             Event::NewSourceContent(_) => write!(f, "Event::NewSource"),

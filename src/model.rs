@@ -17,13 +17,15 @@ use ratatui::{
 use regex::RegexBuilder;
 use url::Url;
 
+use ratatui_image::protocol::Protocol;
+
 use crate::{
     Cmd,
     config::{Config, PaddingConfig, Theme},
     cursor::{Cursor, CursorPointer},
     document::{Document, FindMode, FindTarget, LineExtra, Section, SectionContent},
     error::{CommandError, Error, NavigationError},
-    sources::{DocumentHistoryEntry, DocumentSource, extend_url, github_usercontent_url},
+    sources::{BuiltIn, DocumentHistoryEntry, DocumentSource, extend_url, github_usercontent_url},
     worker::ImageCache,
 };
 use crate::{Event, sources::SharedDocumentSource};
@@ -34,6 +36,7 @@ pub struct Model {
     pub input_queue: InputQueue,
     pub screen_size: Size,
     pub last_error: Option<Error>,
+    pub root_image_proto: Option<Protocol>,
     document: Document,
     document_id: DocumentId,
     document_source: SharedDocumentSource,
@@ -95,6 +98,7 @@ impl Model {
             scroll: 0,
             input_queue: InputQueue::None,
             cursor: Cursor::default(),
+            root_image_proto: None,
             document: Document::default(),
             document_id: DocumentId::default(),
             document_source,
@@ -289,6 +293,9 @@ impl Model {
                     }
                     self.document.update_header(section_id, rows);
                 }
+                Event::RootImageLoaded(proto) => {
+                    self.root_image_proto = Some(proto);
+                }
                 Event::ReferenceDefinition { id, url } => {
                     self.document.update_link_references(id, &url);
                 }
@@ -421,8 +428,8 @@ impl Model {
                 }
             }
             DocumentSource::BuiltIn(builtin) => {
-                return match &*link_url {
-                    "./help_configuration.md" => self.open_builtin("help configuration"),
+                return match builtin.relative_link(&link_url) {
+                    Some((source, Some(text))) => self.open_new_source(source, text),
                     _ => Err(Error::Navigation(NavigationError::UnknownLinkType(
                         format!("unknown builtin link: {link_url} (from builtin {builtin})"),
                     ))),
@@ -633,15 +640,23 @@ impl Model {
 
     /// User has typed `:some_command<Enter>`.
     pub fn user_command_str(&mut self, command: String) -> Result<(), Error> {
-        match command.as_str() {
-            builtin @ ("help" | "help configuration" | "changelog") => self.open_builtin(builtin),
-            "back" => self.history_pop(),
-            _ => Err(Error::Command(CommandError::UnknownCommand(command))),
+        if let Ok(builtin) = BuiltIn::try_from(command.as_str()) {
+            match builtin.source() {
+                (source, Some(text)) => self.open_new_source(source, text),
+                _ => Ok(()),
+            }
+        } else {
+            match command.as_str() {
+                // builtin if builtin.starts_with("help") => self.open_builtin(builtin),
+                // builtin @ "changelog" => self.open_builtin(builtin),
+                "back" => self.history_pop(),
+                _ => Err(Error::Command(CommandError::UnknownCommand(command))),
+            }
         }
     }
 
     pub fn is_help_screen(&self) -> Result<bool, Error> {
-        Ok(self.document_source.read()? == DocumentSource::BuiltIn("help"))
+        Ok(self.document_source.read()? == DocumentSource::BuiltIn(BuiltIn::Help))
     }
 
     pub fn set_last_error(&mut self, err: Error) {
@@ -649,30 +664,11 @@ impl Model {
         self.last_error = Some(err);
     }
 
-    fn open_builtin(&mut self, builtin: &str) -> Result<(), Error> {
-        match builtin {
-            "help" => {
-                const HELP_MD: &str = include_str!("../assets/docs/help.md");
-                self.open_new_source(DocumentSource::BuiltIn("help"), String::from(HELP_MD))
-            }
-            "help configuration" => {
-                const HELP_CONFIGURATION_MD: &str =
-                    include_str!("../assets/docs/help_configuration.md");
-                self.open_new_source(
-                    DocumentSource::BuiltIn("help configuration"),
-                    String::from(HELP_CONFIGURATION_MD),
-                )
-            }
-            "changelog" => {
-                const CHANGELOG_MD: &str = include_str!("../assets/docs/CHANGELOG.md");
-                self.open_new_source(
-                    DocumentSource::BuiltIn("changelog"),
-                    String::from(CHANGELOG_MD),
-                )
-            }
-            _ => Err(Error::Navigation(NavigationError::UnknownLinkType(
-                format!("builtin: {builtin}"),
-            ))),
+    pub fn builtin_override_view(&self) -> Option<BuiltIn> {
+        if let Ok(DocumentSource::BuiltIn(BuiltIn::Welcome)) = self.document_source.read() {
+            Some(BuiltIn::Welcome)
+        } else {
+            None
         }
     }
 }
@@ -761,6 +757,7 @@ mod tests {
             document_source: SharedDocumentSource::test(),
             document_history: Vec::new(),
             last_error: None,
+            root_image_proto: None,
         }
     }
 

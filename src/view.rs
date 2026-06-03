@@ -2,13 +2,13 @@ use unicode_width::UnicodeWidthStr as _;
 
 use ratatui::{
     buffer::Buffer,
-    layout::{Position, Rect},
+    layout::{Alignment, Constraint, Layout, Position, Rect, Size},
     style::{Color, Stylize as _},
     text::{Line, Span},
-    widgets::{Block, Paragraph, Widget},
+    widgets::{Block, BorderType, Paragraph, Widget},
 };
 
-use mdfrier::{Mapper as _, SourceContent};
+use mdfrier::{Mapper as _, SourceContent, ratatui::Theme as _};
 use ratatui_image::{
     Image,
     sliced::{SignedPosition, SlicedImage},
@@ -19,7 +19,10 @@ use crate::{
     cursor::{Cursor, CursorPointer},
     document::{LineExtra, SectionContent},
     model::{InputQueue, Model},
+    sources::BuiltIn,
 };
+
+pub const WELCOME_LOGO_SIZE: (u16, u16) = (32, 8);
 
 pub fn view(model: &Model, buf: &mut Buffer) -> Position {
     let inner_area = {
@@ -111,6 +114,10 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
         }
     }
 
+    if let Some(BuiltIn::Welcome) = model.builtin_override_view() {
+        render_welcome(model, inner_area, buf);
+    }
+
     let status_line_y = inner_area.height - 1;
     let mut cursor_position = Position::from((0, buf.area.height - 1));
     if let Some(err) = &model.last_error {
@@ -194,6 +201,88 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
         };
     }
     cursor_position
+}
+
+fn render_welcome(model: &Model, inner_area: Rect, buf: &mut Buffer) {
+    let code_fg = model.theme().code_fg();
+    let code_bg = model.theme().code_bg();
+    let link = Span::from("https://mdfried.qdice.wtf")
+        .underlined()
+        .fg(model.theme().link_fg());
+
+    let body: Vec<Line> = vec![
+        Line::from(vec![
+            Span::from("Welcome to the "),
+            Span::from("ULTIMATE").fg(model.theme().emphasis_color()),
+            Span::from(" terminal markdown viewer."),
+        ]),
+        Line::default(),
+        Line::from(vec![
+            Span::from("Type "),
+            Span::from(":help").fg(code_fg).bg(code_bg),
+            Span::from("<Enter>").fg(Color::DarkGray).bg(code_bg),
+            Span::from(" for help and documentation."),
+        ]),
+        Line::from(vec![
+            Span::from("Type "),
+            Span::from(":q").fg(code_fg).bg(code_bg),
+            Span::from("<Enter>").fg(Color::DarkGray).bg(code_bg),
+            Span::from(" or press "),
+            Span::from("Q").fg(code_fg).bg(code_bg),
+            Span::from(" to quit.          "),
+        ]),
+        Line::default(),
+        Line::from(link),
+    ];
+
+    let logo_size: Size = WELCOME_LOGO_SIZE.into();
+    let logo_rows = logo_size.height;
+    let logo_cols = logo_size.width;
+
+    let w = logo_cols.max(50);
+    let h = logo_rows + body.len() as u16;
+    let x = inner_area.x + inner_area.width.saturating_sub(w) / 2;
+    let y = inner_area.y + inner_area.height.saturating_sub(h) / 2;
+
+    let logo_x = x + w.saturating_sub(logo_cols) / 2;
+    let logo_area = Rect {
+        x: logo_x,
+        y,
+        width: logo_cols,
+        height: logo_rows,
+    };
+    if let Some(proto) = &model.root_image_proto {
+        Image::new(proto).render(logo_area, buf);
+    } else {
+        let img_block = Block::bordered().border_type(BorderType::Rounded);
+
+        let inner = img_block.inner(logo_area);
+        img_block.render(logo_area, buf);
+
+        let [_, text_area, _] = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(2),
+            Constraint::Fill(1),
+        ])
+        .areas(inner);
+
+        Paragraph::new(vec![
+            Line::from("MdFried"),
+            Line::from("Markdown, deep fried!"),
+        ])
+        .alignment(Alignment::Center)
+        .render(text_area, buf);
+    }
+
+    let text_area = Rect {
+        x,
+        y: y + logo_rows,
+        width: w,
+        height: body.len() as u16,
+    };
+    Paragraph::new(body)
+        .alignment(Alignment::Center)
+        .render(text_area, buf);
 }
 
 fn section_lines(

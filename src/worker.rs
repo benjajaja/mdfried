@@ -23,7 +23,7 @@ use std::{
 use cosmic_text::fontdb::Database;
 use mdfrier::MdFrier;
 use ratatui::layout::Size;
-use ratatui_image::{picker::Picker, sliced::SlicedProtocol};
+use ratatui_image::{Resize, picker::Picker, sliced::SlicedProtocol};
 use reqwest::Client;
 use tokio::{runtime::Builder, sync::RwLock, task::JoinSet};
 
@@ -244,12 +244,32 @@ pub fn worker_thread(
                             ).await?;
                         }
                     }
-                    Cmd::OpenUrl(url)=>{
+                    Cmd::OpenUrl(url) => {
                         let event_tx = event_tx.clone();
                         tokio::task::spawn_blocking(move || -> Result<(), Error> {
                             if let Ok((text, _)) = open_source(&url, None) {
                                 event_tx.send(Event::NewSourceContent(text))?;
                             }
+                            Ok(())
+                        })
+                        .await??;
+                    }
+                    Cmd::LoadImage(path) => {
+                        let event_tx = event_tx.clone();
+                        let picker = thread_picker.clone();
+                        tokio::task::spawn_blocking(move || -> Result<(), Error> {
+                            let dyn_img = if let Some(path) = path {
+                                image::ImageReader::open(path)?.decode()?
+                            } else {
+                                let bytes = include_bytes!("../assets/logo.png");
+                                image::ImageReader::with_format(std::io::Cursor::new(bytes), image::ImageFormat::Png).decode()?
+                            };
+                            let proto = picker.new_protocol(
+                                dyn_img,
+                                crate::view::WELCOME_LOGO_SIZE.into(),
+                                Resize::Fit(Some(ratatui_image::FilterType::Lanczos3))
+                            )?;
+                            event_tx.send(Event::RootImageLoaded(proto))?;
                             Ok(())
                         })
                         .await??;
