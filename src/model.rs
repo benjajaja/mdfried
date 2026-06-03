@@ -17,6 +17,8 @@ use ratatui::{
 use regex::RegexBuilder;
 use url::Url;
 
+use ratatui_image::protocol::Protocol;
+
 use crate::{
     Cmd,
     config::{Config, PaddingConfig, Theme},
@@ -34,6 +36,7 @@ pub struct Model {
     pub input_queue: InputQueue,
     pub screen_size: Size,
     pub last_error: Option<Error>,
+    pub root_image_proto: Option<Protocol>,
     document: Document,
     document_id: DocumentId,
     document_source: SharedDocumentSource,
@@ -95,6 +98,7 @@ impl Model {
             scroll: 0,
             input_queue: InputQueue::None,
             cursor: Cursor::default(),
+            root_image_proto: None,
             document: Document::default(),
             document_id: DocumentId::default(),
             document_source,
@@ -288,6 +292,9 @@ impl Model {
                         continue;
                     }
                     self.document.update_header(section_id, rows);
+                }
+                Event::RootImageLoaded(proto) => {
+                    self.root_image_proto = Some(proto);
                 }
                 Event::ReferenceDefinition { id, url } => {
                     self.document.update_link_references(id, &url);

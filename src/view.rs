@@ -2,10 +2,10 @@ use unicode_width::UnicodeWidthStr as _;
 
 use ratatui::{
     buffer::Buffer,
-    layout::{Position, Rect},
+    layout::{Alignment, Constraint, Layout, Position, Rect, Size},
     style::{Color, Stylize as _},
     text::{Line, Span},
-    widgets::{Block, Paragraph, Widget},
+    widgets::{Block, BorderType, Paragraph, Widget},
 };
 
 use mdfrier::{Mapper as _, SourceContent};
@@ -21,6 +21,8 @@ use crate::{
     model::{InputQueue, Model},
     sources::BuiltIn,
 };
+
+pub const WELCOME_LOGO_SIZE: (u16, u16) = (32, 8);
 
 pub fn view(model: &Model, buf: &mut Buffer) -> Position {
     let inner_area = {
@@ -113,10 +115,7 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
     }
 
     if let Some(BuiltIn::Welcome) = model.builtin_override_view() {
-        let line = Line::from("Welcome!");
-        let width = line.width() as u16;
-        let welcome = Paragraph::new(line).fg(Color::Magenta);
-        welcome.render(Rect::new(0, 0, width, 1), buf);
+        render_welcome(model, inner_area, buf);
     }
 
     let status_line_y = inner_area.height - 1;
@@ -202,6 +201,63 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
         };
     }
     cursor_position
+}
+
+fn render_welcome(model: &Model, inner_area: Rect, buf: &mut Buffer) {
+    let body = [
+        "Welcome to the ULTIMATE terminal markdown viewer.",
+        "Type :help for help and documentation.",
+        "Press Q to quit.",
+    ];
+
+    let logo_size: Size = WELCOME_LOGO_SIZE.into();
+    let logo_rows = logo_size.height;
+    let logo_cols = logo_size.width;
+
+    let w = logo_cols.max(50);
+    let h = logo_rows + body.len() as u16;
+    let x = inner_area.x + inner_area.width.saturating_sub(w) / 2;
+    let y = inner_area.y + inner_area.height.saturating_sub(h) / 2;
+
+    let logo_x = x + w.saturating_sub(logo_cols) / 2;
+    let logo_area = Rect {
+        x: logo_x,
+        y,
+        width: logo_cols,
+        height: logo_rows,
+    };
+    if let Some(proto) = &model.root_image_proto {
+        Image::new(proto).render(logo_area, buf);
+    } else {
+        let block = Block::bordered().border_type(BorderType::Rounded);
+
+        let inner = block.inner(logo_area);
+        block.render(logo_area, buf);
+
+        let [_, text_area, _] = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(2),
+            Constraint::Fill(1),
+        ])
+        .areas(inner);
+
+        Paragraph::new(vec![
+            Line::from("MdFried"),
+            Line::from("Markdown, deep fried!"),
+        ])
+        .alignment(Alignment::Center)
+        .render(text_area, buf);
+    }
+
+    let text_area = Rect {
+        x,
+        y: y + logo_rows,
+        width: w,
+        height: body.len() as u16,
+    };
+    Paragraph::new(body.iter().map(|t| Line::from(*t)).collect::<Vec<_>>())
+        .alignment(Alignment::Center)
+        .render(text_area, buf);
 }
 
 fn section_lines(
