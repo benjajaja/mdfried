@@ -8,6 +8,8 @@
   Cleared by any new input.
 - Welcome screen
   Can start mdfried without any source, displays a small message and the logo.
+- `open` command
+  Type `:open <path>` to open a file.
 
 ## [0.21.0] - 2026-06-02
 

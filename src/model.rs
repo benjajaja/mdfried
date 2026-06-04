@@ -413,18 +413,12 @@ impl Model {
         }
 
         match self.document_source.read()? {
-            source @ DocumentSource::File { .. } | source @ DocumentSource::Stdin { .. } => {
-                let url_as_path = Path::new(&link_url);
-                log::debug!("open md? {url_as_path:?}");
-                if url_as_path.extension() == Some(std::ffi::OsStr::new("md"))
-                    && fs::exists(url_as_path).unwrap_or_default()
-                    && let Ok(text) = fs::read_to_string(url_as_path)
-                {
-                    self.open_new_source(source, text)?;
-                } else if Url::parse(&link_url).is_ok() {
-                    if let Err(err) = open::that(&link_url) {
-                        log::error!("{err}");
-                    }
+            DocumentSource::File { .. } | DocumentSource::Stdin { .. } => {
+                if self.open_file(&link_url).is_ok() {
+                    return Ok(());
+                }
+                if Url::parse(&link_url).is_ok() {
+                    return Ok(open::that(&link_url)?);
                 }
             }
             DocumentSource::BuiltIn(builtin) => {
@@ -459,6 +453,27 @@ impl Model {
         Err(Error::Navigation(NavigationError::UnknownLinkType(
             link_url,
         )))
+    }
+
+    pub fn open_file(&mut self, path_str: &str) -> Result<(), Error> {
+        let path = Path::new(path_str);
+        if path.extension() == Some(std::ffi::OsStr::new("md"))
+            && fs::exists(path).unwrap_or_default()
+            && let Ok(text) = fs::read_to_string(path)
+        {
+            let basepath = path.parent().map(Path::to_path_buf);
+            self.open_new_source(
+                DocumentSource::File {
+                    path: path.to_path_buf(),
+                    basepath,
+                },
+                text,
+            )
+        } else {
+            Err(Error::Navigation(NavigationError::UnknownLinkType(
+                path_str.to_owned(),
+            )))
+        }
     }
 
     /// Returns the URL of the currently selected link, if any.
@@ -650,7 +665,13 @@ impl Model {
                 // builtin if builtin.starts_with("help") => self.open_builtin(builtin),
                 // builtin @ "changelog" => self.open_builtin(builtin),
                 "back" => self.history_pop(),
-                _ => Err(Error::Command(CommandError::UnknownCommand(command))),
+                _ => {
+                    if let Some(path) = command.strip_prefix("open ") {
+                        self.open_file(path)
+                    } else {
+                        Err(Error::Command(CommandError::UnknownCommand(command)))
+                    }
+                }
             }
         }
     }
