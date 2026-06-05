@@ -416,7 +416,7 @@ impl std::fmt::Debug for Event {
 mod tests {
     use std::{sync::mpsc, thread::JoinHandle};
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
     use insta::assert_snapshot;
     use ratatui::{Terminal, backend::TestBackend, layout::Size, text::Line};
     use ratatui_image::picker::{Picker, ProtocolType};
@@ -536,7 +536,7 @@ Goodbye."#,
                 frame.set_cursor_position(cursor_position);
             })
             .unwrap();
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
         assert_snapshot!("first parse image previews", terminal.backend());
         // Must load an image.
         poll_images_done(&mut model);
@@ -546,7 +546,7 @@ Goodbye."#,
                 frame.set_cursor_position(cursor_position);
             })
             .unwrap();
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
         assert_snapshot!("first parse done", terminal.backend());
 
         teardown(model, worker);
@@ -596,7 +596,7 @@ Goodbye."#,
                 frame.set_cursor_position(cursor_position);
             })
             .unwrap();
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
         assert_snapshot!("reload move image up", terminal.backend());
 
         model
@@ -619,7 +619,7 @@ Goodbye."#,
                 frame.set_cursor_position(cursor_position);
             })
             .unwrap();
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
         assert_snapshot!("reload move image down", terminal.backend());
 
         teardown(model, worker);
@@ -669,7 +669,7 @@ Goodbye."#,
                 frame.set_cursor_position(cursor_position);
             })
             .unwrap();
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
         assert_snapshot!("reload add image preview", terminal.backend());
         // Must load an image.
         poll_images_done(&mut model);
@@ -679,7 +679,7 @@ Goodbye."#,
                 frame.set_cursor_position(cursor_position);
             })
             .unwrap();
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
         assert_snapshot!("reload add image done", terminal.backend());
         teardown(model, worker);
     }
@@ -726,7 +726,7 @@ Goodbye.
                 frame.set_cursor_position(cursor_position);
             })
             .unwrap();
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
         assert_snapshot!("duplicate image preview", terminal.backend());
         // Must load an image.
         poll_images_done(&mut model);
@@ -736,7 +736,7 @@ Goodbye.
                 frame.set_cursor_position(cursor_position);
             })
             .unwrap();
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
         assert_snapshot!("duplicate image done", terminal.backend());
         teardown(model, worker);
     }
