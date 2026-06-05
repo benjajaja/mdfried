@@ -98,15 +98,18 @@ impl Document {
         section_id: SectionID,
         link: MarkdownLink,
         (proto, size, max_size): (SlicedProtocol, Size, Size),
+        trailing_blank: bool,
     ) {
         let Some(section) = self.sections.iter_mut().find(|s| s.id == section_id) else {
             log::error!("update_image: section #{section_id} not found");
             return;
         };
 
+        // Add an extra space if the source had one.
+        let trailing_blank: u16 = trailing_blank.into();
         *section = Section {
             id: section_id,
-            height: size.height,
+            height: size.height + trailing_blank,
             content: SectionContent::Image(link, proto, size, max_size),
         };
     }

@@ -257,12 +257,13 @@ impl Model {
 
                     self.document.push(section);
                 }
-                Event::ImageLoaded(document_id, section_id, link, protos) => {
+                Event::ImageLoaded(document_id, section_id, link, proto, trailing_blank) => {
                     if !self.document_id.is_same_document(&document_id) {
                         log::debug!("stale event, ignoring");
                         continue;
                     }
-                    self.document.update_image(section_id, link, protos);
+                    self.document
+                        .update_image(section_id, link, proto, trailing_blank);
                 }
                 Event::ImageFailed(document_id, section_id, _url, error) => {
                     if !self.document_id.is_same_document(&document_id) {

@@ -145,11 +145,12 @@ pub fn worker_thread(
                                 SectionContent::Image(_, _,_,_) => {
                                     unreachable!("SectionIterator produced Image");
                                 }
-                                SectionContent::ImagePlaceholder(link, _) => {
+                                SectionContent::ImagePlaceholder(link, lines) => {
                                     let section_id = section.id;
                                     let link = link.clone();
+                                    let has_trailing_blank = lines.last().map(|(line,_)| line.spans.is_empty()).unwrap_or_default();
                                     event_tx.send(Event::Parsed(document_id, section))?;
-                                    post_parse_events.push(SectionEvent::Image(section_id, link));
+                                    post_parse_events.push(SectionEvent::Image(section_id, link, has_trailing_blank));
                                 },
                                 SectionContent::Header(_, _, _) => {
                                     if !config.theme.has_text_size_protocol.unwrap_or_default() {
@@ -182,6 +183,7 @@ pub fn worker_thread(
                                 SectionEvent::Image(
                                     section_id,
                                     link,
+                                    has_trailing_blank,
                                 ) => {
                                     if let Some((proto, size, max_size)) = image_cache.images.remove(&link.url) {
                                         if width == max_size.width && config_max_image_height >= max_size.height {
@@ -190,6 +192,7 @@ pub fn worker_thread(
                                                 *section_id,
                                                 link.clone(),
                                                 (proto, size, max_size),
+                                                *has_trailing_blank,
                                             ))?;
                                             log::debug!("image cache hit: {max_size:?} vs {width}x{config_max_image_height}, {size:?}, {}", link.url);
                                         } else {
@@ -318,7 +321,7 @@ async fn process_post_parse_events(
 
         set.spawn(async move {
             match event {
-                SectionEvent::Image(section_id, url) => {
+                SectionEvent::Image(section_id, url, has_trailing_blank) => {
                     // Load fresh image
                     match image_section(
                         &picker,
@@ -344,6 +347,7 @@ async fn process_post_parse_events(
                                 section_id,
                                 link,
                                 (protos, size, max_size),
+                                has_trailing_blank,
                             ))?
                         }
                         Err(Error::ImageLoad(url, error)) => {
@@ -415,6 +419,7 @@ async fn process_post_parse_events(
                                     section_id,
                                     link,
                                     (sliced, size, max_size),
+                                    true, // comes from a codeblock
                                 ))?;
                                 return Ok(());
                             }

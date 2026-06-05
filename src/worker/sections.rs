@@ -18,7 +18,7 @@ use crate::document::{LineExtra, LinkReference, Section, SectionContent, Section
 
 /// Events produced during section iteration that need post-processing.
 pub enum SectionEvent {
-    Image(SectionID, MarkdownLink),
+    Image(SectionID, MarkdownLink, bool),
     Header(SectionID, String, u8),
     ReferenceDefinition { id: String, url: String },
     Code(SectionID, String, Vec<ratatui::prelude::Line<'static>>),
@@ -27,7 +27,7 @@ pub enum SectionEvent {
 impl std::fmt::Display for SectionEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SectionEvent::Image(_, link) => write!(f, "Image({link})"),
+            SectionEvent::Image(_, link, _has_trailing_blank) => write!(f, "Image({link})"),
             SectionEvent::Header(_, text, level) => write!(f, "H{level}({text})"),
             SectionEvent::ReferenceDefinition { id, url } => write!(f, "Ref({id} => {url})"),
             SectionEvent::Code(_, lang, _) => write!(f, "Code({lang})"),
@@ -128,7 +128,7 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
     fn process_text(&mut self, first: Line) -> Option<Section> {
         let mut lines = vec![first];
 
-        // Aggregate consecutive non-header, non-image lines
+        // Aggregate consecutive "text" lines
         while let Some(peeked) = self.inner.peek() {
             match &peeked.kind {
                 // Stop aggregating at headers or images
@@ -141,40 +141,9 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
             }
         }
 
-        // Check if a header follows (need to preserve one blank line for spacing)
-        let (followed_by_header, followed_by_image) = self
-            .inner
-            .peek()
-            .map(|l| {
-                (
-                    matches!(l.kind, LineKind::Header(_)),
-                    matches!(l.kind, LineKind::Image { .. }),
-                )
-            })
-            .unwrap_or_default();
-
-        // Trim trailing blank lines, unless image
-        if !followed_by_image {
-            while lines
-                .last()
-                .is_some_and(|l| matches!(l.kind, LineKind::Blank))
-            {
-                lines.pop();
-            }
-        }
-
-        // Skip if section ended up empty after trimming
+        // Skip if section ended up empty
         if lines.is_empty() {
             return None;
-        }
-
-        // Re-add one blank line if needed for spacing before header
-        if followed_by_header {
-            lines.push(Line {
-                kind: LineKind::Blank,
-                spans: Vec::new(),
-                urls: Vec::new(),
-            });
         }
 
         let rendered_lines: Vec<_> = lines

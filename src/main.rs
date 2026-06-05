@@ -336,6 +336,7 @@ pub enum Event {
         SectionID,
         MarkdownLink,
         (SlicedProtocol, Size, Size),
+        bool,
     ),
     ImageFailed(DocumentId, SectionID, String, String),
     HeaderLoaded(DocumentId, SectionID, Vec<(String, u8, Protocol)>),
@@ -364,8 +365,11 @@ impl Display for Event {
                     section.id, section.content
                 )
             }
-            Event::ImageLoaded(document_id, section_id, url, _) => {
-                write!(f, "Event::ImageLoaded({document_id}, {section_id}, {url})")
+            Event::ImageLoaded(document_id, section_id, url, _, trailing_blank) => {
+                write!(
+                    f,
+                    "Event::ImageLoaded({document_id}, {section_id}, {url}, {trailing_blank})"
+                )
             }
             Event::ImageFailed(document_id, section_id, url, error) => {
                 write!(

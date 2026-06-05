@@ -63,6 +63,7 @@ mdfried [OPTIONS] [SOURCE]
 
 * `[SOURCE]`
   A file path, a URL, or a `github:<owner>/<repo>` source to open.
+  If ommitted, tries to read from stdin, i.e. you can pipe markdown into mdfried.
 * `--help`
   CLI help.
 * `--version`, `-V`

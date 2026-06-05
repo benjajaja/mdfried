@@ -58,13 +58,15 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
                     section.id,
                 );
             }
-            SectionContent::Image(_markdown_link, sliced_proto, size, _max_size) => {
+            SectionContent::Image(_markdown_link, sliced_proto, _size, _max_size) => {
                 // TODO: just fix up inner_area at once
                 let mut inner_area = inner_area;
                 inner_area.height -= 1;
                 SlicedImage::new(sliced_proto, SignedPosition { x: 0, y: y as i16 })
                     .render(inner_area, buf);
-                y += size.height as i32;
+                // Trailing blanks, or the lack thereof, are indicated by `section.height`.
+                // That is, if there is a trailing blank line, then `section.height = size.height + 1`.
+                y += section.height as i32;
             }
             SectionContent::ImagePlaceholder(_, lines) => {
                 for (line, _extras) in lines.iter() {
