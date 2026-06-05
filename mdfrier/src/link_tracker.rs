@@ -208,6 +208,13 @@ impl LinkTracker {
         }
     }
 
+    /// Returns true if we are currently in the middle of a link description that hasn't been
+    /// closed yet. Useful to detect that a link is being line-wrapped, and filling to the end of
+    /// the line with "space with underline" or a similar style.
+    pub fn is_mid_link(&self) -> Option<u16> {
+        matches!(self.state, LinkState::LinkDesc(..)).then_some(self.offset)
+    }
+
     pub fn take_urls(&mut self) -> Vec<TrackedUrl> {
         let mut extras = Vec::new();
         swap(&mut self.urls, &mut extras);

@@ -30,9 +30,21 @@ pub fn wrap_md_spans<M: Mapper>(
     wrap_md_spans_lines(available_width, mdspans, mapper, prefix_width != 0)
         .into_iter()
         .filter(|line| !line.is_empty())
-        .map(|spans| {
+        .map(|mut spans| {
             for span in &spans {
                 tracker.track(span);
+            }
+
+            if let Some(offset) = tracker.is_mid_link()
+                && offset < available_width
+            {
+                // The link has been wrapped, fill it towards the end of the line.
+                // This is important for OSC8 links, which must match the underlying ratatui buffer
+                // exactly to avoid artifacts.
+                spans.push(Span::new(
+                    " ".repeat((available_width - offset) as usize),
+                    Modifier::Link | Modifier::LinkDescription,
+                ));
             }
             tracker.carriage_return();
 

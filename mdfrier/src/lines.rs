@@ -1145,7 +1145,7 @@ I have searched far **and** wide but I have *yet* to come across a show that wou
         let lines: Vec<Line> = line_iter.collect();
         assert_eq!(
             vec![
-                "blalalalallalabbalallalaa [![Packaging status](",
+                "blalalalallalabbalallalaa [![Packaging status](                                                     ",
                 "https://repology.org/badge/vertical-allrepos/mdfried.svg)]",
                 "![Loading...](https://repology.org/badge/vertical-allrepos/mdfried.svg)",
                 "(https://repology.org/project/mdfried/versions)",
