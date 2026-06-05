@@ -1,6 +1,6 @@
 use std::fmt::Write as _;
 
-use ratatui::{layout::Rect, style::Color, widgets::Widget};
+use ratatui::{buffer::CellDiffOption, layout::Rect, style::Color, widgets::Widget};
 use unicode_width::UnicodeWidthChar as _;
 
 /// Yields slices of chars where each chunk has unicode width <= max_width.
@@ -124,7 +124,8 @@ impl Widget for BigText<'_> {
         for y in area.top()..area.bottom() {
             for x in area.left()..area.right() {
                 if skip_first {
-                    buf.cell_mut((x, y)).map(|cell| cell.set_skip(true));
+                    buf.cell_mut((x, y))
+                        .map(|cell| cell.set_diff_option(CellDiffOption::Skip));
                 } else {
                     skip_first = true;
                     buf.cell_mut((x, y)).map(|cell| cell.set_symbol(&symbol));

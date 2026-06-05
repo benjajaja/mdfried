@@ -3,7 +3,7 @@ use unicode_width::UnicodeWidthStr as _;
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Layout, Position, Rect, Size},
-    style::{Color, Stylize as _},
+    style::{Color, Style, Stylize as _},
     text::{Line, Span},
     widgets::{Block, BorderType, Paragraph, Widget},
 };
@@ -18,6 +18,7 @@ use crate::{
     big_text::BigText,
     cursor::{Cursor, CursorPointer},
     document::{LineExtra, SectionContent},
+    links::Osc8Link,
     model::{InputQueue, Model},
     sources::BuiltIn,
 };
@@ -296,6 +297,11 @@ fn section_lines(
     selected_url: &Option<SourceContent>,
     section_id: usize,
 ) {
+    // This should come from Theme.
+    let highlight_style = Style::default()
+        .fg(Color::Indexed(15))
+        .bg(Color::Indexed(32));
+
     let mut flat_index = 0;
     for (line_idx, (line, extras)) in lines.iter().enumerate() {
         const LINE_HEIGHT: u16 = 1;
@@ -314,39 +320,53 @@ fn section_lines(
         let p = Paragraph::new(line.clone());
         render_lines(p, LINE_HEIGHT, line_y, inner_area, buf);
 
-        // Highlight all links that share the same URL as the selected link
-        if let Cursor::Links(CursorPointer { .. }) = &model.cursor {
-            if let Some(selected) = selected_url {
-                for extra in extras.iter() {
-                    if let LineExtra::Link {
-                        source: url,
-                        start,
-                        end,
-                        lines: lines_count,
-                        ..
-                    } = extra
-                    {
-                        if url.as_ptr() == selected.as_ptr() {
-                            for (link_overlay, area) in link_overlays(
-                                line,
-                                *start,
-                                *end,
-                                lines_count,
-                                line_idx,
-                                lines,
-                                inner_area,
-                                line_y,
-                            ) {
-                                link_overlay.render(area, buf);
-                            }
-                            // TODO: Find out if positioning the cursor on the link
-                            // would help with screen readers, or anything else in
-                            // general.
-                        }
+        for extra in extras.iter() {
+            if let LineExtra::Link {
+                source: url,
+                start,
+                end,
+                lines: lines_count,
+                ..
+            } = extra
+            {
+                if let Cursor::Links(CursorPointer { .. }) = &model.cursor
+                    && let Some(selected) = &selected_url
+                    && selected.as_ptr() == url.as_ptr()
+                {
+                    for (link_overlay, area) in link_overlays(
+                        line,
+                        *start,
+                        *end,
+                        lines_count,
+                        line_idx,
+                        lines,
+                        inner_area,
+                        line_y,
+                        link_highlighted(highlight_style),
+                        url,
+                    ) {
+                        link_overlay.render(area, buf);
+                    }
+                } else {
+                    for (link_overlay, area) in link_overlays(
+                        line,
+                        *start,
+                        *end,
+                        lines_count,
+                        line_idx,
+                        lines,
+                        inner_area,
+                        line_y,
+                        link_osc8_widget_with_filler(model.theme().link_description_style()),
+                        url,
+                    ) {
+                        link_overlay.render(area, buf);
                     }
                 }
             }
-        } else if let Cursor::Search(_, pointer) = &model.cursor {
+        }
+
+        if let Cursor::Search(_, pointer) = &model.cursor {
             for (i, extra) in extras.iter().enumerate() {
                 if let LineExtra::SearchMatch(start, end, text) = extra {
                     let x = inner_area.x + (*start as u16);
@@ -382,7 +402,7 @@ fn render_lines<W: Widget>(widget: W, source_height: u16, y: u16, area: Rect, bu
 }
 
 #[expect(clippy::too_many_arguments)]
-fn link_overlays<'a>(
+fn link_overlays<'a, F, W>(
     line: &Line<'a>,
     start: u16,
     end: u16,
@@ -391,7 +411,13 @@ fn link_overlays<'a>(
     lines: &[(Line<'a>, Vec<LineExtra>)],
     inner_area: Rect,
     line_y: u16,
-) -> Vec<(Paragraph<'a>, Rect)> {
+    widget: F,
+    url: &'a str,
+) -> Vec<(W, Rect)>
+where
+    F: Fn(u16, u16, Line<'a>, &'a str) -> (W, u16),
+    W: Widget,
+{
     let mut overlays = Vec::new();
 
     let max_line_end = inner_area.width;
@@ -420,7 +446,7 @@ fn link_overlays<'a>(
                 break;
             };
             let display_text = extract_line_content(&previous_line.0, start, end);
-            let (link_overlay, width) = link_overlay_widget(start, end, display_text);
+            let (link_overlay, width) = widget(start, end, display_text, url);
             let x = inner_area.x + start;
             let area = Rect::new(x, previous_line_y, width, 1);
             overlays.push((link_overlay, area));
@@ -434,7 +460,7 @@ fn link_overlays<'a>(
         // Links may end at 0-0 if the closing bracket "]" is at the beginning of a line.
         // Just skip the overlay, although that line is the "anchor" for other purposes.
         let display_text = extract_line_content(line, start, end);
-        let (link_overlay, width) = link_overlay_widget(start, end, display_text);
+        let (link_overlay, width) = widget(start, end, display_text, url);
         let x = inner_area.x + start;
         let area = Rect::new(x, line_y, width, 1);
         overlays.push((link_overlay, area));
@@ -443,12 +469,32 @@ fn link_overlays<'a>(
     overlays
 }
 
-fn link_overlay_widget<'a>(start: u16, end: u16, display_text: Line<'a>) -> (Paragraph<'a>, u16) {
-    let width = end - start;
-    let link_overlay = Paragraph::new(display_text)
-        .fg(Color::Indexed(15))
-        .bg(Color::Indexed(32));
-    (link_overlay, width)
+fn link_highlighted<'a>(
+    style: Style,
+) -> impl Fn(u16, u16, Line<'a>, &'a str) -> (Paragraph<'a>, u16) {
+    move |start, end, mut line, _url| {
+        let width = end - start;
+        let mut width_taken = 0;
+        for span in &mut line.spans {
+            span.style = span.style.patch(style);
+            width_taken += span.width();
+        }
+
+        Osc8Link::fill(&mut line.spans, width as usize - width_taken, style);
+        let p = Paragraph::new(line)
+            .fg(Color::Indexed(15))
+            .bg(Color::Indexed(32));
+        (p, width)
+    }
+}
+
+fn link_osc8_widget_with_filler<'a>(
+    style: Style,
+) -> impl Fn(u16, u16, Line<'a>, &'a str) -> (Osc8Link<'a>, u16) {
+    move |start, end, line, url| {
+        let width = end - start;
+        (Osc8Link::new(line.spans, url, Some((width, style))), width)
+    }
 }
 
 /// Extract text content from a Line.
@@ -462,10 +508,7 @@ fn extract_line_content<'a>(line: &Line<'a>, start: u16, end: u16) -> Line<'a> {
     let mut content = Line::default();
     for span in &line.spans {
         if pos >= start {
-            let mut link_span = span.clone();
-            link_span.style.fg = None;
-            link_span.style.bg = None;
-            content.push_span(link_span);
+            content.push_span(span.clone());
         }
 
         let span_width = span.content.width() as u16;
@@ -495,6 +538,7 @@ mod tests {
                 vec![],
             ),
         ];
+        let url = "http://example.com";
         let start = 7;
         let end = 9;
         let lines_count = Some(1);
@@ -511,12 +555,17 @@ mod tests {
             &lines,
             inner_area,
             line_y,
+            link_highlighted(Style::default()),
+            url,
         );
         assert_eq!(
             overlays,
             vec![
                 (
-                    Paragraph::new(Line::from(Span::from("link desc")))
+                    Paragraph::new(Line::from(vec![
+                        Span::from("link desc"),
+                        Span::from("                                                                                    "),
+                    ]))
                         .fg(Color::Indexed(15))
                         .bg(Color::Indexed(32)),
                     Rect::new(17, 0, 93, 1)

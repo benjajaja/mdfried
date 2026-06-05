@@ -5,6 +5,7 @@ mod debug;
 mod document;
 mod error;
 mod keybindings;
+mod links;
 mod model;
 mod renderer;
 mod setup;

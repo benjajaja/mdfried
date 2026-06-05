@@ -344,9 +344,21 @@ fn node_to_span<T: Theme>(
         return RatatuiSpan::styled(content, theme.hr_style());
     }
 
+    // Build style from modifiers
+    let mut style = if is_table_header {
+        theme.table_header_style()
+    } else {
+        Style::default()
+    };
+
+    if modifiers.intersects(MdModifier::Link | MdModifier::LinkDescription) {
+        style = style.patch(theme.link_description_style());
+    }
+
     // Handle inline code and code blocks
     if modifiers.contains(MdModifier::Code) || is_code_block {
-        return RatatuiSpan::styled(content, theme.code_style());
+        style = style.patch(theme.code_style());
+        return RatatuiSpan::styled(content, style);
     }
 
     // Handle link wrappers
@@ -361,17 +373,6 @@ fn node_to_span<T: Theme>(
         return RatatuiSpan::styled(content, theme.link_url_style());
     }
 
-    // Build style from modifiers
-    let mut style = if is_table_header {
-        theme.table_header_style()
-    } else {
-        Style::default()
-    };
-
-    if modifiers.contains(MdModifier::LinkDescription) {
-        style = style.patch(theme.link_description_style());
-    }
-
     if modifiers.contains(MdModifier::Emphasis) {
         style = style.patch(theme.emphasis_style());
     }
@@ -380,9 +381,6 @@ fn node_to_span<T: Theme>(
     }
     if modifiers.contains(MdModifier::Strikethrough) {
         style = style.patch(theme.strikethrough_style());
-    }
-    if modifiers.contains(MdModifier::Link) {
-        style = style.patch(theme.link_description_style());
     }
 
     if style == Style::default() {
