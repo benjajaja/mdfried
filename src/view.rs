@@ -87,7 +87,7 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
                         let img = Image::new(proto);
                         render_lines(img, section.height, y as u16, inner_area, buf);
                     } else {
-                        let big_text = BigText::new(text, *tier, model.theme().header_color);
+                        let big_text = BigText::new(text, *tier, model.config.theme.header_color);
                         render_lines(big_text, 2, y as u16, inner_area, buf);
                     }
                 }
@@ -99,7 +99,7 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
                         y += 1;
                         continue; // skip this line.
                     }
-                    let line = if let Some(header_color) = model.theme().header_color {
+                    let line = if let Some(header_color) = model.config.theme.header_color {
                         line.clone().fg(header_color)
                     } else {
                         line.clone()
@@ -135,14 +135,14 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
                 Cursor::None => {}
                 Cursor::Links(_) => {
                     let (fg, bg) = (Color::Indexed(15), Color::Indexed(32));
-                    let line = if model.theme().hide_urls()
+                    let line = if model.config.theme.hide_urls()
                         && let Some(selected_url) = selected_url
                     {
                         let url_display = selected_url.as_ref().to_owned();
                         Line::from(vec![
-                            Span::from(model.theme().link_url_open()).fg(bg),
+                            Span::from(model.config.theme.link_url_open()).fg(bg),
                             Span::from(url_display).fg(fg).bg(bg),
-                            Span::from(model.theme().link_url_close()).fg(bg),
+                            Span::from(model.config.theme.link_url_close()).fg(bg),
                         ])
                     } else {
                         Line::from(Span::from("Links").fg(Color::Indexed(32)))
@@ -207,16 +207,16 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
 }
 
 fn render_welcome(model: &Model, inner_area: Rect, buf: &mut Buffer) {
-    let code_fg = model.theme().code_fg();
-    let code_bg = model.theme().code_bg();
+    let code_fg = model.config.theme.code_fg();
+    let code_bg = model.config.theme.code_bg();
     let link = Span::from("https://mdfried.qdice.wtf")
         .underlined()
-        .fg(model.theme().link_fg());
+        .fg(model.config.theme.link_fg());
 
     let body: Vec<Line> = vec![
         Line::from(vec![
             Span::from("Welcome to the "),
-            Span::from("ULTIMATE").fg(model.theme().emphasis_color()),
+            Span::from("ULTIMATE").fg(model.config.theme.emphasis_color()),
             Span::from(" terminal markdown viewer."),
         ]),
         Line::default(),
@@ -347,7 +347,7 @@ fn section_lines(
                     ) {
                         link_overlay.render(area, buf);
                     }
-                } else {
+                } else if model.config.osc8_links {
                     for (link_overlay, area) in link_overlays(
                         line,
                         *start,
@@ -357,7 +357,7 @@ fn section_lines(
                         lines,
                         inner_area,
                         line_y,
-                        link_osc8_widget_with_filler(model.theme().link_description_style()),
+                        link_osc8_widget_with_filler(model.config.theme.link_description_style()),
                         url,
                     ) {
                         link_overlay.render(area, buf);

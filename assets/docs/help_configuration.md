@@ -51,6 +51,11 @@ type = "centered"
 value = 100
 ```
 
+Render OSC8 hyperlink escape sequences over links, making them clickable in supporting terminals (default: `true`).
+```toml
+osc8_links = true
+```
+
 The theme, including replacement strings and options.
 ```toml
 [theme]

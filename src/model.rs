@@ -21,7 +21,7 @@ use ratatui_image::protocol::Protocol;
 
 use crate::{
     Cmd,
-    config::{Config, PaddingConfig, Theme},
+    config::{Config, PaddingConfig},
     cursor::{Cursor, CursorPointer},
     document::{Document, FindMode, FindTarget, LineExtra, Section, SectionContent},
     error::{CommandError, Error, NavigationError},
@@ -37,11 +37,11 @@ pub struct Model {
     pub screen_size: Size,
     pub last_error: Option<Error>,
     pub root_image_proto: Option<Protocol>,
+    pub config: Config,
     document: Document,
     document_id: DocumentId,
     document_source: SharedDocumentSource,
     document_history: Vec<DocumentHistoryEntry>,
-    config: Config,
     cmd_tx: Sender<Cmd>,
     event_rx: Receiver<Event>,
 }
@@ -634,10 +634,6 @@ impl Model {
 
     pub fn sections(&self) -> impl Iterator<Item = &Section> {
         self.document.iter()
-    }
-
-    pub fn theme(&self) -> &Theme {
-        &self.config.theme
     }
 
     pub fn position_cursor(&mut self, positioning: CursorPositioning) {
