@@ -141,6 +141,25 @@ pub fn wrap_md_spans_lines<M: Mapper>(
                 remaining_width = width;
             }
 
+            // If the first word of the content doesn't fit in the remaining space but does fit on
+            // a full line, push the current line and start fresh. This prevents short words from
+            // being split mid-word by break_words (e.g. "Is" → "I" + "s this...").
+            let mut trim_first_part = false;
+            if starting_new_line {
+                let first_word_width = mdspan
+                    .content
+                    .split_whitespace()
+                    .next()
+                    .map(|w| UnicodeWidthStr::width(w) as u16)
+                    .unwrap_or(0);
+                if first_word_width > remaining_width && first_word_width <= width {
+                    lines.push(std::mem::take(&mut line));
+                    remaining_width = width;
+                    // first_part will start a fresh line; trim any leading whitespace.
+                    trim_first_part = true;
+                }
+            }
+
             let options = Options::new((remaining_width) as usize)
                 .break_words(true)
                 .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation);
@@ -149,7 +168,11 @@ pub fn wrap_md_spans_lines<M: Mapper>(
                 continue;
             };
             let first_content = first_part.as_ref();
-            let first_span = Span::new(first_content.to_owned(), mdspan.modifiers);
+            let mut first_content_owned = first_content.to_owned();
+            if trim_first_part {
+                trim_start_inplace(&mut first_content_owned);
+            }
+            let first_span = Span::new(first_content_owned, mdspan.modifiers);
             line.push(first_span);
             lines.push(std::mem::take(&mut line));
             line_width = 0;
