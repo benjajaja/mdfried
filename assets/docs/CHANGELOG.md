@@ -10,6 +10,11 @@
   Can start mdfried without any source, displays a small message and the logo.
 - `open` command
   Type `:open <path>` to open a file.
+  Can open images.
+
+### Fixed
+- Word splitting edge case
+- Blank lines after and around images and codeblocks
 
 ## [0.21.0] - 2026-06-02
 

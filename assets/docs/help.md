@@ -2,7 +2,7 @@
 
 **Press `Esc` or type `:back` to exit this help document.**
 
-### Key bindings
+## Key bindings
 
 Key | Alt Key(s) | Description
 ----|------------|------------
@@ -25,7 +25,7 @@ Key | Alt Key(s) | Description
 
 Entering a number before motion applies the motion that many times.
 
-### Link Navigation
+## Link Navigation
 
 Upon pressing `n` or `N`, "link mode" is activated. 
 The nearest hyperlink is highlighted.
@@ -39,7 +39,9 @@ Pressing `Enter` opens the hyperlink.
 
 Pressing `Esc` exits "link mode".
 
-### Search
+Links that are in `#kebab-case` are interpreted as "link to headers", internal to the document, and scroll the document to the referred header.
+
+## Search
 
 Upon pressing `/`, "search mode input" is activated.
 This is indicated by a green `/` in the status bar.
@@ -47,15 +49,16 @@ This is indicated by a green `/` in the status bar.
 You can then type and erase the search term, highlights in the viewport will be made visible immediately.
 Press enter to complete the input, then "search mode" is activated, which works just like [Link Navigation](#link-navigation).
 
-### Commands
+## Commands
 
 Command        | Description
 ---------------|------------
-`:help`        | Opens this help markdown document
 `:back`        | Go back one entry in history
-`:open <path>` | Open file
+`:help`        | Opens this help markdown document
+`:help configuration` | Opens the configuration help
+`:open <path>` | Open a file
 
-### Command Line Interface
+## Command Line Interface
 
 ```bash
 mdfried [OPTIONS] [SOURCE]
@@ -79,7 +82,7 @@ mdfried [OPTIONS] [SOURCE]
 * `--log`
   Log to stderr, useful for debugging (e.g. redirect to another tty: `mdfried --log 2>/dev/pts/7`).
 
-### Configuration
+## Configuration
 
 Type `:help configuration` to open [configuration.md](./help_configuration.md).
 

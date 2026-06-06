@@ -1,62 +1,69 @@
 # Configuration
 
-The configuration is created and stored automatically the first time mdfried is run.
+The configuration file is created and stored automatically the first time mdfried is run.
 
-The get the exact location on your OS, run `mdfried --print-config`, it will print the location followed by a sample config.
+The get the exact location on your OS, run `mdfried --print-config`, this will print the location followed by a sample config.
 
-The config is a TOML file. The sections are explained here.
+The format is TOML. The sections are explained here.
 
 ## Basic
 
-The font that has been autodetected or selected, can be changed at will.
-Run `mdfried --setup` to go through font setup *if setup is available*, e.g. headers would be rendered as images.
 ```toml
 font_family = "your-font-name"
 ```
+The font that has been autodetected or selected, can be changed to any font.
+Run `mdfried --setup` to go through font setup *if setup is available*, i.e. if headers would be rendered as images.
 
-The timeout in milliseconds to wait for a TTY response, may be necessary to increaso on older machines or terminals.
 ```toml
 stdio_query_timeout_ms = 2000
 ```
+The timeout in milliseconds to wait for a TTY response. It may be necessary to increaso on older or exotic machines, OSs or terminals, such as Windows.
 
-The maximum image height as terminal row count.
 ```toml
 max_image_height = 30
 ```
+The maximum image height as terminal row count. The width is kept proportional at the aspect ratio, and capped at the viewport width.
 
-The watch "debounce" milliseconds, only used in watch mode (`-w`).
 ```toml
 watch_debounce_milliseconds = 100
 ```
+The watch "debounce" milliseconds, only used in watch mode (`-w`).
 
-Enables mouse capture and mouse scroll, but loses the ability to select text on some terminals.
 ```toml
 enable_mouse_capture = false
 ```
+Enables mouse capture and mouse scroll, but loses the ability to select text normally on some terminals.
+However, most terminals allow to select text holding the shift key, in this mode.
 
-Transform URLs with a shell command before parsing as markdown.
 ```toml
 url_transform_command = "readable | html2text"
 ```
+Transform URLs with a shell command before parsing as markdown. Used when opening a URL that does not end in `.md`.
 
-Mermaid option, can be `true`, `false` or omitted, or a custom external mermaid-cli command.
 ```toml
 mermaid = "mmdc -i - -o - -e png"
 ```
+Mermaid option, can be `true`, `false` or omitted to disable, or a custom external mermaid-cli command.
+Renders codeblocks with `mermaid` language as mermaid diagram images.
 
-The padding type and width.
+If `true`, a fast internal renderer is used, but it's not as accurate as using a mermaid-cli command.
+
+```toml
+osc8_links = true
+```
+Render OSC8 hyperlink escape sequences over links, making them clickable in supporting terminals.
+
+## Padding
+
 ```toml
 [padding]
 type = "centered"
 value = 100
 ```
+The viewport padding type and maximum width.
 
-Render OSC8 hyperlink escape sequences over links, making them clickable in supporting terminals (default: `true`).
-```toml
-osc8_links = true
-```
+## Theme
 
-The theme, including replacement strings and options.
 ```toml
 [theme]
 blockquote_bar = "▌ "
@@ -87,3 +94,5 @@ header_color = "#FFFFFF"
 hide_urls = true
 hard_softbreaks = false
 ```
+The theme, including colors, replacement strings, and some markdown options.
+
