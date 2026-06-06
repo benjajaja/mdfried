@@ -58,9 +58,15 @@ Render OSC8 hyperlink escape sequences over links, making them clickable in supp
 ```toml
 [padding]
 type = "centered"
-value = 100
+width = 100
 ```
-The viewport padding type and maximum width.
+Centered with a maximum width of 100 columns.
+
+```toml
+[padding]
+type = "align-left"
+```
+Align to the left of the terminal. Also has an optional maximum `width`.
 
 ## Theme
 

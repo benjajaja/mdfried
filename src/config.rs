@@ -13,7 +13,7 @@ use crate::error::Error;
 // Has implicit `Default` in `From<UserConfig>`.
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub padding: PaddingConfig,
+    pub padding: Padding,
     pub max_image_height: u16,
     pub watch_debounce_milliseconds: u64,
     pub enable_mouse_capture: bool,
@@ -48,7 +48,7 @@ impl From<UserConfig> for Config {
 pub struct UserConfig {
     pub font_family: Option<String>,
     pub stdio_query_timeout_ms: Option<u64>,
-    pub padding: Option<PaddingConfig>,
+    pub padding: Option<Padding>,
     pub max_image_height: Option<u16>,
     pub watch_debounce_milliseconds: Option<u64>,
     pub enable_mouse_capture: Option<bool>,
@@ -322,29 +322,33 @@ impl Theme {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "value", rename_all = "snake_case")]
-pub enum PaddingConfig {
-    None,
-    Centered(u16),
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum Padding {
+    AlignLeft {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        width: Option<u16>,
+    },
+    Centered {
+        width: u16,
+    },
 }
-impl Default for PaddingConfig {
+impl Default for Padding {
     fn default() -> Self {
-        PaddingConfig::Centered(100)
+        Padding::Centered { width: 100 }
     }
 }
 
-impl PaddingConfig {
+impl Padding {
     pub fn calculate_width(&self, screen_width: u16) -> u16 {
         match self {
-            PaddingConfig::None => screen_width,
-            PaddingConfig::Centered(width) => screen_width.min(*width),
+            Padding::AlignLeft { width: None } => screen_width,
+            Padding::AlignLeft { width: Some(width) } => screen_width.min(*width),
+            Padding::Centered { width } => screen_width.min(*width),
         }
     }
 
     pub fn calculate_height(&self, screen_height: u16) -> u16 {
-        match self {
-            PaddingConfig::None | PaddingConfig::Centered(_) => screen_height,
-        }
+        screen_height
     }
 }
 

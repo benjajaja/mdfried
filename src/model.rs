@@ -21,7 +21,7 @@ use ratatui_image::protocol::Protocol;
 
 use crate::{
     Cmd,
-    config::{Config, PaddingConfig},
+    config::{Config, Padding as ConfigPadding},
     cursor::{Cursor, CursorPointer},
     document::{Document, FindMode, FindTarget, LineExtra, Section, SectionContent},
     error::{CommandError, Error, NavigationError},
@@ -201,8 +201,8 @@ impl Model {
 
     pub fn block_padding(&self, area: Rect) -> Padding {
         match self.config.padding {
-            PaddingConfig::None => Padding::default(),
-            PaddingConfig::Centered(width) => Padding::horizontal(
+            ConfigPadding::AlignLeft { .. } => Padding::default(),
+            ConfigPadding::Centered { width } => Padding::horizontal(
                 area.width
                     .checked_sub(width)
                     .map(|padding| padding / 2)
