@@ -31,6 +31,10 @@ impl<'a> Osc8Link<'a> {
             .collect();
         if let Some((fill_width, style)) = fill_width {
             let width: usize = spans.iter().map(|s| s.width()).sum();
+            debug_assert!(
+                width <= fill_width as usize,
+                "Osc8Link::new expects fill_width < spans.width"
+            );
             Self::fill(&mut spans, fill_width as usize - width, style);
         }
 
