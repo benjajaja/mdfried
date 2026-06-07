@@ -21,6 +21,8 @@
 ### Fixed
 - Word splitting edge case
 - Blank lines after and around images and codeblocks
+- Link titles (`[description](url "title")`) don't crash the program anymore
+- Link descriptions with softbreaks are joined properly
 
 ## [0.21.0] - 2026-06-02
 
