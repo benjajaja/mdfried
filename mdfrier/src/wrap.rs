@@ -100,7 +100,10 @@ pub fn wrap_md_spans_lines<M: Mapper>(
                 after_newline = true;
             }
             if mdspan.modifiers.contains(Modifier::NewLine) && !line.is_empty() {
-                line.push(Span::new(String::from(" "), Modifier::default()));
+                line.push(Span::new(
+                    String::from(" "),
+                    mdspan.modifiers.difference(Modifier::NewLine),
+                ));
             }
         }
 
