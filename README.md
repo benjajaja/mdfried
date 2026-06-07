@@ -27,6 +27,7 @@ https://github.com/user-attachments/assets/924d29a9-053c-44b0-8c09-39dac8c90329
 * Links
   * Opens URLs with xdg-open (or equivalent on macos/windows).
   * Can follow local `.md` links.
+  * Jump to headers in `#kebab-case`.
 * URL opening
   * Can directly open a URL that serves a markdown document.
   * Can directly open `github:<owner>/<repo>`, if it contains a `README.md` on `master` or `main`.
@@ -76,8 +77,8 @@ See `--help` for all options, and `--print-config` to see a mostly complete [con
 
 ### Key bindings
 
-The keybindings should follow the basics of general CLI pagers. Vi-style keybindings are 
-prioritized, but "normal" keys should be usable as well.
+The keybindings should the basics of general CLI pagers.
+Vi-style keybindings are prioritized, but "normal" keys should be usable as well.
 
 Type `:help` in the program to see the exact list, or see [assets/docs/help.md](assets/docs/help.md).
 
@@ -87,6 +88,8 @@ Type `:help` in the program to see the exact list, or see [assets/docs/help.md](
 
 `mdfried --print-config` prints out a full example config with a full theme.
 
+Type `:help configuration` in the program to see detailed explanation, or see [assets/docs/help_configuration.md](assets/docs/help_configuration.md).
+
 ### Changelog
 
-See [CHANGELOG.md](./assets/docs/CHANGELOG.md).
+Type `:changelog` or see See [assets/docs/CHANGELOG.md](assets/docs/CHANGELOG.md).

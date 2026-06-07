@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- Better padding config, can set maximum width with `AlignLeft` too.
+
 ### Added
 - Display error on commands
   Last error on commands, or similar interactions like opening links, is displayed in status line.
@@ -11,6 +14,9 @@
 - `open` command
   Type `:open <path>` to open a file.
   Can open images.
+- OSC8 clickable links
+  Links are clickable in terminals that support the OSC8 sequence.
+  Can be disabled with `osc8_links = false` in config.
 
 ### Fixed
 - Word splitting edge case
@@ -22,7 +28,9 @@
 - Code syntax highlight.
   Uses arborium, supports over 100 languages.
 - Mermaid diagram rendering.
-  A code block annotated as `mermaid` gets rendered either via builtin `mermaid-rs-renderer` (can be disabled with the `mermaid` feature), or via external command in config, e.g. `mermaid = "mmdc -i - -o - -e png"`.
+  A code block annotated as `mermaid` gets rendered either via builtin `mermaid-rs-renderer` (can
+  be disabled with the `mermaid` feature), or via external command in config, 
+  e.g. `mermaid = "mmdc -i - -o - -e png"`.
 
 ## [0.20.3] - 2026-05-29
 
@@ -140,11 +148,13 @@
 
 ### Fixed
 - List continuations.
-  Lines following a list item with any indentation are aligned to the list item and do not create a (repeated) list item anymore.
+  Lines following a list item with any indentation are aligned to the list item and do not create a
+  (repeated) list item anymore.
 
 ### Changed
 - List marker color from 189 (barely noticeable) to 222 (light yellow-ish).
-- Cleaned up mdfried `Theme` to get defaults from `mdfrier::ratatui::DefaultTheme` instead of duplicating all constants.
+- Cleaned up mdfried `Theme` to get defaults from `mdfrier::ratatui::DefaultTheme` instead of
+  duplicating all constants.
 
 ### Added
 - Benchmark for a full parse in mdfrier.
@@ -153,7 +163,8 @@
 ## [0.19.0] - 2026-04-08
 
 ### Added
-- Set header color via theme setting `header_color` (hex for images, hex or ansi for text-sizing-protocol).
+- Set header color via theme setting `header_color` (hex for images, hex or ansi for 
+  text-sizing-protocol).
 
 ### Changed
 - Rewrote "sections" approach to parsing and output.
@@ -169,7 +180,8 @@
 ## [0.18.2] - 2026-01-24
 
 ### Fixed
-- Updating to ratatui-image 10.0.6 should fix konsole displaying bad kitty graphics, instead displaying Halfblocks.
+- Updating to ratatui-image 10.0.6 should fix konsole displaying bad kitty graphics, instead
+  displaying Halfblocks.
 
 ## [0.18.1] - 2026-01-24
 
@@ -213,8 +225,11 @@
 ### Fixed
 - Chafa linking split into three features
   - `chafa-dyn` (default) normal dynamic linking.
-  - `chafa-static` statically links `libchafa.a`, which is usually not in distributions. The flake.nix builds this for the `static` output.
-  - `chafa-libload` runtime libloading of chafa with halfblocks fallback. In practice, picking this means that `chafa` will most likely not be used for rendering, as it is highly unlikely that chafa would be available at runtime but not at compile-time.
+  - `chafa-static` statically links `libchafa.a`, which is usually not in distributions. The
+    flake.nix builds this for the `static` output.
+  - `chafa-libload` runtime libloading of chafa with halfblocks fallback. In practice, picking this
+    means that `chafa` will most likely not be used for rendering, as it is highly unlikely that
+    chafa would be available at runtime but not at compile-time.
 
 ## [0.17.1] - 2025-12-21
 
