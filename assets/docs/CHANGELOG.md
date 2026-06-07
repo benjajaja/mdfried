@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-06-07
+
 ### Changed
 - Better padding config, can set maximum width with `AlignLeft` too.
 
