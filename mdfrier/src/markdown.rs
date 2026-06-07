@@ -716,6 +716,10 @@ impl MdParagraph {
                     .push(Span::new(label, extra.union(Modifier::LinkURL)));
                 return;
             }
+            "link_title" => {
+                // ignore.
+                return;
+            }
             _ => Modifier::default(),
         };
         let extra = extra.union(current_extra);
