@@ -875,9 +875,9 @@ pub async fn image_section(
     } else {
         let image_source: Option<ImageSource> = match document_source.read() {
             Ok(DocumentSource::File {
-                path,
                 basepath: Some(basepath),
-            }) if link_url.starts_with("./") => {
+                ..
+            }) => {
                 let path = basepath.join(link_url).to_str().map(String::from);
                 path.map(ImageSource::Path)
             }

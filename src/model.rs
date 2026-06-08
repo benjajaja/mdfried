@@ -413,9 +413,15 @@ impl Model {
             return Ok(());
         }
 
-        match self.document_source.read()? {
+        let source = self.document_source.read()?;
+        match source {
             DocumentSource::File { .. } | DocumentSource::Stdin { .. } => {
-                if self.open_file(&link_url).is_ok() {
+                let basepath = if let DocumentSource::File { basepath, .. } = &source {
+                    basepath.as_deref()
+                } else {
+                    None
+                };
+                if self.open_file(&link_url, basepath).is_ok() {
                     return Ok(());
                 }
                 if Url::parse(&link_url).is_ok() {
@@ -456,16 +462,22 @@ impl Model {
         )))
     }
 
-    pub fn open_file(&mut self, path_str: &str) -> Result<(), Error> {
-        let path = Path::new(path_str);
-        if path.extension() == Some(std::ffi::OsStr::new("md"))
-            && fs::exists(path).unwrap_or_default()
-            && let Ok(text) = fs::read_to_string(path)
-        {
+    pub fn open_file(&mut self, path_str: &str, basepath: Option<&Path>) -> Result<(), Error> {
+        let path = basepath
+            .map(|b| b.join(path_str))
+            .unwrap_or_else(|| Path::new(path_str).into());
+        if path.extension() != Some(std::ffi::OsStr::new("md")) {
+            return Err(Error::Navigation(NavigationError::UnknownLinkType(
+                path_str.to_owned(),
+            )));
+        }
+
+        if path.extension() == Some(std::ffi::OsStr::new("md")) {
+            let text = fs::read_to_string(&path)?;
             let basepath = path.parent().map(Path::to_path_buf);
             self.open_new_source(
                 DocumentSource::File {
-                    path: path.to_path_buf(),
+                    path: path.clone(),
                     basepath,
                 },
                 text,
@@ -664,7 +676,7 @@ impl Model {
                 "back" => self.history_pop(),
                 _ => {
                     if let Some(path) = command.strip_prefix("open ") {
-                        self.open_file(path)
+                        self.open_file(path, None)
                     } else {
                         Err(Error::Command(CommandError::UnknownCommand(command)))
                     }
