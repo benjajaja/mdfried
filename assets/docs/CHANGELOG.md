@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+- Relative links and images
+- Display image load errors better, inline
+
 ## [0.22.0] - 2026-06-07
 
 ### Changed
