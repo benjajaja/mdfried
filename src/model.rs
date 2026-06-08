@@ -7,7 +7,7 @@ use std::{
     sync::mpsc::{Receiver, Sender},
 };
 
-use mdfrier::SourceContent;
+use mdfrier::{SourceContent, ratatui::Theme as _};
 use ratatui::{
     layout::{Rect, Size},
     style::{Color, Stylize as _},
@@ -265,25 +265,26 @@ impl Model {
                     self.document
                         .update_image(section_id, link, proto, trailing_blank);
                 }
-                Event::ImageFailed(document_id, section_id, _url, error) => {
+                Event::ImageFailed(document_id, section_id, url, error) => {
                     if !self.document_id.is_same_document(&document_id) {
                         log::debug!("stale event, ignoring");
                         continue;
                     }
+                    let line = Line::from(vec![
+                        Span::from("!").fg(self.config.theme.link_fg()),
+                        Span::from("[").fg(self.config.theme.link_fg()),
+                        Span::from(error).fg(Color::Red),
+                        Span::from("]").fg(self.config.theme.link_fg()),
+                        Span::from("(").fg(self.config.theme.link_fg()),
+                        Span::from(url).fg(self.config.theme.link_fg()),
+                        Span::from(")").fg(self.config.theme.link_fg()),
+                    ]);
                     self.document.update(vec![Section {
                         id: section_id,
                         height: 2,
                         content: SectionContent::Lines(vec![
-                            (
-                                Line::from(vec![
-                                    Span::from("["),
-                                    Span::from(error),
-                                    Span::from("]"),
-                                ])
-                                .fg(Color::DarkGray),
-                                vec![],
-                            ),
-                            (Line::from(""), vec![]),
+                            (line, vec![]),
+                            (Line::default(), vec![]),
                         ]),
                     }]);
                 }

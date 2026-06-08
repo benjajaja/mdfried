@@ -321,7 +321,8 @@ async fn process_post_parse_events(
 
         set.spawn(async move {
             match event {
-                SectionEvent::Image(section_id, url, has_trailing_blank) => {
+                SectionEvent::Image(section_id, link, has_trailing_blank) => {
+                    let url = link.url.clone(); // For potential errors
                     // Load fresh image
                     match image_section(
                         &picker,
@@ -330,7 +331,7 @@ async fn process_post_parse_events(
                         document_source.clone(),
                         client.clone(),
                         section_id,
-                        url,
+                        link,
                         deep_fry,
                         fontdb.clone(),
                     )
@@ -350,13 +351,15 @@ async fn process_post_parse_events(
                                 has_trailing_blank,
                             ))?
                         }
-                        Err(Error::ImageLoad(url, error)) => {
-                            log::warn!("ImageError {url}: {error}");
-                            task_tx.send(Event::ImageFailed(document_id, section_id, url, error))?
+                        Err(Error::ImageLoad(url, err)) => {
+                            task_tx.send(Event::ImageFailed(document_id, section_id, url, err))?
                         }
                         Err(err) => {
-                            log::error!("image_section error: {err}");
-                            // Leave the image line as-is (shows ![alt](url))
+                            let err = match err {
+                                Error::Io(err) => err.to_string(),
+                                _ => format!("{err}"),
+                            };
+                            task_tx.send(Event::ImageFailed(document_id, section_id, url, err))?
                         }
                     }
                 }
