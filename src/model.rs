@@ -17,7 +17,7 @@ use ratatui::{
 use regex::RegexBuilder;
 use url::Url;
 
-use ratatui_image::protocol::Protocol;
+use ratatui_image::{protocol::Protocol, sliced::SlicedProtocol};
 
 use crate::{
     Cmd,
@@ -37,6 +37,7 @@ pub struct Model {
     pub screen_size: Size,
     pub last_error: Option<Error>,
     pub root_image_proto: Option<Protocol>,
+    pub image_pages: Vec<SlicedProtocol>,
     pub config: Config,
     document: Document,
     document_id: DocumentId,
@@ -99,6 +100,7 @@ impl Model {
             input_queue: InputQueue::None,
             cursor: Cursor::default(),
             root_image_proto: None,
+            image_pages: Vec::new(),
             document: Document::default(),
             document_id: DocumentId::default(),
             document_source,
@@ -126,9 +128,7 @@ impl Model {
                 ))?,
                 old_width,
             ),
-            DocumentSource::Image { .. } | DocumentSource::Pdf { .. } => {
-                self.open(String::new())
-            }
+            DocumentSource::Image { .. } | DocumentSource::Pdf { .. } => self.open(String::new()),
             _source => {
                 log::debug!("not implemented: reload for other sources: {_source:?}");
                 Ok(())
@@ -806,6 +806,7 @@ mod tests {
             document_history: Vec::new(),
             last_error: None,
             root_image_proto: None,
+            image_pages: Vec::new(),
         }
     }
 
