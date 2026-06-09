@@ -137,7 +137,10 @@ impl Model {
     }
 
     pub fn open(&self, text: String) -> Result<(), Error> {
-        let size = Size::new(self.screen_size.width, self.inner_height());
+        let size = Size::new(
+            self.config.padding.calculate_width(self.screen_size.width),
+            self.inner_height(),
+        );
         match self.document_source.read()? {
             DocumentSource::Image { path } => {
                 return Ok(self.cmd_tx.send(Cmd::LoadImage(Some((path, size))))?);
