@@ -117,7 +117,11 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
         }
     }
 
-    builtin_override_view(model, inner_area, buf);
+    let content_area = Rect {
+        height: inner_area.height.saturating_sub(1),
+        ..inner_area
+    };
+    builtin_override_view(model, content_area, buf);
 
     let status_line_y = inner_area.height - 1;
     let mut cursor_position = Position::from((0, buf.area.height - 1));
@@ -535,17 +539,20 @@ fn render_welcome(model: &Model, inner_area: Rect, buf: &mut Buffer) {
 }
 
 fn render_pdf(model: &Model, inner_area: Rect, buf: &mut Buffer) {
-    // TODO(step 6): stack pages vertically with scroll offset.
-    if let Some(proto) = model.image_pages.first() {
-        let size = proto.size();
-        let x = inner_area.x + inner_area.width.saturating_sub(size.width) / 2;
-        let image_area = Rect {
-            x,
-            y: inner_area.y,
-            width: size.width,
-            height: size.height.min(inner_area.height),
-        };
-        SlicedImage::new(proto, (0, 0).into()).render(image_area, buf);
+    if model.image_pages.is_empty() {
+        return;
+    }
+    let mut row: i32 = -(model.scroll as i32);
+    for proto in &model.image_pages {
+        let page_height = proto.size().height as i32;
+        if row >= inner_area.height as i32 {
+            break;
+        }
+        if row + page_height > 0 {
+            let pos_y = row.clamp(i16::MIN as i32, i16::MAX as i32) as i16;
+            SlicedImage::new(proto, (0_i16, pos_y).into()).render(inner_area, buf);
+        }
+        row += page_height;
     }
 }
 

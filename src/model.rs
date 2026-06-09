@@ -388,10 +388,12 @@ impl Model {
             return false;
         }
 
-        self.scroll = min(
-            new_scroll,
-            self.total_lines().saturating_sub(self.inner_height()),
-        );
+        let total = if self.image_pages.is_empty() {
+            self.total_lines()
+        } else {
+            self.image_pages.iter().map(|p| p.size().height).sum()
+        };
+        self.scroll = min(new_scroll, total.saturating_sub(self.inner_height()));
         true
     }
 
