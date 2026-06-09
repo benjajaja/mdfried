@@ -160,6 +160,7 @@ impl Model {
         self.cursor = Cursor::None;
         self.scroll = 0;
         self.input_queue = InputQueue::None;
+        self.image_pages.clear();
         self.open(text)
     }
 
@@ -177,6 +178,7 @@ impl Model {
         self.cursor = Cursor::None;
         self.scroll = scroll;
         self.input_queue = InputQueue::None;
+        self.image_pages.clear();
 
         Ok(())
     }
@@ -319,6 +321,9 @@ impl Model {
                 }
                 Event::RootImageLoaded(proto) => {
                     self.root_image_proto = Some(proto);
+                }
+                Event::PdfPageLoaded(_idx, proto) => {
+                    self.image_pages.push(proto);
                 }
                 Event::ReferenceDefinition { id, url } => {
                     self.document.update_link_references(id, &url);

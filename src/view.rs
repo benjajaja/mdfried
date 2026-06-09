@@ -442,8 +442,11 @@ fn builtin_override_view(model: &Model, inner_area: Rect, buf: &mut Buffer) {
         Some(DocumentSource::BuiltIn(BuiltIn::Welcome)) => {
             render_welcome(model, inner_area, buf);
         }
-        Some(DocumentSource::Image { .. }) | Some(DocumentSource::Pdf { .. }) => {
+        Some(DocumentSource::Image { .. }) => {
             render_image(model, inner_area, buf);
+        }
+        Some(DocumentSource::Pdf { .. }) => {
+            render_pdf(model, inner_area, buf);
         }
         _ => {}
     }
@@ -529,6 +532,21 @@ fn render_welcome(model: &Model, inner_area: Rect, buf: &mut Buffer) {
     Paragraph::new(body)
         .alignment(Alignment::Center)
         .render(text_area, buf);
+}
+
+fn render_pdf(model: &Model, inner_area: Rect, buf: &mut Buffer) {
+    // TODO(step 6): stack pages vertically with scroll offset.
+    if let Some(proto) = model.image_pages.first() {
+        let size = proto.size();
+        let x = inner_area.x + inner_area.width.saturating_sub(size.width) / 2;
+        let image_area = Rect {
+            x,
+            y: inner_area.y,
+            width: size.width,
+            height: size.height.min(inner_area.height),
+        };
+        SlicedImage::new(proto, (0, 0).into()).render(image_area, buf);
+    }
 }
 
 fn render_image(model: &Model, inner_area: Rect, buf: &mut Buffer) {

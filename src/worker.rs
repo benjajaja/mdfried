@@ -255,9 +255,68 @@ pub fn worker_thread(
                         })
                         .await??;
                     }
-                    Cmd::LoadPdf(_path, _size) => {
-                        // TODO: rasterize PDF pages with mupdf
-                        log::warn!("LoadPdf not yet implemented");
+                    Cmd::LoadPdf(path, available) => {
+                        let event_tx = event_tx.clone();
+                        let picker = thread_picker.clone();
+                        tokio::task::spawn_blocking(move || -> Result<(), Error> {
+                            #[cfg(feature = "pdf")]
+                            {
+                                use mupdf::{Colorspace, Matrix, Document as MuDocument};
+
+                                let path_str = path.to_str().ok_or_else(|| {
+                                    Error::Generic("PDF path is not valid UTF-8".to_owned())
+                                })?;
+                                let doc = MuDocument::open(path_str)
+                                    .map_err(|e| Error::Generic(format!("PDF open: {e}")))?;
+                                let page_count = doc.page_count()
+                                    .map_err(|e| Error::Generic(format!("PDF page count: {e}")))?;
+                                let font_size = picker.font_size();
+                                let pixel_width =
+                                    available.width as f32 * font_size.width as f32;
+
+                                for idx in 0..page_count {
+                                    let page = doc.load_page(idx)
+                                        .map_err(|e| Error::Generic(format!("PDF load page {idx}: {e}")))?;
+                                    let bounds = page.bounds()
+                                        .map_err(|e| Error::Generic(format!("PDF bounds {idx}: {e}")))?;
+                                    let page_width = bounds.x1 - bounds.x0;
+                                    let scale =
+                                        if page_width > 0.0 { pixel_width / page_width } else { 1.0 };
+                                    let matrix = Matrix {
+                                        a: scale, b: 0.0,
+                                        c: 0.0,   d: scale,
+                                        e: 0.0,   f: 0.0,
+                                    };
+                                    let pixmap = page
+                                        .to_pixmap(&matrix, &Colorspace::device_rgb(), 0.0, false)
+                                        .map_err(|e| Error::Generic(format!("PDF render {idx}: {e}")))?;
+                                    let width = pixmap.width() as u32;
+                                    let height = pixmap.height() as u32;
+                                    let samples = pixmap.samples().to_vec();
+                                    let dyn_img = image::DynamicImage::ImageRgb8(
+                                        image::RgbImage::from_raw(width, height, samples)
+                                            .ok_or_else(|| Error::Generic(
+                                                "PDF pixmap buffer too small".to_owned(),
+                                            ))?,
+                                    );
+                                    let resize =
+                                        Resize::Fit(Some(ratatui_image::FilterType::Lanczos3));
+                                    let page_available =
+                                        Size::new(available.width, u16::MAX);
+                                    let size = resize.size_for(
+                                        &dyn_img,
+                                        picker.font_size(),
+                                        page_available,
+                                    );
+                                    let proto = SlicedProtocol::new(&picker, dyn_img, Some(size))?;
+                                    event_tx.send(Event::PdfPageLoaded(idx as usize, proto))?;
+                                }
+                            }
+                            #[cfg(not(feature = "pdf"))]
+                            log::warn!("PDF support not compiled in (enable the 'pdf' feature)");
+                            Ok(())
+                        })
+                        .await??;
                     }
                     Cmd::LoadImage(image) => {
                         let event_tx = event_tx.clone();

@@ -350,6 +350,7 @@ pub enum Event {
     ImageFailed(DocumentId, SectionID, String, String),
     HeaderLoaded(DocumentId, SectionID, Vec<(String, u8, Protocol)>),
     RootImageLoaded(Protocol), // Not markdown related, e.g. the welcome logo image.
+    PdfPageLoaded(usize, SlicedProtocol),
     FileChanged,
     Scroll(i16),
     NewSourceContent(String),
@@ -406,6 +407,7 @@ impl Display for Event {
                 write!(f, "Event::ReferenceDefinition {{ id: {id}, url: {url} }}")
             }
             Event::RootImageLoaded(_) => write!(f, "Event::RootImageLoaded"),
+            Event::PdfPageLoaded(idx, _) => write!(f, "Event::PdfPageLoaded({idx})"),
             Event::FileChanged => write!(f, "Event::FileChanged"),
             Event::Scroll(s) => write!(f, "Event::Scroll({s})"),
             Event::NewSourceContent(_) => write!(f, "Event::NewSource"),
