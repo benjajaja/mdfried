@@ -20,6 +20,7 @@ use std::os::fd::IntoRawFd as _;
 use std::{
     fmt::Display,
     io::{self, Read as _},
+    path::PathBuf,
     sync::{
         Arc, OnceLock, RwLock,
         mpsc::{self},
@@ -162,7 +163,12 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         Some(source) => open_source(&source, config.url_transform_command.clone())?,
     };
 
-    if text.is_empty() && document_source != DocumentSource::BuiltIn(BuiltIn::Welcome) {
+    if text.is_empty()
+        && !matches!(
+            document_source,
+            DocumentSource::BuiltIn(BuiltIn::Welcome) | DocumentSource::Image { .. }
+        )
+    {
         return Err(Error::Usage(Some("no input or empty")));
     }
 
@@ -294,9 +300,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             log::debug!("worker_thread channel closed");
         }
         Ok(Err(e)) => eprintln!("Worker thread error: {e}"),
-        _ => {
-            log::debug!("worker_thread joined successfully");
-        }
+        _ => {}
     }
     Ok(())
 }
@@ -304,7 +308,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 pub enum Cmd {
     Parse(DocumentId, u16, String, Option<ImageCache>),
     OpenUrl(String),
-    LoadImage(Option<String>), // TODO: either included welcome logo, or a path, make an enum?
+    LoadImage(Option<(PathBuf, Size)>), // TODO: either included welcome logo, or a path, make an enum?
 }
 
 impl std::fmt::Debug for Cmd {
@@ -323,7 +327,7 @@ impl Display for Cmd {
                 )
             }
             Cmd::OpenUrl(url) => write!(f, "Cmd::Open({url})"),
-            Cmd::LoadImage(path) => write!(f, "Cmd::LoadImage({path:?})"),
+            Cmd::LoadImage(image) => write!(f, "Cmd::LoadImage({image:?})"),
         }
     }
 }
@@ -397,7 +401,7 @@ impl Display for Event {
             Event::ReferenceDefinition { id, url } => {
                 write!(f, "Event::ReferenceDefinition {{ id: {id}, url: {url} }}")
             }
-            Event::RootImageLoaded(_) => write!(f, "Event::WelcomeLogoLoaded"),
+            Event::RootImageLoaded(_) => write!(f, "Event::RootImageLoaded"),
             Event::FileChanged => write!(f, "Event::FileChanged"),
             Event::Scroll(s) => write!(f, "Event::Scroll({s})"),
             Event::NewSourceContent(_) => write!(f, "Event::NewSource"),

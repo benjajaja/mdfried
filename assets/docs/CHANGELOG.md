@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Open images
+
 ## [0.22.1] - 2026-06-08
 
 ### Fixed

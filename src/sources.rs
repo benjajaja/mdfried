@@ -34,6 +34,9 @@ pub enum DocumentSource {
         url: Url,
     },
     BuiltIn(BuiltIn),
+    Image {
+        path: PathBuf,
+    },
 }
 
 impl DocumentSource {
@@ -260,8 +263,7 @@ pub fn open_source(
             .as_deref(),
         Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tiff" | "tif")
     ) {
-        let source = format!("![image]({})", path.to_string_lossy());
-        return Ok((source, DocumentSource::Stdin { text: None }));
+        return Ok((String::default(), DocumentSource::Image { path }));
     }
 
     Ok((

@@ -118,17 +118,29 @@ impl Model {
         let old_width = self.config.padding.calculate_width(self.screen_size.width);
         self.screen_size = screen_size;
         log::debug!("reload on {:?}", self.document_source.read()?);
-        let text = match self.document_source.read()? {
-            DocumentSource::File { path, .. } => fs::read_to_string(path)?,
-            DocumentSource::Stdin { mut text } => text.take().ok_or(Error::Thread(
-                "reload on stdin while processing text".to_owned(),
-            ))?,
-            _source => todo!("reload for other sources: {_source:?}"),
-        };
-        self.reparse(text, old_width)
+        match self.document_source.read()? {
+            DocumentSource::File { path, .. } => self.reparse(fs::read_to_string(path)?, old_width),
+            DocumentSource::Stdin { mut text } => self.reparse(
+                text.take().ok_or(Error::Thread(
+                    "reload on stdin while processing text".to_owned(),
+                ))?,
+                old_width,
+            ),
+            DocumentSource::Image { .. } => self.open(String::new()),
+            _source => {
+                log::debug!("not implemented: reload for other sources: {_source:?}");
+                Ok(())
+            }
+        }
     }
 
     pub fn open(&self, text: String) -> Result<(), Error> {
+        if let DocumentSource::Image { path } = self.document_source.read()? {
+            return Ok(self.cmd_tx.send(Cmd::LoadImage(Some((
+                path,
+                Size::new(self.screen_size.width, self.inner_height()),
+            ))))?);
+        }
         self.parse(self.document_id.open(), text, None)
     }
 
@@ -181,6 +193,10 @@ impl Model {
         mut text: String,
         image_cache: Option<ImageCache>,
     ) -> Result<(), Error> {
+        if text.is_empty() {
+            log::warn!("model.parse: text is empty");
+            return Ok(());
+        }
         let inner_width = self.config.padding.calculate_width(self.screen_size.width);
         if !text.ends_with('\n') {
             // mdfrier needs this, either because of its own limitation or something with
@@ -457,6 +473,11 @@ impl Model {
                     self.cmd_tx.send(Cmd::OpenUrl(url))?;
                 }
             }
+            DocumentSource::Image { .. } => {
+                return Err(Error::Navigation(NavigationError::UnknownLinkType(
+                    link_url,
+                )));
+            }
         }
         Err(Error::Navigation(NavigationError::UnknownLinkType(
             link_url,
@@ -473,21 +494,15 @@ impl Model {
             )));
         }
 
-        if path.extension() == Some(std::ffi::OsStr::new("md")) {
-            let text = fs::read_to_string(&path)?;
-            let basepath = path.parent().map(Path::to_path_buf);
-            self.open_new_source(
-                DocumentSource::File {
-                    path: path.clone(),
-                    basepath,
-                },
-                text,
-            )
-        } else {
-            Err(Error::Navigation(NavigationError::UnknownLinkType(
-                path_str.to_owned(),
-            )))
-        }
+        let text = fs::read_to_string(&path)?;
+        let basepath = path.parent().map(Path::to_path_buf);
+        self.open_new_source(
+            DocumentSource::File {
+                path: path.clone(),
+                basepath,
+            },
+            text,
+        )
     }
 
     /// Returns the URL of the currently selected link, if any.
@@ -695,12 +710,8 @@ impl Model {
         self.last_error = Some(err);
     }
 
-    pub fn builtin_override_view(&self) -> Option<BuiltIn> {
-        if let Ok(DocumentSource::BuiltIn(BuiltIn::Welcome)) = self.document_source.read() {
-            Some(BuiltIn::Welcome)
-        } else {
-            None
-        }
+    pub fn document_source(&self) -> Option<DocumentSource> {
+        self.document_source.read().ok()
     }
 }
 

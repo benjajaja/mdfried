@@ -118,8 +118,6 @@ pub fn worker_thread(
                 log::debug!("Cmd: {cmd}");
                 match cmd {
                     Cmd::Parse(document_id, width, text, image_cache) => {
-                        log::info!("Parse {document_id}");
-
                         event_tx.send(Event::NewDocument(document_id))?;
 
                         let lines = parser.parse(width, &text, &config.theme)?;
@@ -257,20 +255,26 @@ pub fn worker_thread(
                         })
                         .await??;
                     }
-                    Cmd::LoadImage(path) => {
+                    Cmd::LoadImage(image) => {
                         let event_tx = event_tx.clone();
                         let picker = thread_picker.clone();
                         tokio::task::spawn_blocking(move || -> Result<(), Error> {
-                            let dyn_img = if let Some(path) = path {
-                                image::ImageReader::open(path)?.decode()?
+                            let resize = Resize::Fit(Some(ratatui_image::FilterType::Lanczos3));
+                            let (dyn_img, size) = if let Some((path, available)) = image {
+                                let dyn_img = image::ImageReader::open(path)?.decode()?;
+                                let size = resize.size_for(&dyn_img, picker.font_size(), available);
+                                (dyn_img, size)
                             } else {
                                 let bytes = include_bytes!("../assets/logo.png");
-                                image::ImageReader::with_format(std::io::Cursor::new(bytes), image::ImageFormat::Png).decode()?
+                                (
+                                    image::ImageReader::with_format(std::io::Cursor::new(bytes), image::ImageFormat::Png).decode()?,
+                                    crate::view::WELCOME_LOGO_SIZE.into(),
+                                )
                             };
                             let proto = picker.new_protocol(
                                 dyn_img,
-                                crate::view::WELCOME_LOGO_SIZE.into(),
-                                Resize::Fit(Some(ratatui_image::FilterType::Lanczos3))
+                                size,
+                                resize,
                             )?;
                             event_tx.send(Event::RootImageLoaded(proto))?;
                             Ok(())
