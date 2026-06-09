@@ -55,19 +55,39 @@
         commonArgs = {
           inherit src;
           strictDeps = true;
+          # Prevent updateAutotoolsGnuConfigScripts from modifying mupdf's vendored
+          # autotools files — doing so invalidates cargo's fingerprint for mupdf-sys
+          # and causes a rebuild that fails on read-only cargoArtifacts files.
+          updateAutotoolsGnuConfigScriptsPhase = "true";
 
           nativeBuildInputs = with pkgs; [
             makeWrapper
             pkg-config
+            rustPlatform.bindgenHook # for mupdf-sys bindgen
+            gperf # for mupdf vendored Makefile
+            python3 # for mupdf vendored Makefile
+            unzip # for mupdf vendored docx_template build
+            # mupdf-sys cp_r copies files from the read-only Nix store, preserving
+            # mode 444. make then fails to regenerate headers. Wrap make to chmod first.
+            (writeShellScriptBin "make" ''
+              chmod -R u+w . 2>/dev/null || true
+              exec ${gnumake}/bin/make "$@"
+            '')
           ];
 
           buildInputs = [
             pkgs.chafa
             pkgs.glib.dev # for glib-2.0.pc (chafa dependency)
+            pkgs.fontconfig.dev # for font-kit (mupdf dep)
           ]
           ++ lib.optionals pkgs.stdenv.isDarwin [
             pkgs.libiconv
           ];
+          # mupdf's vendored zlib defines fdopen(fd,mode) as NULL when TARGET_OS_MAC
+          # is set. macOS stdio.h then fails to declare fdopen as a function (parse
+          # errors). Undefine TARGET_OS_MAC so zlib skips that macro.
+          CFLAGS_aarch64_apple_darwin = "-UTARGET_OS_MAC";
+          CXXFLAGS_aarch64_apple_darwin = "-UTARGET_OS_MAC";
         };
 
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
@@ -106,14 +126,17 @@
               inherit src;
               strictDeps = true;
               doCheck = false;
-              cargoExtraArgs = "--no-default-features --features chafa-static";
+              cargoExtraArgs = "--no-default-features --features chafa-static,svg,mermaid,pdf";
               CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
-              CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static -C link-arg=-lgcc";
+              CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static -C link-arg=-lgcc -C link-arg=-Wl,--start-group -C link-arg=-lbrotlicommon -C link-arg=-lexpat -C link-arg=-lc -C link-arg=-Wl,--end-group";
               CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "${pkgs.pkgsCross.musl64.stdenv.cc}/bin/x86_64-unknown-linux-musl-cc";
               nativeBuildInputs = with pkgs; [
                 pkgsCross.musl64.stdenv.cc
                 pkg-config
                 llvmPackages.libclang
+                gperf # for mupdf vendored Makefile
+                python3 # for mupdf vendored Makefile
+                unzip # for mupdf vendored docx_template build
               ];
               buildInputs = [
                 chafaMuslStatic
@@ -121,6 +144,8 @@
                 muslPkgs.pcre2
                 muslPkgs.libffi
                 muslPkgs.zlib
+                muslPkgs.fontconfig # for font-kit (mupdf dep)
+                muslPkgs.expat # fontconfig dependency
               ];
               PKG_CONFIG_PATH = lib.makeSearchPath "lib/pkgconfig" [
                 chafaMuslStatic
@@ -128,12 +153,16 @@
                 muslPkgs.pcre2
                 muslPkgs.libffi
                 muslPkgs.zlib
+                muslPkgs.fontconfig
+                muslPkgs.expat
               ];
               LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
               BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.pkgsCross.musl64.musl.dev}/include";
-              # Disable fortify source to avoid __snprintf_chk (glibc-specific) in tree-sitter
+              # Disable fortify source to avoid __snprintf_chk/__memmove_chk (glibc-specific) in tree-sitter and mupdf/harfbuzz
               CC_x86_64_unknown_linux_musl = "${pkgs.pkgsCross.musl64.stdenv.cc}/bin/x86_64-unknown-linux-musl-cc";
+              CXX_x86_64_unknown_linux_musl = "${pkgs.pkgsCross.musl64.stdenv.cc}/bin/x86_64-unknown-linux-musl-c++";
               CFLAGS_x86_64_unknown_linux_musl = "-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0";
+              CXXFLAGS_x86_64_unknown_linux_musl = "-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0";
             };
             cargoArtifactsStatic = craneLibMusl.buildDepsOnly staticArgs;
           in
@@ -272,11 +301,16 @@
               cargo-insta
               nodePackages."@mermaid-js/mermaid-cli"
               screenshotDiffsScript
+              gperf # for mupdf-sys vendored build
+              python3 # for mupdf-sys vendored build
             ]
             ++ lib.optionals pkgs.stdenv.isLinux [
               perf
             ];
+          buildInputs = [ pkgs.fontconfig.dev ];
           LD_LIBRARY_PATH = lib.makeLibraryPath [ pkgs.chafa ];
+          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+          BINDGEN_EXTRA_CLANG_ARGS = lib.optionalString pkgs.stdenv.isLinux "-isystem ${pkgs.glibc.dev}/include";
         };
 
         screenshotDiffs = import ./nix/screenshot-diffs.nix { inherit pkgs src mdfriedStatic; };

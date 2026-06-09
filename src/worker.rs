@@ -282,16 +282,12 @@ pub fn worker_thread(
                                     let page_width = bounds.x1 - bounds.x0;
                                     let scale =
                                         if page_width > 0.0 { pixel_width / page_width } else { 1.0 };
-                                    let matrix = Matrix {
-                                        a: scale, b: 0.0,
-                                        c: 0.0,   d: scale,
-                                        e: 0.0,   f: 0.0,
-                                    };
+                                    let matrix = Matrix::new_scale(scale, scale);
                                     let pixmap = page
                                         .to_pixmap(&matrix, &Colorspace::device_rgb(), 0.0, false)
                                         .map_err(|e| Error::Generic(format!("PDF render {idx}: {e}")))?;
-                                    let width = pixmap.width() as u32;
-                                    let height = pixmap.height() as u32;
+                                    let width = pixmap.width();
+                                    let height = pixmap.height();
                                     let samples = pixmap.samples().to_vec();
                                     let dyn_img = image::DynamicImage::ImageRgb8(
                                         image::RgbImage::from_raw(width, height, samples)
