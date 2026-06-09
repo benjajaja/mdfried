@@ -255,6 +255,10 @@ pub fn worker_thread(
                         })
                         .await??;
                     }
+                    Cmd::LoadPdf(_path, _size) => {
+                        // TODO: rasterize PDF pages with mupdf
+                        log::warn!("LoadPdf not yet implemented");
+                    }
                     Cmd::LoadImage(image) => {
                         let event_tx = event_tx.clone();
                         let picker = thread_picker.clone();

@@ -166,7 +166,9 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     if text.is_empty()
         && !matches!(
             document_source,
-            DocumentSource::BuiltIn(BuiltIn::Welcome) | DocumentSource::Image { .. }
+            DocumentSource::BuiltIn(BuiltIn::Welcome)
+                | DocumentSource::Image { .. }
+                | DocumentSource::Pdf { .. }
         )
     {
         return Err(Error::Usage(Some("no input or empty")));
@@ -309,6 +311,7 @@ pub enum Cmd {
     Parse(DocumentId, u16, String, Option<ImageCache>),
     OpenUrl(String),
     LoadImage(Option<(PathBuf, Size)>), // TODO: either included welcome logo, or a path, make an enum?
+    LoadPdf(PathBuf, Size),
 }
 
 impl std::fmt::Debug for Cmd {
@@ -328,6 +331,7 @@ impl Display for Cmd {
             }
             Cmd::OpenUrl(url) => write!(f, "Cmd::Open({url})"),
             Cmd::LoadImage(image) => write!(f, "Cmd::LoadImage({image:?})"),
+            Cmd::LoadPdf(path, size) => write!(f, "Cmd::LoadPdf({path:?}, {size:?})"),
         }
     }
 }

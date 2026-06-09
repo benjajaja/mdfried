@@ -126,7 +126,9 @@ impl Model {
                 ))?,
                 old_width,
             ),
-            DocumentSource::Image { .. } => self.open(String::new()),
+            DocumentSource::Image { .. } | DocumentSource::Pdf { .. } => {
+                self.open(String::new())
+            }
             _source => {
                 log::debug!("not implemented: reload for other sources: {_source:?}");
                 Ok(())
@@ -135,11 +137,15 @@ impl Model {
     }
 
     pub fn open(&self, text: String) -> Result<(), Error> {
-        if let DocumentSource::Image { path } = self.document_source.read()? {
-            return Ok(self.cmd_tx.send(Cmd::LoadImage(Some((
-                path,
-                Size::new(self.screen_size.width, self.inner_height()),
-            ))))?);
+        let size = Size::new(self.screen_size.width, self.inner_height());
+        match self.document_source.read()? {
+            DocumentSource::Image { path } => {
+                return Ok(self.cmd_tx.send(Cmd::LoadImage(Some((path, size))))?);
+            }
+            DocumentSource::Pdf { path } => {
+                return Ok(self.cmd_tx.send(Cmd::LoadPdf(path, size))?);
+            }
+            _ => {}
         }
         self.parse(self.document_id.open(), text, None)
     }
@@ -473,7 +479,7 @@ impl Model {
                     self.cmd_tx.send(Cmd::OpenUrl(url))?;
                 }
             }
-            DocumentSource::Image { .. } => {
+            DocumentSource::Image { .. } | DocumentSource::Pdf { .. } => {
                 return Err(Error::Navigation(NavigationError::UnknownLinkType(
                     link_url,
                 )));

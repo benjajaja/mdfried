@@ -442,7 +442,7 @@ fn builtin_override_view(model: &Model, inner_area: Rect, buf: &mut Buffer) {
         Some(DocumentSource::BuiltIn(BuiltIn::Welcome)) => {
             render_welcome(model, inner_area, buf);
         }
-        Some(DocumentSource::Image { .. }) => {
+        Some(DocumentSource::Image { .. }) | Some(DocumentSource::Pdf { .. }) => {
             render_image(model, inner_area, buf);
         }
         _ => {}

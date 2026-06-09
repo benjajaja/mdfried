@@ -37,6 +37,9 @@ pub enum DocumentSource {
     Image {
         path: PathBuf,
     },
+    Pdf {
+        path: PathBuf,
+    },
 }
 
 impl DocumentSource {
@@ -256,14 +259,19 @@ pub fn open_source(
     let path = PathBuf::from(source);
     let basepath = path.parent().map(Path::to_path_buf);
 
-    if matches!(
-        path.extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_ascii_lowercase())
-            .as_deref(),
-        Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tiff" | "tif")
-    ) {
-        return Ok((String::default(), DocumentSource::Image { path }));
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tiff" | "tif") => {
+            return Ok((String::default(), DocumentSource::Image { path }));
+        }
+        Some("pdf") => {
+            return Ok((String::default(), DocumentSource::Pdf { path }));
+        }
+        _ => {}
     }
 
     Ok((
