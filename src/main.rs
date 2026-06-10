@@ -359,6 +359,7 @@ pub enum Event {
         url: String,
     },
     CodeLoaded(DocumentId, usize, ratatui::prelude::Text<'static>),
+    WorkerError(Error),
 }
 
 impl Display for Event {
@@ -411,6 +412,7 @@ impl Display for Event {
             Event::FileChanged => write!(f, "Event::FileChanged"),
             Event::Scroll(s) => write!(f, "Event::Scroll({s})"),
             Event::NewSourceContent(_) => write!(f, "Event::NewSource"),
+            Event::WorkerError(err) => write!(f, "Event::WorkerError({err})"),
         }
     }
 }

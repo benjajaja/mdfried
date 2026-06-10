@@ -254,6 +254,9 @@ impl Model {
             }
 
             match event {
+                Event::WorkerError(err) => {
+                    self.last_error = Some(err);
+                }
                 Event::NewDocument(document_id) => {
                     log::info!("NewDocument {document_id}");
                     self.document_id = document_id;

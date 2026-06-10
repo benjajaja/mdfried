@@ -51,7 +51,13 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::Usage(_) => write!(f, "Bad arguments"), // Never shown to user, just a signal.
+            Error::Usage(msg) => {
+                if let Some(msg) = msg {
+                    write!(f, "Bad arguments: {msg}")
+                } else {
+                    write!(f, "Bad arguments")
+                }
+            }
             Error::UserAbort(msg) => write!(f, "Aborted by user ({msg})"),
             Error::Cli(err) => write!(f, "Command line argument error: {err}"),
             Error::Logger(err) => write!(f, "Logger error: {err}"),

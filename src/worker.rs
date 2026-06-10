@@ -116,227 +116,236 @@ pub fn worker_thread(
 
             for cmd in cmd_rx {
                 log::debug!("Cmd: {cmd}");
-                match cmd {
-                    Cmd::Parse(document_id, width, text, image_cache) => {
-                        event_tx.send(Event::NewDocument(document_id))?;
+                let result = async {
+                    match cmd {
+                        Cmd::Parse(document_id, width, text, image_cache) => {
+                            event_tx.send(Event::NewDocument(document_id))?;
 
-                        let lines = parser.parse(width, &text, &config.theme)?;
-                        let mut section_iter = SectionIterator::new(lines, &config.theme);
-                        let mut post_parse_events = Vec::new();
-                        for section in &mut section_iter {
-                            match &section.content {
-                                SectionContent::Lines(lines) => {
-                                    for (_, extras) in lines {
-                                        for extra in extras {
-                                            if let LineExtra::Link { reference, .. } = extra
-                                                && let LinkReference::ReferenceDefinition{ id, url } = reference {
-                                                    post_parse_events.push(SectionEvent::ReferenceDefinition{ id: id.clone(), url: url.clone() });
+                            let lines = parser.parse(width, &text, &config.theme)?;
+                            let mut section_iter = SectionIterator::new(lines, &config.theme);
+                            let mut post_parse_events = Vec::new();
+                            for section in &mut section_iter {
+                                match &section.content {
+                                    SectionContent::Lines(lines) => {
+                                        for (_, extras) in lines {
+                                            for extra in extras {
+                                                if let LineExtra::Link { reference, .. } = extra
+                                                    && let LinkReference::ReferenceDefinition{ id, url } = reference {
+                                                        post_parse_events.push(SectionEvent::ReferenceDefinition{ id: id.clone(), url: url.clone() });
+                                                }
                                             }
                                         }
+                                        event_tx.send(Event::Parsed(document_id, section))?;
                                     }
-                                    event_tx.send(Event::Parsed(document_id, section))?;
-                                }
-                                SectionContent::Code(language, lines) => {
-                                    post_parse_events.push(SectionEvent::Code(section.id, language.clone(), lines.iter().map(|(line,_)| line.clone()).collect()));
-                                    event_tx.send(Event::Parsed(document_id, section))?;
-                                }
-                                SectionContent::Image(_, _,_,_) => {
-                                    unreachable!("SectionIterator produced Image");
-                                }
-                                SectionContent::ImagePlaceholder(link, lines) => {
-                                    let section_id = section.id;
-                                    let link = link.clone();
-                                    let has_trailing_blank = lines.last().map(|(line,_)| line.spans.is_empty()).unwrap_or_default();
-                                    event_tx.send(Event::Parsed(document_id, section))?;
-                                    post_parse_events.push(SectionEvent::Image(section_id, link, has_trailing_blank));
-                                },
-                                SectionContent::Header(_, _, _) => {
-                                    if !config.theme.has_text_size_protocol.unwrap_or_default() {
-                                        unreachable!("SectionIterator produced Header without text-size-protocol");
+                                    SectionContent::Code(language, lines) => {
+                                        post_parse_events.push(SectionEvent::Code(section.id, language.clone(), lines.iter().map(|(line,_)| line.clone()).collect()));
+                                        event_tx.send(Event::Parsed(document_id, section))?;
                                     }
-                                    event_tx.send(Event::Parsed(document_id, section))?;
-                                }
-                                SectionContent::HeaderPlaceholder(text,tier,_) => {
-                                    if config.theme.has_text_size_protocol.unwrap_or_default() {
-                                        unreachable!("SectionIterator produced HeaderPlaceholder with text-size-protocol");
+                                    SectionContent::Image(_, _,_,_) => {
+                                        unreachable!("SectionIterator produced Image");
                                     }
-                                    let section_id = section.id;
-                                    let text = text.clone();
-                                    let tier = *tier;
-                                    event_tx.send(Event::Parsed(document_id, section))?;
-                                    if thread_renderer.is_some() {
-                                        post_parse_events.push(SectionEvent::Header(section_id, text, tier));
+                                    SectionContent::ImagePlaceholder(link, lines) => {
+                                        let section_id = section.id;
+                                        let link = link.clone();
+                                        let has_trailing_blank = lines.last().map(|(line,_)| line.spans.is_empty()).unwrap_or_default();
+                                        event_tx.send(Event::Parsed(document_id, section))?;
+                                        post_parse_events.push(SectionEvent::Image(section_id, link, has_trailing_blank));
+                                    },
+                                    SectionContent::Header(_, _, _) => {
+                                        if !config.theme.has_text_size_protocol.unwrap_or_default() {
+                                            unreachable!("SectionIterator produced Header without text-size-protocol");
+                                        }
+                                        event_tx.send(Event::Parsed(document_id, section))?;
+                                    }
+                                    SectionContent::HeaderPlaceholder(text,tier,_) => {
+                                        if config.theme.has_text_size_protocol.unwrap_or_default() {
+                                            unreachable!("SectionIterator produced HeaderPlaceholder with text-size-protocol");
+                                        }
+                                        let section_id = section.id;
+                                        let text = text.clone();
+                                        let tier = *tier;
+                                        event_tx.send(Event::Parsed(document_id, section))?;
+                                        if thread_renderer.is_some() {
+                                            post_parse_events.push(SectionEvent::Header(section_id, text, tier));
+                                        }
                                     }
                                 }
                             }
-                        }
-                        let section_id = section_iter.last_section_id();
-                        drop(section_iter);
+                            let section_id = section_iter.last_section_id();
+                            drop(section_iter);
 
-                        // Send cached images synchronously before ParseDone
-                        let mut image_cache = image_cache.unwrap_or_default();
-                        let mut uncached_post_parse_events = Vec::new();
-                        for event in post_parse_events {
-                            match &event {
-                                SectionEvent::Image(
-                                    section_id,
-                                    link,
-                                    has_trailing_blank,
-                                ) => {
-                                    if let Some((proto, size, max_size)) = image_cache.images.remove(&link.url) {
-                                        if width == max_size.width && config_max_image_height >= max_size.height {
-                                            event_tx.send(Event::ImageLoaded(
-                                                document_id,
-                                                *section_id,
-                                                link.clone(),
-                                                (proto, size, max_size),
-                                                *has_trailing_blank,
-                                            ))?;
-                                            log::debug!("image cache hit: {max_size:?} vs {width}x{config_max_image_height}, {size:?}, {}", link.url);
+                            // Send cached images synchronously before ParseDone
+                            let mut image_cache = image_cache.unwrap_or_default();
+                            let mut uncached_post_parse_events = Vec::new();
+                            for event in post_parse_events {
+                                match &event {
+                                    SectionEvent::Image(
+                                        section_id,
+                                        link,
+                                        has_trailing_blank,
+                                    ) => {
+                                        if let Some((proto, size, max_size)) = image_cache.images.remove(&link.url) {
+                                            if width == max_size.width && config_max_image_height >= max_size.height {
+                                                event_tx.send(Event::ImageLoaded(
+                                                    document_id,
+                                                    *section_id,
+                                                    link.clone(),
+                                                    (proto, size, max_size),
+                                                    *has_trailing_blank,
+                                                ))?;
+                                                log::debug!("image cache hit: {max_size:?} vs {width}x{config_max_image_height}, {size:?}, {}", link.url);
+                                            } else {
+                                                log::debug!("image cache hit but different max width ({width}x{config_max_image_height} vs {max_size}): {size:?}, {}", link.url);
+                                                uncached_post_parse_events.push(event);
+                                            }
                                         } else {
-                                            log::debug!("image cache hit but different max width ({width}x{config_max_image_height} vs {max_size}): {size:?}, {}", link.url);
+                                            log::debug!("image cache miss: {}", link.url);
                                             uncached_post_parse_events.push(event);
                                         }
-                                    } else {
-                                        log::debug!("image cache miss: {}", link.url);
-                                        uncached_post_parse_events.push(event);
                                     }
-                                }
-                                SectionEvent::Header(section_id, text, tier) => {
-                                    let key = (text.clone(), *tier);
-                                    if let Some(protos) = image_cache.headers(width).and_then(|hc| hc.remove(&key)) {
-                                        log::debug!("header cache hit: {key:?}");
-                                        event_tx.send(Event::HeaderLoaded(
-                                            document_id,
-                                            *section_id,
-                                            protos
-                                                .into_iter()
-                                                .map(|proto| (text.clone(), *tier, proto))
-                                                .collect(),
-                                        ))?;
-                                    } else {
-                                        log::debug!("header cache miss: {key:?}");
-                                        uncached_post_parse_events.push(event);
+                                    SectionEvent::Header(section_id, text, tier) => {
+                                        let key = (text.clone(), *tier);
+                                        if let Some(protos) = image_cache.headers(width).and_then(|hc| hc.remove(&key)) {
+                                            log::debug!("header cache hit: {key:?}");
+                                            event_tx.send(Event::HeaderLoaded(
+                                                document_id,
+                                                *section_id,
+                                                protos
+                                                    .into_iter()
+                                                    .map(|proto| (text.clone(), *tier, proto))
+                                                    .collect(),
+                                            ))?;
+                                        } else {
+                                            log::debug!("header cache miss: {key:?}");
+                                            uncached_post_parse_events.push(event);
+                                        }
                                     }
+                                    SectionEvent::ReferenceDefinition { id, url } => {
+                                        event_tx.send(Event::ReferenceDefinition { id: format!("[{id}]"), url: url.clone() })?;
+                                    }
+                                    _ => uncached_post_parse_events.push(event),
                                 }
-                                SectionEvent::ReferenceDefinition { id, url } => {
-                                    event_tx.send(Event::ReferenceDefinition { id: format!("[{id}]"), url: url.clone() })?;
-                                }
-                                _ => uncached_post_parse_events.push(event),
+                            }
+
+                            event_tx.send(Event::ParseDone(document_id, section_id, text))?;
+
+                            if !uncached_post_parse_events.is_empty() {
+                                process_post_parse_events(
+                                    event_tx.clone(),
+                                    document_source.clone(),
+                                    client.clone(),
+                                    thread_picker.clone(),
+                                    thread_renderer.clone(),
+                                    fontdb.clone(),
+                                    highlighter.clone(),
+                                    width,
+                                    &config,
+                                    deep_fry,
+                                    document_id,
+                                    uncached_post_parse_events,
+                                ).await?;
                             }
                         }
+                        Cmd::OpenUrl(url) => {
+                            let event_tx = event_tx.clone();
+                            tokio::task::spawn_blocking(move || -> Result<(), Error> {
+                                if let Ok((text, _)) = open_source(&url, None) {
+                                    event_tx.send(Event::NewSourceContent(text))?;
+                                }
+                                Ok(())
+                            })
+                            .await??;
+                        }
+                        #[cfg(not(feature = "pdf"))]
+                        Cmd::LoadPdf(_path, _available) => {
+                            return Err(Error::Usage(Some("PDF support has not been enabled at build")));
+                        }
+                        #[cfg(feature = "pdf")]
+                        Cmd::LoadPdf(path, available) => {
+                            let event_tx = event_tx.clone();
+                            let picker = thread_picker.clone();
+                            tokio::task::spawn_blocking(move || -> Result<(), Error> {
+                                    use mupdf::{Colorspace, Matrix, Document as MuDocument};
 
-                        event_tx.send(Event::ParseDone(document_id, section_id, text))?;
+                                    let path_str = path.to_str().ok_or_else(|| Error::Generic("invalid utf-8 in path".to_owned()))?;
+                                    let doc = MuDocument::open(path_str)?;
+                                    let page_count = doc.page_count()?;
+                                    let font_size = picker.font_size();
+                                    let pixel_width =
+                                        available.width as f32 * font_size.width as f32;
 
-                        if !uncached_post_parse_events.is_empty() {
-                            process_post_parse_events(
-                                event_tx.clone(),
-                                document_source.clone(),
-                                client.clone(),
-                                thread_picker.clone(),
-                                thread_renderer.clone(),
-                                fontdb.clone(),
-                                highlighter.clone(),
-                                width,
-                                &config,
-                                deep_fry,
-                                document_id,
-                                uncached_post_parse_events,
-                            ).await?;
+                                    for idx in 0..page_count {
+                                        let page = doc.load_page(idx)?;
+                                        let bounds = page.bounds()?;
+                                        let page_width = bounds.x1 - bounds.x0;
+                                        let scale =
+                                            if page_width > 0.0 { pixel_width / page_width } else { 1.0 };
+                                        let matrix = Matrix::new_scale(scale, scale);
+                                        let pixmap = page
+                                            .to_pixmap(&matrix, &Colorspace::device_rgb(), 0.0, false)?;
+                                        let width = pixmap.width();
+                                        let height = pixmap.height();
+                                        let samples = pixmap.samples().to_vec();
+                                        let dyn_img = image::DynamicImage::ImageRgb8(
+                                            image::RgbImage::from_raw(width, height, samples).ok_or_else(|| Error::ImageLoad(
+                                                path_str.to_owned(),
+                                                "could not create RBGA image from pixmap".to_owned(),
+                                            ))?);
+                                        let resize =
+                                            Resize::Fit(Some(ratatui_image::FilterType::Lanczos3));
+                                        let page_available =
+                                            Size::new(available.width, u16::MAX);
+                                        let size = resize.size_for(
+                                            &dyn_img,
+                                            picker.font_size(),
+                                            page_available,
+                                        );
+                                        let proto = SlicedProtocol::new(&picker, dyn_img, Some(size))?;
+                                        event_tx.send(Event::PdfPageLoaded(idx as usize, proto))?;
+                                    }
+                                Ok(())
+                            })
+                            .await??;
+                        }
+                        Cmd::LoadImage(image) => {
+                            let event_tx = event_tx.clone();
+                            let picker = thread_picker.clone();
+                            tokio::task::spawn_blocking(move || -> Result<(), Error> {
+                                let resize = Resize::Fit(Some(ratatui_image::FilterType::Lanczos3));
+                                let (dyn_img, size) = if let Some((path, available)) = image {
+                                    let dyn_img = image::ImageReader::open(path)?.decode()?;
+                                    let size = resize.size_for(&dyn_img, picker.font_size(), available);
+                                    (dyn_img, size)
+                                } else {
+                                    let bytes = include_bytes!("../assets/logo.png");
+                                    (
+                                        image::ImageReader::with_format(std::io::Cursor::new(bytes), image::ImageFormat::Png).decode()?,
+                                        crate::view::WELCOME_LOGO_SIZE.into(),
+                                    )
+                                };
+                                let proto = picker.new_protocol(
+                                    dyn_img,
+                                    size,
+                                    resize,
+                                )?;
+                                event_tx.send(Event::RootImageLoaded(proto))?;
+                                Ok(())
+                            })
+                            .await??;
                         }
                     }
-                    Cmd::OpenUrl(url) => {
-                        let event_tx = event_tx.clone();
-                        tokio::task::spawn_blocking(move || -> Result<(), Error> {
-                            if let Ok((text, _)) = open_source(&url, None) {
-                                event_tx.send(Event::NewSourceContent(text))?;
-                            }
-                            Ok(())
-                        })
-                        .await??;
-                    }
-                    Cmd::LoadPdf(path, available) => {
-                        let event_tx = event_tx.clone();
-                        let picker = thread_picker.clone();
-                        tokio::task::spawn_blocking(move || -> Result<(), Error> {
-                            #[cfg(feature = "pdf")]
-                            {
-                                use mupdf::{Colorspace, Matrix, Document as MuDocument};
 
-                                let path_str = path.to_str().ok_or_else(|| Error::Generic("invalid utf-8 in path".to_owned()))?;
-                                let doc = MuDocument::open(path_str)?;
-                                let page_count = doc.page_count()?;
-                                let font_size = picker.font_size();
-                                let pixel_width =
-                                    available.width as f32 * font_size.width as f32;
+                    Ok::<(),Error>(())
+                }.await;
 
-                                for idx in 0..page_count {
-                                    let page = doc.load_page(idx)?;
-                                    let bounds = page.bounds()?;
-                                    let page_width = bounds.x1 - bounds.x0;
-                                    let scale =
-                                        if page_width > 0.0 { pixel_width / page_width } else { 1.0 };
-                                    let matrix = Matrix::new_scale(scale, scale);
-                                    let pixmap = page
-                                        .to_pixmap(&matrix, &Colorspace::device_rgb(), 0.0, false)?;
-                                    let width = pixmap.width();
-                                    let height = pixmap.height();
-                                    let samples = pixmap.samples().to_vec();
-                                    let dyn_img = image::DynamicImage::ImageRgb8(
-                                        image::RgbImage::from_raw(width, height, samples).ok_or_else(|| Error::ImageLoad(
-                                            path_str.to_owned(),
-                                            "could not create RBGA image from pixmap".to_owned(),
-                                        ))?);
-                                    let resize =
-                                        Resize::Fit(Some(ratatui_image::FilterType::Lanczos3));
-                                    let page_available =
-                                        Size::new(available.width, u16::MAX);
-                                    let size = resize.size_for(
-                                        &dyn_img,
-                                        picker.font_size(),
-                                        page_available,
-                                    );
-                                    let proto = SlicedProtocol::new(&picker, dyn_img, Some(size))?;
-                                    event_tx.send(Event::PdfPageLoaded(idx as usize, proto))?;
-                                }
-                            }
-                            #[cfg(not(feature = "pdf"))]
-                            {
-                                return Err(Error::Usage(Some("PDF support has not been enabled at build")));
-                            }
-                            Ok(())
-                        })
-                        .await??;
-                    }
-                    Cmd::LoadImage(image) => {
-                        let event_tx = event_tx.clone();
-                        let picker = thread_picker.clone();
-                        tokio::task::spawn_blocking(move || -> Result<(), Error> {
-                            let resize = Resize::Fit(Some(ratatui_image::FilterType::Lanczos3));
-                            let (dyn_img, size) = if let Some((path, available)) = image {
-                                let dyn_img = image::ImageReader::open(path)?.decode()?;
-                                let size = resize.size_for(&dyn_img, picker.font_size(), available);
-                                (dyn_img, size)
-                            } else {
-                                let bytes = include_bytes!("../assets/logo.png");
-                                (
-                                    image::ImageReader::with_format(std::io::Cursor::new(bytes), image::ImageFormat::Png).decode()?,
-                                    crate::view::WELCOME_LOGO_SIZE.into(),
-                                )
-                            };
-                            let proto = picker.new_protocol(
-                                dyn_img,
-                                size,
-                                resize,
-                            )?;
-                            event_tx.send(Event::RootImageLoaded(proto))?;
-                            Ok(())
-                        })
-                        .await??;
-                    }
+                match result {
+                    Err(Error::ThreadClosed) => break, // Goodbye.
+                    Err(err) => event_tx.send(Event::WorkerError(err))?,
+                    Ok(()) => {}, // Keep processing.
                 }
             }
-            Ok::<(), Error>(())
+
+            Ok(())
         });
 
         if let Err(Error::ThreadClosed) = result {
