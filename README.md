@@ -36,6 +36,9 @@ https://github.com/user-attachments/assets/924d29a9-053c-44b0-8c09-39dac8c90329
 * Syntax highlighting in codeblocks with [arborium](https://arborium.bearcove.eu)
 * Mermaid diagram rendering 
   Via internal renderer (fast) or external mermaid-cli command (accurate).
+* Experimental PDF support
+  If enabled with the `pdf` feature, PDF files can be opened.
+  Only recommended for terminals that use the kitty protocol.
 * Theme [configuration](#configuration) support
 
 
