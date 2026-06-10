@@ -37,6 +37,8 @@ pub enum Error {
     CodeHighlight(String),
     MermaidTooBig,
     Mermaid(Box<dyn std::error::Error + Send + Sync>),
+    #[cfg(feature = "pdf")]
+    Pdf(mupdf::Error),
 
     // User flow errors
     Command(CommandError),
@@ -81,6 +83,8 @@ impl fmt::Display for Error {
             Error::Command(err) => err.fmt(f),
             Error::Navigation(err) => err.fmt(f),
             Error::Generic(msg) => write!(f, "Generic error: {msg}"),
+            #[cfg(feature = "pdf")]
+            Error::Pdf(err) => write!(f, "{err}"),
         }
     }
 }
@@ -233,5 +237,12 @@ impl From<arborium::Error> for Error {
 impl From<ansi_to_tui::Error> for Error {
     fn from(value: ansi_to_tui::Error) -> Self {
         Self::CodeHighlight(format!("{value}"))
+    }
+}
+
+#[cfg(feature = "pdf")]
+impl From<mupdf::Error> for Error {
+    fn from(value: mupdf::Error) -> Self {
+        Self::Pdf(value)
     }
 }

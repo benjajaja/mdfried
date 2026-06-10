@@ -4,6 +4,8 @@
 
 ### Added
 - Open images
+- Experimental PDF support
+  Can be disabled with the "pdf" feature. Every page is rendered as an image.
 
 ## [0.22.1] - 2026-06-08
 

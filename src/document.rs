@@ -1023,10 +1023,12 @@ pub fn svg_tree_to_rgba(tree: Tree) -> Result<DynamicImage, Error> {
     )?;
     resvg::render(&tree, tiny_skia::Transform::default(), &mut pixmap.as_mut());
     let rgba =
-        RgbaImage::from_raw(size.width(), size.height(), pixmap.take()).ok_or(Error::ImageLoad(
-            "(svg)".to_owned(),
-            "could create RBGA image from pixmap".to_owned(),
-        ))?;
+        RgbaImage::from_raw(size.width(), size.height(), pixmap.take()).ok_or_else(|| {
+            Error::ImageLoad(
+                "(svg)".to_owned(),
+                "could not create RBGA image from pixmap".to_owned(),
+            )
+        })?;
     Ok(DynamicImage::ImageRgba8(rgba))
 }
 

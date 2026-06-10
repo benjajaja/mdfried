@@ -263,38 +263,30 @@ pub fn worker_thread(
                             {
                                 use mupdf::{Colorspace, Matrix, Document as MuDocument};
 
-                                let path_str = path.to_str().ok_or_else(|| {
-                                    Error::Generic("PDF path is not valid UTF-8".to_owned())
-                                })?;
-                                let doc = MuDocument::open(path_str)
-                                    .map_err(|e| Error::Generic(format!("PDF open: {e}")))?;
-                                let page_count = doc.page_count()
-                                    .map_err(|e| Error::Generic(format!("PDF page count: {e}")))?;
+                                let path_str = path.to_str().ok_or_else(|| Error::Generic("invalid utf-8 in path".to_owned()))?;
+                                let doc = MuDocument::open(path_str)?;
+                                let page_count = doc.page_count()?;
                                 let font_size = picker.font_size();
                                 let pixel_width =
                                     available.width as f32 * font_size.width as f32;
 
                                 for idx in 0..page_count {
-                                    let page = doc.load_page(idx)
-                                        .map_err(|e| Error::Generic(format!("PDF load page {idx}: {e}")))?;
-                                    let bounds = page.bounds()
-                                        .map_err(|e| Error::Generic(format!("PDF bounds {idx}: {e}")))?;
+                                    let page = doc.load_page(idx)?;
+                                    let bounds = page.bounds()?;
                                     let page_width = bounds.x1 - bounds.x0;
                                     let scale =
                                         if page_width > 0.0 { pixel_width / page_width } else { 1.0 };
                                     let matrix = Matrix::new_scale(scale, scale);
                                     let pixmap = page
-                                        .to_pixmap(&matrix, &Colorspace::device_rgb(), 0.0, false)
-                                        .map_err(|e| Error::Generic(format!("PDF render {idx}: {e}")))?;
+                                        .to_pixmap(&matrix, &Colorspace::device_rgb(), 0.0, false)?;
                                     let width = pixmap.width();
                                     let height = pixmap.height();
                                     let samples = pixmap.samples().to_vec();
                                     let dyn_img = image::DynamicImage::ImageRgb8(
-                                        image::RgbImage::from_raw(width, height, samples)
-                                            .ok_or_else(|| Error::Generic(
-                                                "PDF pixmap buffer too small".to_owned(),
-                                            ))?,
-                                    );
+                                        image::RgbImage::from_raw(width, height, samples).ok_or_else(|| Error::ImageLoad(
+                                            path_str.to_owned(),
+                                            "could not create RBGA image from pixmap".to_owned(),
+                                        ))?);
                                     let resize =
                                         Resize::Fit(Some(ratatui_image::FilterType::Lanczos3));
                                     let page_available =
@@ -309,7 +301,9 @@ pub fn worker_thread(
                                 }
                             }
                             #[cfg(not(feature = "pdf"))]
-                            log::warn!("PDF support not compiled in (enable the 'pdf' feature)");
+                            {
+                                return Err(Error::Usage(Some("PDF support has not been enabled at build")));
+                            }
                             Ok(())
                         })
                         .await??;
