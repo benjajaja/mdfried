@@ -96,6 +96,7 @@
           commonArgs
           // {
             inherit cargoArtifacts;
+            cargoExtraArgs = "--features pdf";
           }
         );
 
