@@ -30,12 +30,14 @@ pub fn run_loop(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), E
     // Quick, say hi!
     terminal.draw(|frame| {
         let cursor_position = view(&model, frame.buffer_mut());
-        frame.set_cursor_position(cursor_position);
+        if let Some(cursor_position) = cursor_position {
+            frame.set_cursor_position(cursor_position);
+        }
     })?;
 
     // Send the buffer back and forth to avoid allocating every frame, also serves as "dropped"
     // signal, when not returned already.
-    let (buf_in_tx, buf_in_rx) = mpsc::sync_channel::<(Buffer, Position)>(1);
+    let (buf_in_tx, buf_in_rx) = mpsc::sync_channel::<(Buffer, Option<Position>)>(1);
     let (buf_out_tx, buf_out_rx) = mpsc::sync_channel::<Buffer>(1);
     buf_out_tx
         .send(Buffer::empty(model.screen_size.into()))
@@ -106,14 +108,24 @@ pub fn run_loop(mut terminal: DefaultTerminal, mut model: Model) -> Result<(), E
 
 fn render(
     mut terminal: DefaultTerminal,
-    buf_in: Receiver<(Buffer, Position)>,
+    buf_in: Receiver<(Buffer, Option<Position>)>,
     buf_out: SyncSender<Buffer>,
 ) -> Result<(), Error> {
     while let Ok((mut buf, cursor_position)) = buf_in.recv() {
+        let mut hide_cursor = false;
         terminal.draw(|frame| {
             std::mem::swap(frame.buffer_mut(), &mut buf);
-            frame.set_cursor_position(cursor_position);
+            // frame.set_cursor_position(cursor_position);
+            if let Some(cursor_position) = cursor_position {
+                frame.set_cursor_position(cursor_position);
+            } else {
+                hide_cursor = true;
+            }
         })?;
+        if hide_cursor {
+            terminal.hide_cursor()?;
+        }
+
         // Guaranteed to be empty since we hold the buffer.
         buf_out
             .send(buf)

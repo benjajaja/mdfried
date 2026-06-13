@@ -25,7 +25,7 @@ use crate::{
 
 pub const WELCOME_LOGO_SIZE: (u16, u16) = (32, 8);
 
-pub fn view(model: &Model, buf: &mut Buffer) -> Position {
+pub fn view(model: &Model, buf: &mut Buffer) -> Option<Position> {
     let inner_area = {
         let frame_area = *buf.area();
         let padding = model.block_padding(frame_area);
@@ -124,13 +124,12 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
     builtin_override_view(model, content_area, buf);
 
     let status_line_y = inner_area.height - 1;
-    let mut cursor_position = Position::from((0, buf.area.height - 1));
+    let mut cursor_position = None; // Position::from((0, buf.area.height - 1));
     if let Some(err) = &model.last_error {
         let line = Line::from(err.to_string());
         let width = line.width() as u16;
         let searchbar = Paragraph::new(line).fg(Color::Red);
         searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
-        cursor_position.x = width;
     } else {
         match &model.input_queue {
             InputQueue::None => match &model.cursor {
@@ -171,7 +170,7 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
                 let width = line.width() as u16;
                 let searchbar = Paragraph::new(line);
                 searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
-                cursor_position.x = width;
+                cursor_position = Some(Position::from((width, buf.area.height - 1)));
             }
             InputQueue::MovementCount(movement_count) => {
                 let movement_count = movement_count.get();
@@ -184,14 +183,14 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
                 let width = line.width() as u16;
                 let searchbar = Paragraph::new(line);
                 searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
-                cursor_position.x = width;
+                cursor_position = Some(Position::from((width, buf.area.height - 1)));
             }
             InputQueue::CursorPositioningCommands => {
                 let line = Line::from(Span::from("z").fg(Color::Indexed(32)));
                 let width = line.width() as u16;
                 let searchbar = Paragraph::new(line);
                 searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
-                cursor_position.x = width;
+                cursor_position = Some(Position::from((width, buf.area.height - 1)));
             }
             InputQueue::Command(command) => {
                 let mut line = Line::default();
@@ -201,7 +200,7 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Position {
                 let width = line.width() as u16;
                 let searchbar = Paragraph::new(line);
                 searchbar.render(Rect::new(0, status_line_y, width, 1), buf);
-                cursor_position.x = width;
+                cursor_position = Some(Position::from((width, buf.area.height - 1)));
             }
         };
     }

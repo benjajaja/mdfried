@@ -545,8 +545,7 @@ Goodbye."#,
         poll_parsed(&mut model);
         terminal
             .draw(|frame| {
-                let cursor_position = view(&model, frame.buffer_mut());
-                frame.set_cursor_position(cursor_position);
+                view(&model, frame.buffer_mut());
             })
             .unwrap();
         #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
@@ -555,8 +554,7 @@ Goodbye."#,
         poll_images_done(&mut model);
         terminal
             .draw(|frame| {
-                let cursor_position = view(&model, frame.buffer_mut());
-                frame.set_cursor_position(cursor_position);
+                view(&model, frame.buffer_mut());
             })
             .unwrap();
         #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
@@ -605,8 +603,7 @@ Goodbye."#,
         log::debug!("poll_parsed before failing done");
         terminal
             .draw(|frame| {
-                let cursor_position = view(&model, frame.buffer_mut());
-                frame.set_cursor_position(cursor_position);
+                view(&model, frame.buffer_mut());
             })
             .unwrap();
         #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
@@ -628,8 +625,7 @@ Goodbye."#,
         poll_parsed(&mut model);
         terminal
             .draw(|frame| {
-                let cursor_position = view(&model, frame.buffer_mut());
-                frame.set_cursor_position(cursor_position);
+                view(&model, frame.buffer_mut());
             })
             .unwrap();
         #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
@@ -678,8 +674,7 @@ Goodbye."#,
         poll_parsed(&mut model);
         terminal
             .draw(|frame| {
-                let cursor_position = view(&model, frame.buffer_mut());
-                frame.set_cursor_position(cursor_position);
+                view(&model, frame.buffer_mut());
             })
             .unwrap();
         #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
@@ -688,8 +683,7 @@ Goodbye."#,
         poll_images_done(&mut model);
         terminal
             .draw(|frame| {
-                let cursor_position = view(&model, frame.buffer_mut());
-                frame.set_cursor_position(cursor_position);
+                view(&model, frame.buffer_mut());
             })
             .unwrap();
         #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
@@ -735,8 +729,7 @@ Goodbye.
         poll_parsed(&mut model);
         terminal
             .draw(|frame| {
-                let cursor_position = view(&model, frame.buffer_mut());
-                frame.set_cursor_position(cursor_position);
+                view(&model, frame.buffer_mut());
             })
             .unwrap();
         #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
@@ -745,8 +738,7 @@ Goodbye.
         poll_images_done(&mut model);
         terminal
             .draw(|frame| {
-                let cursor_position = view(&model, frame.buffer_mut());
-                frame.set_cursor_position(cursor_position);
+                view(&model, frame.buffer_mut());
             })
             .unwrap();
         #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
@@ -774,8 +766,7 @@ Line that should be broken up later
         poll_parsed(&mut model);
         terminal
             .draw(|frame| {
-                let cursor_position = view(&model, frame.buffer_mut());
-                frame.set_cursor_position(cursor_position);
+                view(&model, frame.buffer_mut());
             })
             .unwrap();
 
@@ -801,8 +792,7 @@ Line that should be broken up later
         poll_parsed(&mut model);
         terminal
             .draw(|frame| {
-                let cursor_position = view(&model, frame.buffer_mut());
-                frame.set_cursor_position(cursor_position);
+                view(&model, frame.buffer_mut());
             })
             .unwrap();
 
