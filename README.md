@@ -46,20 +46,15 @@ https://github.com/user-attachments/assets/924d29a9-053c-44b0-8c09-39dac8c90329
 
 Packaged in distros:
 
+[![Packaging status](https://repology.org/badge/vertical-allrepos/mdfried.svg)](https://repology.org/project/mdfried/versions)
+
 * Rust cargo: `cargo install mdfried`
   * From source : `cargo install --path .`
   * Needs a chafa package with development headers, usually called something like `libchafa-dev`, `libchafa-devel`, or just `libchafa`, or even just `chafa`.
   * If chafa is not available at all, or you don't care about it because your terminal supports some graphic protocol, then use `--no-default-features`.
-  * If `cargo install ...` fails, try it with `--locked`, and/or report an issue.
+  * If `cargo install ...` fails, try it with `--locked`, and report an issue.
 * Nix flake: `github:benjajaja/mdfried`
-* Nixpkgs: [`mdfried`](https://search.nixos.org/packages?channel=unstable&query=mdfried)
-* Arch, Manjaro, Parabola: `pacman -S mdfried` ([extra repository](https://archlinux.org/packages/extra/x86_64/mdfried/))
-* FreeBSD: `pkg install mdfried`
-* Ubuntu: [Download release .deb](https://github.com/benjajaja/mdfried/releases/latest)
-* Mac: `brew install mdfried` or `port install mdfried` or [release binaries](https://github.com/benjajaja/mdfried/releases/latest)
-* Windows: [Download release .exe](https://github.com/benjajaja/mdfried/releases/latest)
-
-[![Packaging status](https://repology.org/badge/vertical-allrepos/mdfried.svg)](https://repology.org/project/mdfried/versions)
+* Download [release](https://github.com/benjajaja/mdfried/releases/latest) `.deb` and binaries for Mac and Windows.
 
 # Usage
 
