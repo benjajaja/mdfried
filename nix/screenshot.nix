@@ -88,7 +88,7 @@ pkgs.testers.nixosTest {
     """)
 
     # Give kitty and mdfried time to start and render
-    machine.succeed("sleep 5")
+    machine.succeed("sleep 8")
 
     machine.succeed("""
       systemd-run --uid=test --wait \
