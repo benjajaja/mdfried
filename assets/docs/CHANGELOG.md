@@ -7,6 +7,10 @@
 - Experimental PDF support
   Can be disabled with the "pdf" feature. Every page is rendered as an image.
 
+### Fixed
+- Hide cursor when not in "input queue" mode
+  When not "writing in status bar". Fixes inverse first character of URL in status bar when in link mode.
+
 ## [0.22.1] - 2026-06-08
 
 ### Fixed
