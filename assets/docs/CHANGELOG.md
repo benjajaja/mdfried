@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.22.2] - 2026-06-13
+
 ### Added
 - Open images
 - Experimental PDF support
