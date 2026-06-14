@@ -17,6 +17,23 @@ fn trim_start_inplace(s: &mut String) {
     }
 }
 
+/// Trim trailing whitespace in place.
+#[inline]
+fn trim_end_inplace(s: &mut String) {
+    let trimmed_len = s.trim_end().len();
+    if trimmed_len < s.len() {
+        s.truncate(trimmed_len);
+    }
+}
+
+#[inline]
+fn trim_inplace(s: &mut String) {
+    let trimmed = s.trim();
+    if trimmed.len() != s.len() {
+        *s = trimmed.to_owned();
+    }
+}
+
 pub fn wrap_md_spans<M: Mapper>(
     width: u16,
     mdspans: Vec<Span>,
@@ -68,77 +85,102 @@ pub fn wrap_md_spans<M: Mapper>(
         .collect()
 }
 
+/// This struct just makes it easier to debug wrapping.
+#[derive(Default)]
+struct WrappedLines {
+    lines: Vec<Vec<Span>>,
+    line: Vec<Span>,
+    after_newline: bool,
+}
+
+impl WrappedLines {
+    fn carriage_return(&mut self) {
+        let span_count = self.line.len();
+        if span_count == 1 {
+            trim_inplace(&mut self.line[0].content);
+        } else if span_count > 1 {
+            trim_start_inplace(&mut self.line[0].content);
+            trim_end_inplace(&mut self.line[span_count - 1].content);
+        }
+        let taken = std::mem::take(&mut self.line);
+        self.lines.push(taken);
+    }
+
+    fn push_span(&mut self, span: Span) {
+        self.line.push(span);
+    }
+}
+
 // Also used by table cell wrapping.
 pub fn wrap_md_spans_lines<M: Mapper>(
     width: u16,
-    mdspans: Vec<Span>,
+    spans: Vec<Span>,
     mapper: &M,
     is_indented: bool,
 ) -> Vec<Vec<Span>> {
     let hide_urls = mapper.hide_urls();
     let hard_softbreaks = mapper.hard_softbreaks();
 
-    let mut lines: Vec<Vec<Span>> = Vec::new();
-    let mut line: Vec<Span> = Vec::new();
-    let mut after_newline = false;
+    let mut lines = WrappedLines::default();
 
-    for mdspan in mdspans {
+    for mut span in spans {
         if is_indented || hard_softbreaks {
-            if mdspan.modifiers.contains(Modifier::NewLine) {
-                if let Some(last) = line.last_mut() {
+            if span.modifiers.contains(Modifier::NewLine) {
+                if let Some(last) = lines.line.last_mut() {
                     last.content.truncate(last.content.trim_end().len());
                 }
-                lines.push(std::mem::take(&mut line));
-                after_newline = true;
+                lines.carriage_return();
+                lines.after_newline = true;
             }
         } else {
-            if mdspan.modifiers.contains(Modifier::HardLineBreak) {
-                if let Some(last) = line.last_mut() {
+            if span.modifiers.contains(Modifier::HardLineBreak) {
+                if let Some(last) = lines.line.last_mut() {
                     last.content.truncate(last.content.trim_end().len());
                 }
-                lines.push(std::mem::take(&mut line));
-                after_newline = true;
+                lines.carriage_return();
+                lines.after_newline = true;
             }
-            if mdspan.modifiers.contains(Modifier::NewLine) && !line.is_empty() {
-                line.push(Span::new(
+            if span.modifiers.contains(Modifier::NewLine) && !lines.line.is_empty() {
+                lines.push_span(Span::new(
                     String::from(" "),
-                    mdspan.modifiers.difference(Modifier::NewLine),
+                    span.modifiers.difference(Modifier::NewLine),
                 ));
+                trim_start_inplace(&mut span.content);
             }
         }
 
         // Strip leading whitespace from content after a hard line break
-        let mut mdspan = mdspan;
-        if after_newline && !mdspan.content.is_empty() {
-            trim_start_inplace(&mut mdspan.content);
-            after_newline = false;
+        if lines.after_newline && !span.content.is_empty() {
+            trim_start_inplace(&mut span.content);
+            lines.after_newline = false;
         }
 
-        let span_width = if hide_urls && mdspan.modifiers.is_link_url() {
+        let span_width = if hide_urls && span.modifiers.is_link_url() {
             // If hide_urls, the LinkURL is kept for building LinkExtra::Link after wrapping, but
             // will be filtered out later. Therefore, ignore for width counts.
             0
         } else {
-            mdspan.content.width() as u16
+            span.content.width() as u16
         };
-        let mut line_width = line
+        let mut line_width = lines
+            .line
             .iter()
             .filter(|span| !hide_urls || !span.modifiers.is_link_url())
             .map(UnicodeWidthStr::width)
             .sum::<usize>() as u16;
         let mut would_overflow = line_width + span_width > width;
-        if would_overflow && mdspan.modifiers.contains(Modifier::LinkURL) {
-            let move_paren = line.last().is_some_and(|last| {
+        if would_overflow && span.modifiers.contains(Modifier::LinkURL) {
+            let move_paren = lines.line.last().is_some_and(|last| {
                 last.modifiers.contains(Modifier::LinkURLWrapper) && last.content == "("
             });
-            if move_paren && let Some(paren) = line.pop() {
-                lines.push(std::mem::take(&mut line));
-                line.push(paren);
+            if move_paren && let Some(paren) = lines.line.pop() {
+                lines.carriage_return();
+                lines.push_span(paren);
                 line_width = 1;
             } else {
                 // The last span was not "(", could be a fused "](" from an image.
                 // Ignore but do move this LinkURL into its own line to try to avoid breaking.
-                lines.push(std::mem::take(&mut line));
+                lines.carriage_return();
                 line_width = 0;
             }
             would_overflow = line_width + span_width > width;
@@ -146,13 +188,13 @@ pub fn wrap_md_spans_lines<M: Mapper>(
         if would_overflow {
             // Note: this *was* something weird about moving links that would exceed `width`
             // together with their surrounding parens.
-            let starting_new_line = !line.is_empty();
+            let starting_new_line = !lines.line.is_empty();
 
             // Split once with "remaining width" (`width - line_width`), to append the first part
             // onto the current line (if any, otherwise would just make a new line).
             let mut remaining_width = width.saturating_sub(line_width);
             if remaining_width == 0 {
-                lines.push(std::mem::take(&mut line));
+                lines.carriage_return();
                 remaining_width = width;
             }
 
@@ -161,24 +203,29 @@ pub fn wrap_md_spans_lines<M: Mapper>(
             // being split mid-word by break_words (e.g. "Is" → "I" + "s this...").
             let mut trim_first_part = false;
             if starting_new_line {
-                let first_word_width = mdspan
+                let first_word_width = span
                     .content
                     .split_whitespace()
                     .next()
                     .map(|w| UnicodeWidthStr::width(w) as u16)
                     .unwrap_or(0);
                 if first_word_width > remaining_width && first_word_width <= width {
-                    lines.push(std::mem::take(&mut line));
+                    lines.carriage_return();
                     remaining_width = width;
                     // first_part will start a fresh line; trim any leading whitespace.
                     trim_first_part = true;
                 }
             }
 
+            if span.content.width() <= remaining_width as usize {
+                lines.push_span(span);
+                continue;
+            }
+
             let options = Options::new((remaining_width) as usize)
                 .break_words(true)
                 .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation);
-            let parts: Vec<_> = wrap(&mdspan.content, options).into_iter().collect();
+            let parts: Vec<_> = wrap(&span.content, options).into_iter().collect();
             let Some(first_part) = parts.first() else {
                 continue;
             };
@@ -187,14 +234,14 @@ pub fn wrap_md_spans_lines<M: Mapper>(
             if trim_first_part {
                 trim_start_inplace(&mut first_content_owned);
             }
-            let first_span = Span::new(first_content_owned, mdspan.modifiers);
-            line.push(first_span);
-            lines.push(std::mem::take(&mut line));
+            let first_span = Span::new(first_content_owned, span.modifiers);
+            lines.push_span(first_span);
+            lines.carriage_return();
             line_width = 0;
 
             // Now split again on the remaining content of the span, with the full `width`.
             let rest = {
-                let orig = mdspan.content.as_str();
+                let orig = span.content.as_str();
                 let first_end =
                     first_part.as_ptr() as usize + first_part.len() - orig.as_ptr() as usize;
                 debug_assert!(
@@ -210,7 +257,7 @@ pub fn wrap_md_spans_lines<M: Mapper>(
             let parts: Vec<_> = wrap(rest, options).into_iter().collect();
 
             let num_parts = parts.len();
-            let ends_with_space = mdspan.content.ends_with(' ');
+            let ends_with_space = span.content.ends_with(' ');
             let mut copied_newline = false;
             for (i, part) in parts.into_iter().enumerate() {
                 let is_last = i == num_parts - 1;
@@ -223,36 +270,36 @@ pub fn wrap_md_spans_lines<M: Mapper>(
                 } else {
                     part.into_owned()
                 };
-                if is_first && starting_new_line && !mdspan.modifiers.contains(Modifier::NewLine) {
+                if is_first && starting_new_line && !span.modifiers.contains(Modifier::NewLine) {
                     trim_start_inplace(&mut part_content);
                 }
                 let part_width = part_content.width() as u16;
                 if line_width + part_width > width {
-                    lines.push(std::mem::take(&mut line));
+                    lines.carriage_return();
                     line_width = 0;
                 }
-                let mut modifiers = mdspan.modifiers;
+                let mut modifiers = span.modifiers;
                 if !copied_newline {
                     copied_newline = true;
                 } else {
                     modifiers.remove(Modifier::NewLine);
                 }
-                line.push(Span::new(part_content, modifiers));
+                lines.push_span(Span::new(part_content, modifiers));
                 line_width += part_width;
             }
         } else {
-            line.push(mdspan);
+            lines.push_span(span);
         }
     }
 
-    if !line.is_empty() {
-        lines.push(line);
+    if !lines.line.is_empty() {
+        lines.carriage_return();
     }
 
     // Nothing should ever exceed `width`.
     #[cfg(debug_assertions)]
     {
-        for line in &lines {
+        for line in &lines.lines {
             if line
                 .iter()
                 .any(|span| span.modifiers.contains(Modifier::LinkURL) && span.content.width() > 0)
@@ -273,7 +320,7 @@ pub fn wrap_md_spans_lines<M: Mapper>(
             }
         }
     }
-    lines
+    lines.lines
 }
 
 #[cfg(test)]

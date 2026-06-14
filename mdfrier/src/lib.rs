@@ -465,18 +465,28 @@ Quote break.
     #[test]
     fn bare_url_line_broken() {
         let mut frier = MdFrier::new().unwrap();
-        let spans: Vec<_> = frier
+        let lines: Vec<_> = frier
             .parse(15, "See https://example.com/path ok?", &DefaultMapper)
             .unwrap()
-            .flat_map(|l| l.spans)
             .collect();
+        assert_eq!(lines[0].spans, vec![Span::from("See"),]);
         assert_eq!(
-            spans,
+            lines[1].spans,
             vec![
-                Span::from("See "),
                 Span::with("(", Modifier::LinkURLWrapper | Modifier::BareLink),
                 Span::with("https://", Modifier::LinkURL | Modifier::BareLink),
-                Span::with("example.com/", Modifier::LinkURL | Modifier::BareLink,),
+            ]
+        );
+        assert_eq!(
+            lines[2].spans,
+            vec![Span::with(
+                "example.com/",
+                Modifier::LinkURL | Modifier::BareLink,
+            ),]
+        );
+        assert_eq!(
+            lines[3].spans,
+            vec![
                 Span::with("path", Modifier::LinkURL | Modifier::BareLink,),
                 Span::with(")", Modifier::LinkURLWrapper | Modifier::BareLink),
                 Span::with(" ok?", Modifier::empty()),
@@ -690,6 +700,44 @@ Should be split up nicely.
         let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).unwrap().collect();
         let output = lines_to_string(&lines);
         insta::assert_snapshot!(output);
+    }
+
+    #[test]
+    fn wrapping_indented_list_continuation() {
+        let input = "\
+- Mermaid diagram rendering.  
+  A code block annotated as `mermaid` gets rendered either via builtin `mermaid-rs-renderer` (can
+  be disabled with the `mermaid` feature), or via external command in config,
+  e.g. `mermaid = \"mmdc -i - -o - -e png\"`.";
+
+        let mut frier = MdFrier::new().unwrap();
+        let lines: Vec<_> = frier.parse(88, input, &StyledMapper).unwrap().collect();
+        let output = lines_to_string(&lines);
+        assert_eq!(
+            output,
+            "- Mermaid diagram rendering.\
+\n  A code block annotated as mermaid gets rendered either via builtin mermaid-rs-renderer\
+\n  (can\
+\n  be disabled with the mermaid feature), or via external command in config,\
+\n  e.g. mermaid = \"mmdc -i - -o - -e png\"."
+        );
+    }
+
+    #[test]
+    fn wrapping_indented_sublist_inline_code() {
+        let input = "\
+* Rust cargo: `cargo install mdfried`
+  * Needs a chafa package with development headers, usually called something like `libchafa-dev`, `libchafa-devel`, or just `libchafa`, or even just `chafa`.";
+
+        let mut frier = MdFrier::new().unwrap();
+        let lines: Vec<_> = frier.parse(88, input, &StyledMapper).unwrap().collect();
+        let output = lines_to_string(&lines);
+        assert_eq!(
+            output,
+            "* Rust cargo: cargo install mdfried\
+\n  * Needs a chafa package with development headers, usually called something like\
+\n    libchafa-dev, libchafa-devel, or just libchafa, or even just chafa."
+        );
     }
 
     #[test]
