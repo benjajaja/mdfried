@@ -911,47 +911,47 @@ fn detect_bare_urls(mdspans: Vec<Span>) -> Vec<Span> {
 }
 
 fn split_newlines(mdspans: Vec<Span>) -> Vec<Span> {
-    let mut result = Vec::with_capacity(mdspans.len());
-    // If a span ends with `\n` it does not get split, but we must set NewLine on the next.
-    // An `\n` at the end of a paragraph is meaningless here.
     let mut trailing_newline = false;
-    for mut mdspan in mdspans {
-        if trailing_newline {
-            mdspan.modifiers = mdspan.modifiers.union(Modifier::NewLine);
-            trailing_newline = false;
-        }
-        // Preserve empty spans that have NewLine flag (from hard_line_break)
-        if mdspan.content.is_empty() && mdspan.modifiers.contains(Modifier::NewLine) {
-            result.push(mdspan);
-            continue;
-        }
-
-        // Check if there are any newlines to split
-        if !mdspan.content.contains('\n') {
-            result.push(mdspan);
-            continue;
-        }
-
-        let mut first = true;
-        for part in mdspan.content.split('\n') {
-            if part.is_empty() {
-                first = false;
-                trailing_newline = true;
-                continue;
+    mdspans
+        .into_iter()
+        .flat_map(|mut mdspan| {
+            if trailing_newline {
+                mdspan.modifiers = mdspan.modifiers.union(Modifier::NewLine);
+                trailing_newline = false;
             }
-            trailing_newline = false;
-            result.push(Span {
-                content: part.to_owned(),
-                modifiers: if first {
-                    first = false;
-                    mdspan.modifiers
-                } else {
-                    mdspan.modifiers.union(Modifier::NewLine)
-                },
-            });
-        }
+            expand_span(mdspan, &mut trailing_newline)
+        })
+        .collect()
+}
+
+fn expand_span(mdspan: Span, trailing_newline: &mut bool) -> Vec<Span> {
+    if mdspan.content.is_empty() && mdspan.modifiers.contains(Modifier::NewLine) {
+        return vec![mdspan];
     }
-    result
+    if !mdspan.content.contains('\n') {
+        return vec![mdspan];
+    }
+
+    let mut parts = Vec::new();
+    let mut first = true;
+    for part in mdspan.content.split('\n') {
+        if part.is_empty() {
+            first = false;
+            *trailing_newline = true;
+            continue;
+        }
+        *trailing_newline = false;
+        parts.push(Span {
+            content: part.to_owned(),
+            modifiers: if first {
+                mdspan.modifiers
+            } else {
+                mdspan.modifiers.union(Modifier::NewLine)
+            },
+        });
+        first = false;
+    }
+    parts
 }
 
 #[cfg(test)]
