@@ -285,32 +285,20 @@ pub fn render_line<T: Theme>(md_line: MdLine, theme: &T) -> (Line<'static>, Vec<
 
     // Check if this is a header row for table styling
     let is_table_header = matches!(kind, LineKind::TableRow { is_header: true });
-    // Check if this is a code block line
-    let is_code_block = matches!(kind, LineKind::CodeBlock { .. });
 
     let line_spans: Vec<RatatuiSpan<'static>> = spans
         .into_iter()
-        .map(|node| {
-            node_to_span(
-                node,
-                bq_depth,
-                is_table_header,
-                is_code_block,
-                theme,
-                &mut bq_depth,
-            )
-        })
+        .map(|node| span_to_span(node, bq_depth, is_table_header, theme, &mut bq_depth))
         .collect();
 
     (Line::from(line_spans), md_line.urls)
 }
 
 /// Convert a Span to a styled ratatui Span.
-fn node_to_span<T: Theme>(
+fn span_to_span<T: Theme>(
     node: Span,
     current_bq_depth: usize,
     is_table_header: bool,
-    is_code_block: bool,
     theme: &T,
     bq_depth_out: &mut usize,
 ) -> RatatuiSpan<'static> {
@@ -356,7 +344,7 @@ fn node_to_span<T: Theme>(
     }
 
     // Handle inline code and code blocks
-    if modifiers.contains(MdModifier::Code) || is_code_block {
+    if modifiers.contains(MdModifier::Code) {
         style = style.patch(theme.code_style());
         return RatatuiSpan::styled(content, style);
     }

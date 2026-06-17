@@ -9,7 +9,7 @@
 use std::iter::Peekable;
 
 use mdfrier::link_tracker::TrackedUrl;
-use mdfrier::ratatui::render_line;
+use mdfrier::ratatui::{Theme as _, render_line};
 use mdfrier::{Line, LineKind, MarkdownLink, Modifier, SourceContent};
 use ratatui::text::Span;
 
@@ -216,8 +216,13 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
     }
 
     fn process_codeblock(&mut self, first: Line, language: String) -> Section {
-        let (ratatui_line, _) = render_line(first, self.theme);
-        let mut lines = vec![ratatui_line];
+        let to_line = |line: Line| {
+            line.spans
+                .into_iter()
+                .map(|span| Span::from(span.content).style(self.theme.code_style()))
+                .collect()
+        };
+        let mut lines = vec![to_line(first)];
 
         // Aggregate consecutive code lines
         while let Some(peeked) = self.inner.peek() {
@@ -226,8 +231,7 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
                     language: next_language,
                 } if *next_language == language => {
                     let line = self.inner.next().expect("peeked value should exist");
-                    let (ratatui_line, _) = render_line(line, self.theme);
-                    lines.push(ratatui_line);
+                    lines.push(to_line(line));
                 }
                 _ => {
                     break;
