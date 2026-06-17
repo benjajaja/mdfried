@@ -641,29 +641,21 @@ impl MdParagraph {
         p.spans = detect_bare_urls(p.spans);
 
         // Strip blockquote markers from line-start spans and filter empty/marker-only spans
-        p.spans = p
-            .spans
-            .into_iter()
-            .map(|mut s| {
-                if s.modifiers.contains(Modifier::NewLine) {
-                    s.content = strip_blockquote_prefix(&s.content, blockquote_depth).into_owned();
-                }
-                s
-            })
-            .filter(|s| {
-                // Empty spans: only keep if they represent hard line breaks (NewLine)
-                if s.content.is_empty() {
-                    return s.modifiers.contains(Modifier::NewLine);
-                }
-                // For line-start spans (NewLine), filter out blockquote-marker-only content
-                // that remains after stripping (e.g., a line that was just "> > ")
-                if s.modifiers.contains(Modifier::NewLine) {
-                    return !is_blockquote_marker_only(s.content.trim());
-                }
-                // Mid-line spans are always kept (e.g., ">" from angle bracket URLs)
-                true
-            })
-            .collect();
+        p.spans.retain_mut(|s| {
+            if s.modifiers.contains(Modifier::NewLine) {
+                s.content = strip_blockquote_prefix(&s.content, blockquote_depth).into_owned();
+            }
+            // Empty spans: only keep if they represent hard line breaks (NewLine)
+            if s.content.is_empty() {
+                return s.modifiers.contains(Modifier::NewLine);
+            }
+            // For line-start spans (NewLine), filter out blockquote-marker-only content
+            // that remains after stripping (e.g., a line that was just "> > ")
+            if s.modifiers.contains(Modifier::NewLine) {
+                return !is_blockquote_marker_only(s.content.trim());
+            }
+            true
+        });
         if p.spans.is_empty() {
             return None;
         }
