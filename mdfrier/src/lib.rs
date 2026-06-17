@@ -444,6 +444,7 @@ let x = 1;
     #[test]
     fn separate_blockquotes_have_blank_lines() {
         let input = r#"> Blockquotes are very handy in email to emulate reply text.
+> 
 > This line is part of the same quote.
 
 Quote break.
@@ -451,9 +452,7 @@ Quote break.
 > This is a very long line that will still be quoted properly when it wraps. Oh boy let's keep writing to make sure this is long enough to actually wrap for everyone. Oh, you can *put* **Markdown** into a blockquote.
 
 > Blockquotes can also be nested...
->
-> > ...by using additional greater-than signs right next to each other...
-> >
+>> ...by using additional greater-than signs right next to each other...
 > > > ...or with spaces between arrows."#;
 
         let mut frier = MdFrier::new().unwrap();

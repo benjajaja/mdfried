@@ -221,8 +221,8 @@ fn section_to_lines<M: Mapper>(width: u16, section: MdSection, mapper: &M) -> Ve
     match section.content {
         MdContent::Paragraph(p) if p.is_empty() => {
             vec![Line {
-                spans: Vec::new(),
-                kind: LineKind::Blank,
+                spans: nesting_to_prefix_spans(&nesting, mapper),
+                kind: LineKind::Paragraph,
                 urls: Vec::new(),
             }]
         }

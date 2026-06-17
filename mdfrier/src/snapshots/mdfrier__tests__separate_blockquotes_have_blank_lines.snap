@@ -1,9 +1,9 @@
 ---
 source: mdfrier/src/lib.rs
-assertion_line: 868
 expression: output
 ---
 > Blockquotes are very handy in email to emulate reply text.
+> 
 > This line is part of the same quote.
 
 Quote break.
@@ -13,7 +13,5 @@ Quote break.
 > everyone. Oh, you can *put* **Markdown** into a blockquote.
 
 > Blockquotes can also be nested...
-
 > > ...by using additional greater-than signs right next to each other...
-
 > > > ...or with spaces between arrows.

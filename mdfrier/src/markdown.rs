@@ -641,23 +641,11 @@ impl MdParagraph {
         p.spans = detect_bare_urls(p.spans);
 
         // Strip blockquote markers from line-start spans and filter empty/marker-only spans
-        p.spans.retain_mut(|s| {
-            if s.modifiers.contains(Modifier::NewLine) {
-                s.content = strip_blockquote_prefix(&s.content, blockquote_depth).into_owned();
+        for span in &mut p.spans {
+            if span.modifiers.contains(Modifier::NewLine) {
+                span.content =
+                    strip_blockquote_prefix(&span.content, blockquote_depth).into_owned();
             }
-            // Empty spans: only keep if they represent hard line breaks (NewLine)
-            if s.content.is_empty() {
-                return s.modifiers.contains(Modifier::NewLine);
-            }
-            // For line-start spans (NewLine), filter out blockquote-marker-only content
-            // that remains after stripping (e.g., a line that was just "> > ")
-            if s.modifiers.contains(Modifier::NewLine) {
-                return !is_blockquote_marker_only(s.content.trim());
-            }
-            true
-        });
-        if p.spans.is_empty() {
-            return None;
         }
         Some(MdContent::Paragraph(p))
     }
@@ -794,27 +782,6 @@ fn strip_blockquote_prefix(s: &str, depth: usize) -> Cow<'_, str> {
     }
 }
 
-fn is_blockquote_marker_only(s: &str) -> bool {
-    if s.is_empty() {
-        return false;
-    }
-    let mut chars = s.chars().peekable();
-    let mut has_space = false;
-    while let Some(c) = chars.next() {
-        if c == '>' {
-            if chars.peek() == Some(&' ') {
-                chars.next();
-                has_space = true;
-            }
-        } else {
-            return false;
-        }
-    }
-    // A proper blockquote marker has "> " pattern, not just ">" or ">>"
-    // A standalone ">" is likely part of angle bracket URL syntax, not a blockquote marker
-    has_space
-}
-
 #[inline]
 fn is_punctuation(kind: &str, parent_modifier: Modifier) -> bool {
     match kind {
@@ -925,7 +892,7 @@ fn split_newlines(mdspans: Vec<Span>) -> Vec<Span> {
 }
 
 fn expand_span(mdspan: Span, trailing_newline: &mut bool) -> Vec<Span> {
-    if mdspan.content.is_empty() && mdspan.modifiers.contains(Modifier::NewLine) {
+    if mdspan.content.is_empty() && mdspan.modifiers.contains(Modifier::HardLineBreak) {
         return vec![mdspan];
     }
     if !mdspan.content.contains('\n') {
