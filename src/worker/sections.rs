@@ -104,15 +104,7 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
     /// Process image lines into a section.
     fn process_image(&mut self, first: Line, link: MarkdownLink) -> Section {
         let id = self.next_section_id();
-        let mut lines = vec![self.render_simple_line(first)];
-
-        // Include trailing blank line if present (to maintain spacing)
-        if let Some(peeked) = self.inner.peek() {
-            if matches!(peeked.kind, LineKind::Blank) {
-                let blank = self.inner.next().expect("peeked");
-                lines.push(self.render_simple_line(blank));
-            }
-        }
+        let lines = vec![self.render_simple_line(first)];
 
         Section {
             id,

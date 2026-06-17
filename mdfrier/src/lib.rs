@@ -149,8 +149,6 @@ pub enum LineKind {
     TableBorder,
     /// Image reference.
     Image(MarkdownLink),
-    /// Blank line.
-    Blank,
     /// Link reference definitions, e.g. `[reference]: http://example.com`, has `LinkDescription`
     /// and `LinkUrl` [`Modifier`]s, respectively.
     LinkReferenceDefinitions,
@@ -274,11 +272,10 @@ mod tests {
         lines
             .iter()
             .map(|line| {
-                if matches!(line.kind, LineKind::Blank) {
-                    String::new()
-                } else {
-                    line.spans.iter().map(|s| s.content.as_str()).collect()
-                }
+                line.spans
+                    .iter()
+                    .map(|s| s.content.as_str())
+                    .collect::<String>()
             })
             .collect::<Vec<_>>()
             .join("\n")

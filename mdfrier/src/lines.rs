@@ -175,7 +175,7 @@ impl<'a, M: Mapper> LineIterator<'a, M> {
         if should_emit_blank {
             self.pending_lines.push_back(Line {
                 spans: Vec::new(),
-                kind: LineKind::Blank,
+                kind: LineKind::Paragraph,
                 urls: Vec::new(),
             });
         }
@@ -257,10 +257,10 @@ fn section_to_lines<M: Mapper>(width: u16, section: MdSection, mapper: &M) -> Ve
                 let wrapped = wrap_md_spans(scaled_width, spans, 0, mapper);
                 wrapped
                     .into_iter()
-                    .map(|line| Line {
-                        spans: line.spans,
+                    .map(|(spans, urls)| Line {
+                        spans,
                         kind: LineKind::Header(tier),
-                        urls: Vec::new(),
+                        urls,
                     })
                     .collect()
             } else {
@@ -650,18 +650,15 @@ fn code_block_to_lines<M: Mapper>(
 
 /// Convert wrapped lines to output Lines with prefix spans.
 fn wrapped_to_lines<M: Mapper>(
-    wrapped_lines: Vec<Line>,
+    wrapped_lines: Vec<(Vec<Span>, Vec<TrackedUrl>)>,
     nesting: Vec<MdLineContainer>,
     mapper: &M,
 ) -> Vec<Line> {
     let mut lines = Vec::new();
 
-    for (line_idx, wrapped_line) in wrapped_lines.into_iter().enumerate() {
-        let has_content = wrapped_line
-            .spans
-            .iter()
-            .any(|s| !s.content.trim().is_empty());
-        if !has_content && wrapped_line.urls.is_empty() {
+    for (line_idx, (spans, urls)) in wrapped_lines.into_iter().enumerate() {
+        let has_content = spans.iter().any(|s| !s.content.trim().is_empty());
+        if !has_content && urls.is_empty() {
             continue;
         }
 
@@ -683,20 +680,20 @@ fn wrapped_to_lines<M: Mapper>(
 
         // Really only replace an image line if it is just a full image on its own line.
         // This excludes images that have been wrapped.
-        let is_only_image = wrapped_line.spans.len() == 5
-            && (wrapped_line.spans[0].modifiers == Modifier::Image
-                || wrapped_line.spans[0].modifiers == Modifier::Image | Modifier::NewLine)
-            && wrapped_line.spans[0].content == "!["
-            && wrapped_line.spans[1].modifiers == (Modifier::Image | Modifier::LinkDescription)
-            && wrapped_line.spans[2].modifiers == Modifier::Image
-            && wrapped_line.spans[2].content == "]("
-            && wrapped_line.spans[3].modifiers == (Modifier::Image | Modifier::LinkURL)
-            && wrapped_line.spans[4].modifiers == Modifier::Image
-            && wrapped_line.spans[4].content == ")";
+        let is_only_image = spans.len() == 5
+            && (spans[0].modifiers == Modifier::Image
+                || spans[0].modifiers == Modifier::Image | Modifier::NewLine)
+            && spans[0].content == "!["
+            && spans[1].modifiers == (Modifier::Image | Modifier::LinkDescription)
+            && spans[2].modifiers == Modifier::Image
+            && spans[2].content == "]("
+            && spans[3].modifiers == (Modifier::Image | Modifier::LinkURL)
+            && spans[4].modifiers == Modifier::Image
+            && spans[4].content == ")";
 
         let mut image_lines = Vec::new();
         // Create image lines
-        for tracked_url in &wrapped_line.urls {
+        for tracked_url in &urls {
             if let TrackedUrl::Image { desc, url } = tracked_url {
                 let spans = vec![
                     Span::new(
@@ -734,13 +731,13 @@ fn wrapped_to_lines<M: Mapper>(
         }
 
         // Create text line
-        if !is_only_image && !wrapped_line.spans.is_empty() {
-            let mut spans = nesting_to_prefix_spans(line_nesting, mapper);
-            spans.extend(wrapped_line.spans);
+        if !is_only_image && !spans.is_empty() {
+            let mut nesting_spans = nesting_to_prefix_spans(line_nesting, mapper);
+            nesting_spans.extend(spans);
             lines.push(Line {
-                spans,
+                spans: nesting_spans,
                 kind: LineKind::Paragraph,
-                urls: wrapped_line.urls,
+                urls,
             });
         }
 

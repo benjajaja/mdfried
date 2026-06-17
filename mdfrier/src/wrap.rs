@@ -2,7 +2,7 @@ use textwrap::{Options, wrap};
 use unicode_width::UnicodeWidthStr;
 
 use crate::{
-    Line, LineKind, Mapper,
+    Mapper,
     link_tracker::{LinkTracker, TrackedUrl},
     markdown::{Modifier, Span},
 };
@@ -39,7 +39,7 @@ pub fn wrap_md_spans<M: Mapper>(
     mdspans: Vec<Span>,
     prefix_width: usize,
     mapper: &M,
-) -> Vec<Line> {
+) -> Vec<(Vec<Span>, Vec<TrackedUrl>)> {
     let available_width = width.saturating_sub(prefix_width as u16).max(1);
 
     let mut tracker = LinkTracker::default().hide_urls(mapper.hide_urls());
@@ -65,9 +65,9 @@ pub fn wrap_md_spans<M: Mapper>(
             }
             tracker.carriage_return();
 
-            Line {
+            (
                 spans,
-                urls: tracker
+                tracker
                     .take_urls()
                     // Shift start-end by prefix_width.
                     .into_iter()
@@ -79,8 +79,7 @@ pub fn wrap_md_spans<M: Mapper>(
                         tracked_url
                     })
                     .collect(),
-                kind: LineKind::Blank, // will be set by wrapped_to_lines()
-            }
+            )
         })
         .collect()
 }
