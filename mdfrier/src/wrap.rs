@@ -125,11 +125,16 @@ pub fn wrap_md_spans_lines<M: Mapper>(width: u16, spans: Vec<Span>, mapper: &M) 
             lines.after_newline = true;
         }
         if span.modifiers.contains(Modifier::NewLine) && !lines.line.is_empty() {
+            trim_start_inplace(&mut span.content);
+            if span.content.is_empty() {
+                // Trailing artifact from tree-sitter paragraph boundaries (e.g. "A\n  " where
+                // "  " is the indent before a sub-list). No real content follows, skip entirely.
+                continue;
+            }
             lines.push_span(Span::new(
                 String::from(" "),
                 span.modifiers.difference(Modifier::NewLine),
             ));
-            trim_start_inplace(&mut span.content);
         }
 
         // Strip leading whitespace from content after a hard line break

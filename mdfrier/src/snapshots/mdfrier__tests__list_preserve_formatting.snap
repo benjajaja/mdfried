@@ -14,13 +14,11 @@ expression: output
    also align the raw Markdown).
 
    To have a line break without a paragraph, you will need to use two trailing
-   spaces.
-   Note that this line is separate, but within the same paragraph.
-   (This is contrary to the typical GFM line break behaviour, where trailing
-   spaces are not required.)
+   spaces. Note that this line is separate, but within the same paragraph. (This
+   is contrary to the typical GFM line break behaviour, where trailing spaces
+   are not required.)
 
-- Unordered list can use asterisks
-  And can also have continuations.
+- Unordered list can use asterisks And can also have continuations.
 
 * Or minuses
 
