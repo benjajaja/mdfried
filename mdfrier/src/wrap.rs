@@ -118,9 +118,6 @@ pub fn wrap_md_spans_lines<M: Mapper>(width: u16, spans: Vec<Span>, mapper: &M) 
 
     for mut span in spans {
         if span.modifiers.contains(Modifier::HardLineBreak) {
-            if let Some(last) = lines.line.last_mut() {
-                last.content.truncate(last.content.trim_end().len());
-            }
             lines.carriage_return();
             lines.after_newline = true;
         }

@@ -376,8 +376,8 @@ fn apply_decorators<M: Mapper>(spans: Vec<Span>, mapper: &M) -> Vec<Span> {
         let has_code = span.modifiers.contains(Modifier::Code);
         let has_strikethrough = span.modifiers.contains(Modifier::Strikethrough);
         // is_newline is true only for soft breaks in flowing text (NewLine without HardLineBreak).
-        // HardLineBreak spans have already been resolved by normalize_breaks and do not need
-        // the decorator transfer, but do need the trailing whitespace trim.
+        // HardLineBreak spans (from GFM two-space breaks or normalize_breaks) do not need
+        // the NewLine decorator transfer; their trailing whitespace is handled by wrap.rs.
         let is_newline = span.modifiers.contains(Modifier::NewLine)
             && !span.modifiers.contains(Modifier::HardLineBreak);
 
