@@ -2,16 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed
+- Newlines and spacing  
+  List and blockquote items no longer have special treatment and render as most markdown renderers 
+  do.
+
 ## [0.22.2] - 2026-06-13
 
 ### Added
 - Open images
-- Experimental PDF support
+- Experimental PDF support  
   Can be disabled with the "pdf" feature. Every page is rendered as an image.
 
 ### Fixed
-- Hide cursor when not in "input queue" mode
-  When not "writing in status bar". Fixes inverse first character of URL in status bar when in link mode.
+- Hide cursor when not in "input queue" mode  
+  When not "writing in status bar". Fixes inverse first character of URL in status bar when in link 
+  mode.
 
 ## [0.22.1] - 2026-06-08
 
@@ -25,15 +31,15 @@
 - Better padding config, can set maximum width with `AlignLeft` too.
 
 ### Added
-- Display error on commands
+- Display error on commands  
   Last error on commands, or similar interactions like opening links, is displayed in status line.
   Cleared by any new input.
-- Welcome screen
+- Welcome screen  
   Can start mdfried without any source, displays a small message and the logo.
-- `open` command
+- `open` command  
   Type `:open <path>` to open a file.
   Can open images.
-- OSC8 clickable links
+- OSC8 clickable links  
   Links are clickable in terminals that support the OSC8 sequence.
   Can be disabled with `osc8_links = false` in config.
 
@@ -46,9 +52,9 @@
 ## [0.21.0] - 2026-06-02
 
 ### Added
-- Code syntax highlight.
+- Code syntax highlight.  
   Uses arborium, supports over 100 languages.
-- Mermaid diagram rendering.
+- Mermaid diagram rendering.  
   A code block annotated as `mermaid` gets rendered either via builtin `mermaid-rs-renderer` (can
   be disabled with the `mermaid` feature), or via external command in config, 
   e.g. `mermaid = "mmdc -i - -o - -e png"`.
@@ -56,7 +62,7 @@
 ## [0.20.3] - 2026-05-29
 
 ### Changed
-- Soft breaks, or normal line breaks preceded with less than two spaces, are no longer treated as
+- Soft breaks, or normal line breaks preceded with less than two spaces, are no longer treated as  
   hard breaks, except in list items or blockquotes or code blocks. The lines are joined with a 
   single whitespace, like most markdown renderers do.
 - Simplified `--log` argument, replaces `--log-to-stderr`.
@@ -102,10 +108,10 @@
 ## [0.20.0] - 2026-05-12
 
 ### Added
-- Partially render images, cropping when partially outside of viewport.
+- Partially render images, cropping when partially outside of viewport.  
   This gives a much smoother experience when navigating a document, images no longer pop suddenly
   into the view.
-- Smooth header images with Sixels.
+- Smooth header images with Sixels.  
   Query terminal background color, use as blended background for sixel header images.
 - Render SVG images, can be disabled with the `svg` feature.
 
@@ -121,7 +127,7 @@
 ## [0.19.6] - 2026-04-26
 
 ### Added
-- Cursor Positioning: if there is an active cursor, input `zt`, `zz`, or `zb` to position the 
+- Cursor Positioning: if there is an active cursor, input `zt`, `zz`, or `zb` to position the  
   cursor (link or search match) at the top, center, or bottom of the viewport respectively.
 
 ### Fixed
@@ -146,16 +152,16 @@
 ## [0.19.4] - 2026-04-18
 
 ### Added
-- Bake "JetBrains Mono" and "Cascadia Code" fonts into binary.
+- Bake "JetBrains Mono" and "Cascadia Code" fonts into binary.  
   These fonts are baked into ghostty and rio, respectively.
 - Autoselect detected font if perfect match, and skip fontpicker UI.
 
 ## [0.19.3] - 2026-04-18
 
 ### Added
-- Use `open` crate for opening instead of `xdg-open`.
+- Use `open` crate for opening instead of `xdg-open`.  
   By Oytech, makes opening links now work on any platform.
-- Current terminal font detection.
+- Current terminal font detection.  
   The font picker calls the new sub-crate `what-terminal-font` to get the current terminal font
   family name, and pre-selects this for the fontpicker.
   The fontpicker can now also select the previous and next fonts of the system fonts list.
@@ -168,27 +174,27 @@
 ## [0.19.1] - 2026-04-10
 
 ### Fixed
-- List continuations.
+- List continuations.  
   Lines following a list item with any indentation are aligned to the list item and do not create a
   (repeated) list item anymore.
 
 ### Changed
 - List marker color from 189 (barely noticeable) to 222 (light yellow-ish).
-- Cleaned up mdfried `Theme` to get defaults from `mdfrier::ratatui::DefaultTheme` instead of
+- Cleaned up mdfried `Theme` to get defaults from `mdfrier::ratatui::DefaultTheme` instead of  
   duplicating all constants.
 
 ### Added
-- Benchmark for a full parse in mdfrier.
+- Benchmark for a full parse in mdfrier.  
   Purely markdown parsing/mapping. It's in the microseconds, which is a good start.
 
 ## [0.19.0] - 2026-04-08
 
 ### Added
-- Set header color via theme setting `header_color` (hex for images, hex or ansi for 
+- Set header color via theme setting `header_color` (hex for images, hex or ansi for  
   text-sizing-protocol).
 
 ### Changed
-- Rewrote "sections" approach to parsing and output.
+- Rewrote "sections" approach to parsing and output.  
   Lots of internal fixes and cleanups.
 
 ## [0.18.3] - 2026-04-02
@@ -201,13 +207,13 @@
 ## [0.18.2] - 2026-01-24
 
 ### Fixed
-- Updating to ratatui-image 10.0.6 should fix konsole displaying bad kitty graphics, instead
+- Updating to ratatui-image 10.0.6 should fix konsole displaying bad kitty graphics, instead  
   displaying Halfblocks.
 
 ## [0.18.1] - 2026-01-24
 
 ### Added
-- Links don't display de URL part by default.
+- Links don't display de URL part by default.  
   The URL is rendered in the status bar when the cursor is over the link description.
   Bare URLs are rendered as usual.
   The setting is at `theme.hide_urls` and can be set to `false` in the config file.
@@ -221,7 +227,7 @@
 - Movement-count, similar to vim, typing a number N before a movement repeats the movement N times.
 
 ### Changed
-- Use tree-sitter / tree-sitter-md for markdown parsing.
+- Use tree-sitter / tree-sitter-md for markdown parsing.  
   - Added workspace / crate `mdfrier` that deals with markdown parsing.
   - Flow: `Parse markdown -> Map formatting / decorators -> Wrap lines -> Stylize`
   - Prepares groundwork for various bugfixes that need deeper insight into the markdown source.
@@ -239,12 +245,13 @@
 ## [0.17.4] - 2025-12-25
 
 ### Fixed
-- When entering search (both Link and slash), jump to the first match with the current scroll offset
+- When entering search (both Link and slash), jump to the first match with the current scroll
+  offset
 
 ## [0.17.3] - 2025-12-22
 
 ### Fixed
-- Chafa linking split into three features
+- Chafa linking split into three features  
   - `chafa-dyn` (default) normal dynamic linking.
   - `chafa-static` statically links `libchafa.a`, which is usually not in distributions. The
     flake.nix builds this for the `static` output.
@@ -255,32 +262,32 @@
 ## [0.17.1] - 2025-12-21
 
 ### Fixed
-- Text Sizing Protocol spacing
+- Text Sizing Protocol spacing  
   All tiers above #1 had letter spacing too wide.
 
 ## [0.17.0] - 2025-12-21
 
 ### Added
-- Watch mode
+- Watch mode  
   Use `-w` to watch the file for changes and reload.
-- Print config
+- Print config  
   Use `--print-config` to write a default config file to stdout.
 
 ### Changed
-- Config defaults
+- Config defaults  
   All config entries are now optional.
 
 ## [0.16.0] - 2025-12-20
 
 ### Added
 - Build a static binary
-- [Chafa](https://hpjansson.org/chafa/)
+- [Chafa](https://hpjansson.org/chafa/)  
   Loaded at runtime, falls back to the existing primitive halfblocks implementation if not found.
-- `chafa-dyn` (default) and `chafa-static` features
+- `chafa-dyn` (default) and `chafa-static` features  
   Statically building and linking is tricky, so the safe choice it to just stick to `chafa-dyn` and
   then optionally provide `libchafa` on the user's system via distribution means.
   The flake.nix of the projects is an example of how to use `chafa-static`.
-- `--no-cap-checks` to entirely skip querying the terminal's stdio for capabilities
+- `--no-cap-checks` to entirely skip querying the terminal's stdio for capabilities  
   Useful only for running and testing in pseudoterminals.
 
 ### Fixed

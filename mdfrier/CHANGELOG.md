@@ -24,8 +24,10 @@
 ### Removed
 - mdfrier::ratatui::Tag
 - Span::get_source_content
+
   Removed source_content field entirely, the URL of a link should be reconstructed by scanning over
   the Link* modifiers instead.
+
 - Span::link constructor
 
 ### Changed
