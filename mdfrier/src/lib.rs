@@ -603,7 +603,8 @@ Quote break.
     #[test]
     fn list_preserve_continuations() {
         let input = r#"1. First ordered list item
-2. Another item
+2. Another item  
+
    Continuation of item.
    Carry on.
 
@@ -713,9 +714,26 @@ Should be split up nicely.
             output,
             "- Mermaid diagram rendering.\
 \n  A code block annotated as mermaid gets rendered either via builtin mermaid-rs-renderer\
-\n  (can\
-\n  be disabled with the mermaid feature), or via external command in config,\
-\n  e.g. mermaid = \"mmdc -i - -o - -e png\"."
+\n  (can be disabled with the mermaid feature), or via external command in config, e.g.\
+\n  mermaid = \"mmdc -i - -o - -e png\"."
+        );
+    }
+
+    #[test]
+    fn non_wrapping_simple_list_items() {
+        let input = "\
+* A
+  * B
+  * C";
+
+        let mut frier = MdFrier::new().unwrap();
+        let lines: Vec<_> = frier.parse(88, input, &StyledMapper).unwrap().collect();
+        let output = lines_to_string(&lines);
+        assert_eq!(
+            output,
+            "* A\
+\n  * B\
+\n  * C"
         );
     }
 

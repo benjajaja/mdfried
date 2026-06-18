@@ -111,11 +111,7 @@ impl WrappedLines {
 }
 
 // Also used by table cell wrapping.
-pub fn wrap_md_spans_lines<M: Mapper>(
-    width: u16,
-    spans: Vec<Span>,
-    mapper: &M,
-) -> Vec<Vec<Span>> {
+pub fn wrap_md_spans_lines<M: Mapper>(width: u16, spans: Vec<Span>, mapper: &M) -> Vec<Vec<Span>> {
     let hide_urls = mapper.hide_urls();
 
     let mut lines = WrappedLines::default();

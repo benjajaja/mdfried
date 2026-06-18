@@ -472,7 +472,7 @@ mod tests {
     #[test]
     fn multiple_links() {
         let markdown = r#"Here goes [link one](http://example.com/link1), here goes [link two](http://example.com/link2).  
-Definitely on another line (soft-break) goes [link three](http://example.com/link3).  
+Definitely on another line (hard-break) goes [link three](http://example.com/link3).  
 That's all."#;
 
         let sections = parse_sections(markdown);

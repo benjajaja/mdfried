@@ -234,8 +234,7 @@ fn section_to_lines<M: Mapper>(width: u16, section: MdSection, mapper: &M) -> Ve
                     MdLineContainer::ListItem { marker, .. } => marker_width(marker, mapper),
                 })
                 .sum();
-            let break_softbreaks = prefix_width > 0 || mapper.hard_softbreaks();
-            let spans = if break_softbreaks {
+            let spans = if prefix_width > 0 || mapper.hard_softbreaks() {
                 normalize_breaks(p.spans)
             } else {
                 p.spans
