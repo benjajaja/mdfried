@@ -227,8 +227,6 @@ fn section_to_lines<M: Mapper>(width: u16, section: MdSection, mapper: &M) -> Ve
             }]
         }
         MdContent::Paragraph(p) => {
-            // Apply decorators first, then wrap
-            let decorated_spans = apply_decorators(p.spans, mapper);
             let prefix_width: usize = nesting
                 .iter()
                 .map(|c| match c {
@@ -236,6 +234,13 @@ fn section_to_lines<M: Mapper>(width: u16, section: MdSection, mapper: &M) -> Ve
                     MdLineContainer::ListItem { marker, .. } => marker_width(marker, mapper),
                 })
                 .sum();
+            let break_softbreaks = prefix_width > 0 || mapper.hard_softbreaks();
+            let spans = if break_softbreaks {
+                normalize_breaks(p.spans)
+            } else {
+                p.spans
+            };
+            let decorated_spans = apply_decorators(spans, mapper);
             let wrapped_lines = wrap_md_spans(width, decorated_spans, prefix_width, mapper);
             wrapped_to_lines(wrapped_lines, nesting, mapper)
         }
@@ -338,6 +343,25 @@ fn section_to_lines<M: Mapper>(width: u16, section: MdSection, mapper: &M) -> Ve
     }
 }
 
+/// Upgrade soft breaks to hard breaks when the context requires line breaks instead of spaces.
+///
+/// Must be called before `apply_decorators` so the wrap stage only needs to inspect
+/// `HardLineBreak` (always break) vs `NewLine` (flowing: insert space) with no context.
+fn normalize_breaks(spans: Vec<Span>) -> Vec<Span> {
+    spans
+        .into_iter()
+        .map(|mut span| {
+            if span.modifiers.contains(Modifier::NewLine)
+                && !span.modifiers.contains(Modifier::HardLineBreak)
+            {
+                span.modifiers.remove(Modifier::NewLine);
+                span.modifiers.insert(Modifier::HardLineBreak);
+            }
+            span
+        })
+        .collect()
+}
+
 /// Apply mapper decorators to spans (emphasis, code, links, etc).
 /// This must happen before wrapping so decorator widths are included.
 fn apply_decorators<M: Mapper>(spans: Vec<Span>, mapper: &M) -> Vec<Span> {
@@ -352,11 +376,15 @@ fn apply_decorators<M: Mapper>(spans: Vec<Span>, mapper: &M) -> Vec<Span> {
         let has_strong = span.modifiers.contains(Modifier::StrongEmphasis);
         let has_code = span.modifiers.contains(Modifier::Code);
         let has_strikethrough = span.modifiers.contains(Modifier::Strikethrough);
-        let is_newline = span.modifiers.contains(Modifier::NewLine);
+        // is_newline is true only for soft breaks in flowing text (NewLine without HardLineBreak).
+        // HardLineBreak spans have already been resolved by normalize_breaks and do not need
+        // the decorator transfer, but do need the trailing whitespace trim.
+        let is_newline = span.modifiers.contains(Modifier::NewLine)
+            && !span.modifiers.contains(Modifier::HardLineBreak);
 
-        // If this span starts a new line, trim trailing whitespace from previous span
+        // If this span starts a new line or hard break, trim trailing whitespace from previous span
         // (This matches wrap.rs behavior but must happen before we insert decorators)
-        if is_newline {
+        if is_newline || span.modifiers.contains(Modifier::HardLineBreak) {
             if let Some(last) = result.last_mut() {
                 last.content.truncate(last.content.trim_end().len());
             }
@@ -847,7 +875,7 @@ fn table_to_lines<M: Mapper>(
                 let col_width = col_widths.get(i).copied().unwrap_or(3);
                 let inner_width = col_width.saturating_sub(2).max(1) as u16;
                 let decorated = apply_decorators(cell.clone(), mapper);
-                let wrapped = wrap_md_spans_lines(inner_width, decorated, mapper, false);
+                let wrapped = wrap_md_spans_lines(inner_width, decorated, mapper);
                 if wrapped.is_empty() {
                     vec![Vec::new()]
                 } else {

@@ -44,7 +44,7 @@ pub fn wrap_md_spans<M: Mapper>(
 
     let mut tracker = LinkTracker::default().hide_urls(mapper.hide_urls());
 
-    wrap_md_spans_lines(available_width, mdspans, mapper, prefix_width != 0)
+    wrap_md_spans_lines(available_width, mdspans, mapper)
         .into_iter()
         .filter(|line| !line.is_empty())
         .map(|mut spans| {
@@ -115,37 +115,25 @@ pub fn wrap_md_spans_lines<M: Mapper>(
     width: u16,
     spans: Vec<Span>,
     mapper: &M,
-    is_indented: bool,
 ) -> Vec<Vec<Span>> {
     let hide_urls = mapper.hide_urls();
-    let hard_softbreaks = mapper.hard_softbreaks();
 
     let mut lines = WrappedLines::default();
 
     for mut span in spans {
-        if is_indented || hard_softbreaks {
-            if span.modifiers.contains(Modifier::NewLine) {
-                if let Some(last) = lines.line.last_mut() {
-                    last.content.truncate(last.content.trim_end().len());
-                }
-                lines.carriage_return();
-                lines.after_newline = true;
+        if span.modifiers.contains(Modifier::HardLineBreak) {
+            if let Some(last) = lines.line.last_mut() {
+                last.content.truncate(last.content.trim_end().len());
             }
-        } else {
-            if span.modifiers.contains(Modifier::HardLineBreak) {
-                if let Some(last) = lines.line.last_mut() {
-                    last.content.truncate(last.content.trim_end().len());
-                }
-                lines.carriage_return();
-                lines.after_newline = true;
-            }
-            if span.modifiers.contains(Modifier::NewLine) && !lines.line.is_empty() {
-                lines.push_span(Span::new(
-                    String::from(" "),
-                    span.modifiers.difference(Modifier::NewLine),
-                ));
-                trim_start_inplace(&mut span.content);
-            }
+            lines.carriage_return();
+            lines.after_newline = true;
+        }
+        if span.modifiers.contains(Modifier::NewLine) && !lines.line.is_empty() {
+            lines.push_span(Span::new(
+                String::from(" "),
+                span.modifiers.difference(Modifier::NewLine),
+            ));
+            trim_start_inplace(&mut span.content);
         }
 
         // Strip leading whitespace from content after a hard line break
@@ -335,7 +323,7 @@ mod tests {
     #[test]
     fn simple_wrap() {
         let mdspans = vec![Span::from("one two")];
-        let lines = wrap_md_spans_lines(4, mdspans, &DefaultMapper {}, false);
+        let lines = wrap_md_spans_lines(4, mdspans, &DefaultMapper {});
         assert_eq!(
             lines,
             vec![vec![Span::from("one")], vec![Span::from("two")]]
@@ -345,14 +333,14 @@ mod tests {
     #[test]
     fn no_wrap() {
         let mdspans = vec![Span::from("one two")];
-        let lines = wrap_md_spans_lines(10, mdspans, &DefaultMapper {}, false);
+        let lines = wrap_md_spans_lines(10, mdspans, &DefaultMapper {});
         assert_eq!(lines, vec![vec![Span::from("one two")]]);
     }
 
     #[test]
     fn word_break() {
         let mdspans = vec![Span::from("one two")];
-        let lines = wrap_md_spans_lines(2, mdspans, &DefaultMapper {}, false);
+        let lines = wrap_md_spans_lines(2, mdspans, &DefaultMapper {});
         assert_eq!(
             lines,
             vec![
@@ -367,7 +355,7 @@ mod tests {
     #[test]
     fn newline() {
         let mdspans = vec![Span::from("one"), Span::with("two", Modifier::NewLine)];
-        let lines = wrap_md_spans_lines(10, mdspans, &DefaultMapper {}, false);
+        let lines = wrap_md_spans_lines(10, mdspans, &DefaultMapper {});
         assert_eq!(
             lines,
             vec![vec![
@@ -390,7 +378,7 @@ mod tests {
             Span::with("https://example.com", Modifier::LinkURL),
             Span::with(")", Modifier::LinkURLWrapper),
         ];
-        let lines = wrap_md_spans_lines(25, mdspans, &DefaultMapper {}, false);
+        let lines = wrap_md_spans_lines(25, mdspans, &DefaultMapper {});
         assert_eq!(
             lines
                 .iter()
