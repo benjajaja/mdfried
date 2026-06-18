@@ -234,12 +234,7 @@ fn section_to_lines<M: Mapper>(width: u16, section: MdSection, mapper: &M) -> Ve
                     MdLineContainer::ListItem { marker, .. } => marker_width(marker, mapper),
                 })
                 .sum();
-            let spans = if mapper.hard_softbreaks() {
-                normalize_breaks(p.spans)
-            } else {
-                p.spans
-            };
-            let decorated_spans = apply_decorators(spans, mapper);
+            let decorated_spans = apply_decorators(p.spans, mapper);
             let wrapped_lines = wrap_md_spans(width, decorated_spans, prefix_width, mapper);
             wrapped_to_lines(wrapped_lines, nesting, mapper)
         }
@@ -342,25 +337,6 @@ fn section_to_lines<M: Mapper>(width: u16, section: MdSection, mapper: &M) -> Ve
     }
 }
 
-/// Upgrade soft breaks to hard breaks when the context requires line breaks instead of spaces.
-///
-/// Must be called before `apply_decorators` so the wrap stage only needs to inspect
-/// `HardLineBreak` (always break) vs `NewLine` (flowing: insert space) with no context.
-fn normalize_breaks(spans: Vec<Span>) -> Vec<Span> {
-    spans
-        .into_iter()
-        .map(|mut span| {
-            if span.modifiers.contains(Modifier::NewLine)
-                && !span.modifiers.contains(Modifier::HardLineBreak)
-            {
-                span.modifiers.remove(Modifier::NewLine);
-                span.modifiers.insert(Modifier::HardLineBreak);
-            }
-            span
-        })
-        .collect()
-}
-
 /// Apply mapper decorators to spans (emphasis, code, links, etc).
 /// This must happen before wrapping so decorator widths are included.
 fn apply_decorators<M: Mapper>(spans: Vec<Span>, mapper: &M) -> Vec<Span> {
@@ -376,7 +352,7 @@ fn apply_decorators<M: Mapper>(spans: Vec<Span>, mapper: &M) -> Vec<Span> {
         let has_code = span.modifiers.contains(Modifier::Code);
         let has_strikethrough = span.modifiers.contains(Modifier::Strikethrough);
         // is_newline is true only for soft breaks in flowing text (NewLine without HardLineBreak).
-        // HardLineBreak spans (from GFM two-space breaks or normalize_breaks) do not need
+        // HardLineBreak spans (from GFM two-space breaks) do not need
         // the NewLine decorator transfer; their trailing whitespace is handled by wrap.rs.
         let is_newline = span.modifiers.contains(Modifier::NewLine)
             && !span.modifiers.contains(Modifier::HardLineBreak);

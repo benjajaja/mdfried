@@ -204,19 +204,6 @@ pub trait Mapper {
         false
     }
 
-    /// Render softbreaks as a hard line break.
-    ///
-    /// A regular line ending (not in a code block) that is not preceded by two or more spaces is
-    /// considered a softbreak.
-    ///
-    /// Most markdown renderers do not render them as hard line breaks (and render a space
-    /// instead). That is, "two spaces and a line break" usually create the equivalent of a line
-    /// break or `<br/>` in HTML, and regular line breaks without multiple preceeding spaces is
-    /// converted to a space (and likely trimmed).
-    fn hard_softbreaks(&self) -> bool {
-        false
-    }
-
     /// Internal "has text-size-protocol" marker
     ///
     /// If true, then header width is adjusted proportionally to the header tier for wrapping.

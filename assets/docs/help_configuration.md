@@ -98,7 +98,6 @@ table_border_color = "240"
 table_header_color = "255"
 header_color = "#FFFFFF"
 hide_urls = true
-hard_softbreaks = false
 ```
 The theme, including colors, replacement strings, and some markdown options.
 
