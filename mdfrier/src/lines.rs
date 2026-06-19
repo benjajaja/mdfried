@@ -324,15 +324,32 @@ fn section_to_lines<M: Mapper>(width: u16, section: MdSection, mapper: &M) -> Ve
                 Span::new(": ".to_owned(), Modifier::LinkURLWrapper),
                 Span::new(url.clone(), Modifier::BareLink | Modifier::LinkURL),
             ];
-            let start =
-                (spans[0].width() + spans[1].width() + spans[2].width() + spans[3].width()) as u16;
-            let end = start + spans[4].width() as u16;
-            let urls = vec![TrackedUrl::link(url.clone(), start, end, 0)];
-            vec![Line {
-                spans,
-                kind: LineKind::LinkReferenceDefinitions,
-                urls,
-            }]
+            // URL starts after "[reference]: " on the first wrapped line.
+            let url_start = (1 + reference.width() + 1 + 2) as u16;
+            let wrapped = wrap_md_spans_lines(width, spans, mapper);
+            let n = wrapped.len();
+            // end = total width of the last line (where the URL terminates).
+            let last_end: u16 = wrapped
+                .last()
+                .map(|line| line.iter().map(|s| s.content.width() as u16).sum())
+                .unwrap_or(0);
+            // TrackedUrl goes on the last line, with lines=n-1 for multiline overlay support.
+            wrapped
+                .into_iter()
+                .enumerate()
+                .map(|(i, line_spans)| {
+                    let urls = if i + 1 == n {
+                        vec![TrackedUrl::link(url.clone(), url_start, last_end, n - 1)]
+                    } else {
+                        vec![]
+                    };
+                    Line {
+                        spans: line_spans,
+                        kind: LineKind::LinkReferenceDefinitions,
+                        urls,
+                    }
+                })
+                .collect()
         }
     }
 }

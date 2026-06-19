@@ -58,7 +58,8 @@ impl Widget for Osc8Link<'_> {
         let Ok((sequence, width)) = render_osc8_link(&self.spans, &self.url) else {
             return;
         };
-        let Some(forced_width) = NonZeroU16::new(width as u16) else {
+        let remaining = buf.area().right().saturating_sub(area.x);
+        let Some(forced_width) = NonZeroU16::new((width as u16).min(remaining)) else {
             return;
         };
         let Some(cell) = buf.cell_mut(area) else {
