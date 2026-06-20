@@ -808,69 +808,42 @@ fn detect_bare_urls(mdspans: Vec<Span>) -> Vec<Span> {
         if span
             .modifiers
             .intersects(Modifier::Link | Modifier::LinkURL | Modifier::Code)
+            || !URL_REGEX.is_match(&span.content)
         {
             result.push(span);
             continue;
         }
 
-        // Find all URL matches in this span
         let mut last_end = 0;
         let content = &span.content;
-        let mut found_urls = false;
-        // Track whether we've emitted the first span (which keeps NewLine if present)
-        let mut first_emitted = false;
-        // Base modifiers without NewLine - we only want NewLine on the first span
-        let base_modifiers = span.modifiers.difference(Modifier::NewLine);
 
+        let mut mods = span.modifiers;
         for mat in URL_REGEX.find_iter(content) {
-            found_urls = true;
-
             // Text before the URL
             if mat.start() > last_end {
-                let mods = if first_emitted {
-                    base_modifiers
+                let mods = if mods.contains(Modifier::NewLine) {
+                    std::mem::replace(&mut mods, span.modifiers.difference(Modifier::NewLine))
                 } else {
-                    first_emitted = true;
-                    span.modifiers
+                    mods
                 };
                 #[expect(clippy::string_slice)]
                 result.push(Span::new(content[last_end..mat.start()].to_owned(), mods));
             }
 
-            // Opening wrapper - only keep NewLine if this is the first span emitted
-            let wrapper_mods = if first_emitted {
-                base_modifiers | Modifier::BareLink | Modifier::LinkURLWrapper
-            } else {
-                first_emitted = true;
-                span.modifiers | Modifier::BareLink | Modifier::LinkURLWrapper
-            };
-            result.push(Span::new("(".to_owned(), wrapper_mods));
-
             // The URL itself - marked as LinkURL (never first, wrapper is always before)
             let url = mat.as_str().to_owned();
             result.push(Span::new(
                 url,
-                base_modifiers | Modifier::BareLink | Modifier::LinkURL,
-            ));
-
-            // Closing wrapper
-            result.push(Span::new(
-                ")".to_owned(),
-                base_modifiers | Modifier::BareLink | Modifier::LinkURLWrapper,
+                mods | Modifier::BareLink | Modifier::LinkURL,
             ));
 
             last_end = mat.end();
         }
 
-        if found_urls {
-            // Text after the last URL
-            #[expect(clippy::string_slice)]
-            if last_end < content.len() {
-                result.push(Span::new(content[last_end..].to_owned(), base_modifiers));
-            }
-        } else {
-            // No URLs found, keep original span
-            result.push(span);
+        // Text after the last URL
+        #[expect(clippy::string_slice)]
+        if last_end < content.len() {
+            result.push(Span::new(content[last_end..].to_owned(), mods));
         }
     }
 
@@ -998,36 +971,16 @@ mod tests {
             Modifier::default(),
         )];
         let result = detect_bare_urls(spans);
-        assert_eq!(result.len(), 5);
-        assert_eq!(result[0].content, "Check ");
-        assert!(
-            !result[0]
-                .modifiers
-                .contains(Modifier::BareLink | Modifier::LinkURL)
-        );
-        assert_eq!(result[1].content, "(");
-        assert!(
-            result[1]
-                .modifiers
-                .contains(Modifier::BareLink | Modifier::LinkURLWrapper)
-        );
-        assert_eq!(result[2].content, "https://example.com");
-        assert!(
-            result[2]
-                .modifiers
-                .contains(Modifier::BareLink | Modifier::LinkURL)
-        );
-        assert_eq!(result[3].content, ")");
-        assert!(
-            result[3]
-                .modifiers
-                .contains(Modifier::BareLink | Modifier::LinkURLWrapper)
-        );
-        assert_eq!(result[4].content, " for more.");
-        assert!(
-            !result[4]
-                .modifiers
-                .contains(Modifier::BareLink | Modifier::LinkURL)
+        assert_eq!(
+            result,
+            vec![
+                Span::from("Check "),
+                Span::with(
+                    "https://example.com",
+                    Modifier::BareLink | Modifier::LinkURL
+                ),
+                Span::from(" for more."),
+            ]
         );
     }
 
@@ -1038,15 +991,17 @@ mod tests {
             Modifier::Emphasis,
         )];
         let result = detect_bare_urls(spans);
-        assert_eq!(result.len(), 5);
-        assert!(result[0].modifiers.contains(Modifier::Emphasis));
-        assert!(result[1].modifiers.contains(Modifier::Emphasis));
-        assert!(result[1].modifiers.contains(Modifier::LinkURLWrapper));
-        assert!(result[2].modifiers.contains(Modifier::Emphasis));
-        assert!(result[2].modifiers.contains(Modifier::LinkURL));
-        assert!(result[3].modifiers.contains(Modifier::Emphasis));
-        assert!(result[3].modifiers.contains(Modifier::LinkURLWrapper));
-        assert!(result[4].modifiers.contains(Modifier::Emphasis));
+        assert_eq!(
+            result,
+            vec![
+                Span::with("See ", Modifier::Emphasis),
+                Span::with(
+                    "https://example.com",
+                    Modifier::Emphasis | Modifier::BareLink | Modifier::LinkURL
+                ),
+                Span::with(" now", Modifier::Emphasis),
+            ]
+        );
     }
 
     #[test]
@@ -1071,15 +1026,17 @@ mod tests {
         // Angle bracket URLs like <http://example.com> should preserve both < and >
         let spans = vec![Span::with("<http://www.example.com>", Modifier::default())];
         let result = detect_bare_urls(spans);
-        assert_eq!(result.len(), 5);
-        assert_eq!(result[0].content, "<");
-        assert_eq!(result[1].content, "(");
-        assert!(result[1].modifiers.contains(Modifier::LinkURLWrapper));
-        assert_eq!(result[2].content, "http://www.example.com");
-        assert!(result[2].modifiers.contains(Modifier::LinkURL));
-        assert_eq!(result[3].content, ")");
-        assert!(result[3].modifiers.contains(Modifier::LinkURLWrapper));
-        assert_eq!(result[4].content, ">");
+        assert_eq!(
+            result,
+            vec![
+                Span::from("<"),
+                Span::with(
+                    "http://www.example.com",
+                    Modifier::BareLink | Modifier::LinkURL
+                ),
+                Span::from(">"),
+            ]
+        );
     }
 
     #[test]

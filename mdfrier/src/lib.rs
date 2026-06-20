@@ -461,31 +461,26 @@ Quote break.
     #[test]
     fn bare_url_line_broken() {
         let mut frier = MdFrier::new().unwrap();
-        let lines: Vec<_> = frier
+        let lines = frier
             .parse(15, "See https://example.com/path ok?", &DefaultMapper)
-            .unwrap()
-            .collect();
-        assert_eq!(lines[0].spans, vec![Span::from("See"),]);
+            .unwrap();
+
         assert_eq!(
-            lines[1].spans,
+            lines.map(|line| line.spans).collect::<Vec<Vec<Span>>>(),
             vec![
-                Span::with("(", Modifier::LinkURLWrapper | Modifier::BareLink),
-                Span::with("https://", Modifier::LinkURL | Modifier::BareLink),
-            ]
-        );
-        assert_eq!(
-            lines[2].spans,
-            vec![Span::with(
-                "example.com/",
-                Modifier::LinkURL | Modifier::BareLink,
-            ),]
-        );
-        assert_eq!(
-            lines[3].spans,
-            vec![
-                Span::with("path", Modifier::LinkURL | Modifier::BareLink,),
-                Span::with(")", Modifier::LinkURLWrapper | Modifier::BareLink),
-                Span::with(" ok?", Modifier::empty()),
+                vec![Span::from("See")],
+                vec![Span::with(
+                    "https://",
+                    Modifier::LinkURL | Modifier::BareLink
+                )],
+                vec![Span::with(
+                    "example.com/",
+                    Modifier::LinkURL | Modifier::BareLink
+                )],
+                vec![
+                    Span::with("path", Modifier::LinkURL | Modifier::BareLink),
+                    Span::from(" ok?")
+                ],
             ]
         );
     }
