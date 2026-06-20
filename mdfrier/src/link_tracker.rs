@@ -141,9 +141,9 @@ impl LinkTracker {
                 self.urls.push(TrackedUrl::link(url, start, end, lines));
                 None
             }
-            // Bare links
+            // Bare links are always single-span at the tracker level; reference definitions
+            // that wrap the URL across lines handle TrackedUrl construction themselves.
             None if modifiers.contains(Modifier::BareLink | Modifier::LinkURL) => {
-                // This assumes that bare links cannot be line broken.
                 self.urls.push(TrackedUrl::link(
                     content.clone(),
                     self.offset,

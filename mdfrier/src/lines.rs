@@ -324,29 +324,55 @@ fn section_to_lines<M: Mapper>(width: u16, section: MdSection, mapper: &M) -> Ve
                 Span::new(": ".to_owned(), Modifier::LinkURLWrapper),
                 Span::new(url.clone(), Modifier::BareLink | Modifier::LinkURL),
             ];
-            // URL starts after "[reference]: " on the first wrapped line.
-            let url_start = (1 + reference.width() + 1 + 2) as u16;
             let wrapped = wrap_md_spans_lines(width, spans, mapper);
             let n = wrapped.len();
-            // end = total width of the last line (where the URL terminates).
+
+            let (url_line, url_start) = wrapped
+                .iter()
+                .enumerate()
+                .find_map(|(i, line)| {
+                    let mut col: u16 = 0;
+                    for s in line {
+                        if s.modifiers.contains(Modifier::BareLink | Modifier::LinkURL) {
+                            return Some((i, col));
+                        }
+                        col += s.content.width() as u16;
+                    }
+                    None
+                })
+                .unwrap_or((n.saturating_sub(1), 0));
+
             let last_end: u16 = wrapped
                 .last()
-                .map(|line| line.iter().map(|s| s.content.width() as u16).sum())
+                .map(|l| l.iter().map(|s| s.content.width() as u16).sum())
                 .unwrap_or(0);
-            // TrackedUrl goes on the last line, with lines=n-1 for multiline overlay support.
+
             wrapped
                 .into_iter()
                 .enumerate()
-                .map(|(i, line_spans)| {
-                    let urls = if i + 1 == n {
-                        vec![TrackedUrl::link(url.clone(), url_start, last_end, n - 1)]
-                    } else {
-                        vec![]
-                    };
+                .map(|(i, mut line_spans)| {
+                    if i >= url_line && i + 1 < n {
+                        let w: u16 = line_spans.iter().map(|s| s.content.width() as u16).sum();
+                        if w < width {
+                            line_spans.push(Span::new(
+                                " ".repeat((width - w) as usize),
+                                Modifier::BareLink | Modifier::LinkURL,
+                            ));
+                        }
+                    }
                     Line {
                         spans: line_spans,
                         kind: LineKind::LinkReferenceDefinitions,
-                        urls,
+                        urls: if i + 1 == n {
+                            vec![TrackedUrl::link(
+                                url.as_str(),
+                                url_start,
+                                last_end,
+                                n.saturating_sub(url_line + 1),
+                            )]
+                        } else {
+                            vec![]
+                        },
                     }
                 })
                 .collect()
@@ -1206,6 +1232,39 @@ I have searched far **and** wide but I have *yet* to come across a show that wou
         assert_eq!(
             vec!["![image desc](https://image.com)"],
             Line::to_strings(&lines),
+        );
+    }
+
+    #[test]
+    fn link_reference_definition_wrapping() {
+        // URL overflows width=20, so it is pushed to its own line(s).
+        // textwrap breaks "https://ex.com/abcdefg" at the "/" (a Unicode line-break
+        // opportunity), producing "https://ex.com/" (15 chars) and "abcdefg" (7 chars).
+        // The intermediate URL line must be padded to width=20 with filler spaces so that
+        // the multiline link overlay covers the full line — matching is_mid_link() behaviour
+        // for regular link descriptions.
+        let source = "[L]: https://ex.com/abcdefg\n";
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
+        let tree = parser.parse(source, None).unwrap();
+        let iter = MdIterator::new(tree, &mut inline_parser, source);
+
+        let line_iter = LineIterator::new(iter, 20, &DefaultMapper {});
+        let lines: Vec<Line> = line_iter.collect();
+        assert_eq!(lines.len(), 3);
+
+        let strings = Line::to_strings(&lines);
+        assert_eq!(strings[0], "[L]:");
+        // "https://ex.com/" (15 chars) padded to width=20 by filler spaces.
+        assert_eq!(strings[1], "https://ex.com/     ");
+        assert_eq!(strings[2], "abcdefg");
+
+        // TrackedUrl is only on the last line: start=0 (URL at col 0), end=7, lines=1.
+        assert!(lines[0].urls.is_empty());
+        assert!(lines[1].urls.is_empty());
+        assert_eq!(
+            lines[2].urls,
+            vec![TrackedUrl::link("https://ex.com/abcdefg", 0, 7, 1)],
         );
     }
 }
