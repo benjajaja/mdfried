@@ -6,7 +6,7 @@ use crossterm::style::{
     Attribute, Attributes, Print, ResetColor, SetAttributes, SetBackgroundColor, SetForegroundColor,
 };
 use ratatui::buffer::CellDiffOption;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::Modifier;
 use ratatui::text::Span;
 
 use ratatui::prelude::IntoCrossterm as _;
@@ -19,33 +19,15 @@ pub struct Osc8Link<'a> {
     url: Cow<'a, str>,
 }
 impl<'a> Osc8Link<'a> {
-    pub fn new<S: Into<Vec<Span<'a>>>, U: Into<Cow<'a, str>>>(
-        spans: S,
-        url: U,
-        fill_width: Option<(u16, Style)>,
-    ) -> Self {
-        let mut spans: Vec<Span> = spans
+    pub fn new<S: Into<Vec<Span<'a>>>, U: Into<Cow<'a, str>>>(spans: S, url: U) -> Self {
+        let spans: Vec<Span> = spans
             .into()
             .into_iter()
             .filter(|s| !s.content.is_empty())
             .collect();
-        if let Some((fill_width, style)) = fill_width {
-            let width: usize = spans.iter().map(|s| s.width()).sum();
-            debug_assert!(
-                width <= fill_width as usize,
-                "Osc8Link::new expects fill_width < spans.width"
-            );
-            Self::fill(&mut spans, fill_width as usize - width, style);
-        }
-
         Self {
             spans,
             url: url.into(),
-        }
-    }
-    pub fn fill(spans: &mut Vec<Span>, width: usize, style: Style) {
-        if width > 0 {
-            spans.push(Span::from(" ".repeat(width)).style(style));
         }
     }
 }
@@ -168,7 +150,6 @@ mod tests {
                 Span::from("world").red().bold(),
             ],
             "http://example.com",
-            None,
         );
 
         link.render(Rect::new(0, 1, 80, 1), &mut buf);

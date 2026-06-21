@@ -276,7 +276,7 @@ fn section_lines(
                         lines,
                         inner_area,
                         line_y,
-                        link_osc8_widget_with_filler(model.config.theme.link_description_style()),
+                        link_osc8(),
                         url,
                     ) {
                         link_overlay.render(area, buf);
@@ -393,26 +393,19 @@ fn link_highlighted<'a>(
 ) -> impl Fn(u16, u16, Line<'a>, &'a str) -> (Paragraph<'a>, u16) {
     move |start, end, mut line, _url| {
         let width = end - start;
-        let mut width_taken = 0;
         for span in &mut line.spans {
             span.style = span.style.patch(style);
-            width_taken += span.width();
         }
 
-        Osc8Link::fill(&mut line.spans, width as usize - width_taken, style);
-        let p = Paragraph::new(line)
-            .fg(Color::Indexed(15))
-            .bg(Color::Indexed(32));
+        let p = Paragraph::new(line);
         (p, width)
     }
 }
 
-fn link_osc8_widget_with_filler<'a>(
-    style: Style,
-) -> impl Fn(u16, u16, Line<'a>, &'a str) -> (Osc8Link<'a>, u16) {
+fn link_osc8<'a>() -> impl Fn(u16, u16, Line<'a>, &'a str) -> (Osc8Link<'a>, u16) {
     move |start, end, line, url| {
         let width = end - start;
-        (Osc8Link::new(line.spans, url, Some((width, style))), width)
+        (Osc8Link::new(line.spans, url), width)
     }
 }
 
@@ -596,6 +589,11 @@ mod tests {
         let line = &lines[line_idx].0;
         let line_y = 1;
         let inner_area = Rect::new(10, 0, 100, 50);
+
+        let style = Style::default()
+            .fg(Color::Indexed(15))
+            .bg(Color::Indexed(32));
+
         let overlays = link_overlays(
             line,
             start,
@@ -605,25 +603,18 @@ mod tests {
             &lines,
             inner_area,
             line_y,
-            link_highlighted(Style::default()),
+            link_highlighted(style),
             url,
         );
         assert_eq!(
             overlays,
             vec![
                 (
-                    Paragraph::new(Line::from(vec![
-                        Span::from("link desc"),
-                        Span::from("                                                                                    "),
-                    ]))
-                        .fg(Color::Indexed(15))
-                        .bg(Color::Indexed(32)),
+                    Paragraph::new(Line::from(Span::from("link desc").style(style),)),
                     Rect::new(17, 0, 93, 1)
                 ),
                 (
-                    Paragraph::new(Line::from(Span::from("link cont")))
-                        .fg(Color::Indexed(15))
-                        .bg(Color::Indexed(32)),
+                    Paragraph::new(Line::from(Span::from("link cont").style(style))),
                     Rect::new(10, 1, 9, 1)
                 )
             ]
