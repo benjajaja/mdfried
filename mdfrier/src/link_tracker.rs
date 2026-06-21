@@ -62,15 +62,39 @@ enum LinkState {
     #[default]
     None,
     LinkDescOpen,
-    LinkDesc(u16, usize),
-    LinkDescClose(u16, usize, u16),
-    LinkUrlOpen(u16, usize, u16),
-    LinkUrl(u16, usize, u16, String),
-    /// A bare URL being accumulated. Fields: start col, lines above anchor, end col, url so far.
-    /// `end` is stored explicitly so it survives the offset reset in `carriage_return`.
-    BareLink(u16, usize, u16, String),
-    ImageDesc(String),
-    ImageUrl(String, String),
+    LinkDesc {
+        start: u16,
+        lines: usize,
+    },
+    LinkDescClose {
+        start: u16,
+        lines: usize,
+        end: u16,
+    },
+    LinkUrlOpen {
+        start: u16,
+        lines: usize,
+        end: u16,
+    },
+    LinkUrl {
+        start: u16,
+        lines: usize,
+        end: u16,
+        url: String,
+    },
+    BareLink {
+        start: u16,
+        lines: usize,
+        end: u16,
+        url: String,
+    },
+    ImageDesc {
+        desc: String,
+    },
+    ImageUrl {
+        desc: String,
+        url: String,
+    },
 }
 
 impl LinkTracker {
@@ -84,9 +108,14 @@ impl LinkTracker {
     /// Returns the last offset (ending) if mid-link.
     pub fn carriage_return(&mut self, next: Option<Modifier>) -> Option<u16> {
         let continues = next.is_some_and(|m| m.contains(Modifier::BareLink | Modifier::LinkURL));
-        if let LinkState::BareLink(..) = &self.state {
+        if let LinkState::BareLink { .. } = &self.state {
             if !continues {
-                if let LinkState::BareLink(start, lines, end, url) = std::mem::take(&mut self.state)
+                if let LinkState::BareLink {
+                    start,
+                    lines,
+                    end,
+                    url,
+                } = std::mem::take(&mut self.state)
                 {
                     self.urls.push(TrackedUrl::link(url, start, end, lines));
                 }
@@ -94,16 +123,16 @@ impl LinkTracker {
         }
         let end_offset = self.offset;
         self.offset = 0;
-        if let LinkState::LinkDesc(_, lines) = &mut self.state {
+        if let LinkState::LinkDesc { lines, .. } = &mut self.state {
             *lines += 1;
         }
-        if let LinkState::BareLink(_, lines, ..) = &mut self.state {
+        if let LinkState::BareLink { lines, .. } = &mut self.state {
             *lines += 1;
         }
 
         match self.state {
-            LinkState::BareLink(..) if continues => Some(end_offset),
-            LinkState::LinkDesc(..) => Some(end_offset),
+            LinkState::BareLink { .. } if continues => Some(end_offset),
+            LinkState::LinkDesc { .. } => Some(end_offset),
             _ => None,
         }
     }
@@ -118,24 +147,31 @@ impl LinkTracker {
                 LinkDescOpen
             }
             LinkDescOpen if modifiers.contains(Modifier::Link | Modifier::LinkDescription) => {
-                LinkDesc(self.offset, 0)
+                LinkDesc {
+                    start: self.offset,
+                    lines: 0,
+                }
             }
-            keep @ LinkDesc(..)
+            keep @ LinkDesc { .. }
                 if modifiers.contains(Modifier::Link | Modifier::LinkDescription) =>
             {
                 keep
             }
-            LinkDesc(start, lines)
+            LinkDesc { start, lines }
                 if modifiers.contains(Modifier::Link | Modifier::LinkDescriptionWrapper) =>
             {
-                LinkDescClose(start, lines, self.offset)
+                LinkDescClose {
+                    start,
+                    lines,
+                    end: self.offset,
+                }
             }
-            LinkDescClose(start, lines, end)
+            LinkDescClose { start, lines, end }
                 if modifiers.contains(Modifier::Link | Modifier::LinkURLWrapper) =>
             {
-                LinkUrlOpen(start, lines, end)
+                LinkUrlOpen { start, lines, end }
             }
-            LinkDescClose(start, lines, end)
+            LinkDescClose { start, lines, end }
                 if modifiers.contains(Modifier::Link | Modifier::LinkURL) =>
             {
                 // full_reference_link
@@ -147,33 +183,65 @@ impl LinkTracker {
                 ));
                 None
             }
-            LinkUrlOpen(start, lines, end)
+            LinkUrlOpen { start, lines, end }
                 if modifiers.contains(Modifier::Link | Modifier::LinkURL) =>
             {
-                LinkUrl(start, lines, end, content.clone())
+                LinkUrl {
+                    start,
+                    lines,
+                    end,
+                    url: content.clone(),
+                }
             }
-            LinkUrl(start, lines, end, mut url)
-                if modifiers.contains(Modifier::Link | Modifier::LinkURL) =>
-            {
+            LinkUrl {
+                start,
+                lines,
+                end,
+                mut url,
+            } if modifiers.contains(Modifier::Link | Modifier::LinkURL) => {
                 url.push_str(content);
-                LinkUrl(start, lines, end, url)
+                LinkUrl {
+                    start,
+                    lines,
+                    end,
+                    url,
+                }
             }
-            LinkUrl(start, lines, end, url)
-                if modifiers.contains(Modifier::Link | Modifier::LinkURLWrapper) =>
-            {
+            LinkUrl {
+                start,
+                lines,
+                end,
+                url,
+            } if modifiers.contains(Modifier::Link | Modifier::LinkURLWrapper) => {
                 self.urls.push(TrackedUrl::link(url, start, end, lines));
                 None
             }
-            None if modifiers.contains(Modifier::BareLink | Modifier::LinkURL) => {
-                BareLink(self.offset, 0, self.offset + span_width, content.clone())
-            }
-            BareLink(start, lines, _, mut url)
-                if modifiers.contains(Modifier::BareLink | Modifier::LinkURL) =>
-            {
+            None if modifiers.contains(Modifier::BareLink | Modifier::LinkURL) => BareLink {
+                start: self.offset,
+                lines: 0,
+                end: self.offset + span_width,
+                url: content.clone(),
+            },
+            BareLink {
+                start,
+                lines,
+                mut url,
+                ..
+            } if modifiers.contains(Modifier::BareLink | Modifier::LinkURL) => {
                 url.push_str(content);
-                BareLink(start, lines, self.offset + span_width, url)
+                BareLink {
+                    start,
+                    lines,
+                    end: self.offset + span_width,
+                    url,
+                }
             }
-            BareLink(start, lines, end, url) => {
+            BareLink {
+                start,
+                lines,
+                end,
+                url,
+            } => {
                 self.urls.push(TrackedUrl::link(url, start, end, lines));
                 self.track_images(None, modifiers, content)
             }
@@ -181,7 +249,7 @@ impl LinkTracker {
         };
 
         // Track images nested in links at the same time.
-        if matches!(self.state, LinkDesc(..)) {
+        if matches!(self.state, LinkDesc { .. }) {
             let state = std::mem::take(&mut self.nested_state);
             self.nested_state = self.track_images(state, modifiers, content);
         }
@@ -201,31 +269,39 @@ impl LinkTracker {
         // some reason.
         use LinkState::*;
         match state {
-            None if modifiers.contains(Modifier::Image | Modifier::LinkDescription) => {
-                ImageDesc(if content != "![" {
+            None if modifiers.contains(Modifier::Image | Modifier::LinkDescription) => ImageDesc {
+                desc: if content != "![" {
                     String::from(content)
                 } else {
                     String::new()
-                })
-            }
-            ImageDesc(mut desc)
+                },
+            },
+            ImageDesc { mut desc }
                 if modifiers.contains(Modifier::Image | Modifier::LinkDescription) =>
             {
                 if content != "](" {
                     desc.push_str(content);
-                    ImageDesc(desc)
+                    ImageDesc { desc }
                 } else {
-                    ImageUrl(desc, String::new())
+                    ImageUrl {
+                        desc,
+                        url: String::new(),
+                    }
                 }
             }
-            ImageDesc(desc) if modifiers.contains(Modifier::Image | Modifier::LinkURL) => {
-                ImageUrl(desc, content.to_owned())
+            ImageDesc { desc } if modifiers.contains(Modifier::Image | Modifier::LinkURL) => {
+                ImageUrl {
+                    desc,
+                    url: content.to_owned(),
+                }
             }
-            ImageUrl(desc, mut url) if modifiers.contains(Modifier::Image | Modifier::LinkURL) => {
+            ImageUrl { desc, mut url }
+                if modifiers.contains(Modifier::Image | Modifier::LinkURL) =>
+            {
                 url.push_str(content);
-                ImageUrl(desc, url)
+                ImageUrl { desc, url }
             }
-            ImageUrl(desc, url) if !modifiers.contains(Modifier::Image | Modifier::LinkURL) => {
+            ImageUrl { desc, url } if !modifiers.contains(Modifier::Image | Modifier::LinkURL) => {
                 self.urls.push(TrackedUrl::image(desc, url));
                 None
             }
