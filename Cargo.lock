@@ -3739,7 +3739,7 @@ dependencies = [
 
 [[package]]
 name = "mdfrier"
-version = "3.0.4"
+version = "3.0.5"
 dependencies = [
  "arborium-tree-sitter",
  "bitflags 2.12.1",
