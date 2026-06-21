@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+- Update to ratatui 0.30.2  
+  Has some multi-width unicode fixes.
+
 ## [0.22.3] - 2026-06-21
 
 ### Fixed
