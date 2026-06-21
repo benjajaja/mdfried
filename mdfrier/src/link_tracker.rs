@@ -66,6 +66,9 @@ enum LinkState {
     LinkDescClose(u16, usize, u16),
     LinkUrlOpen(u16, usize, u16),
     LinkUrl(u16, usize, u16, String),
+    /// A bare URL being accumulated. Fields: start col, lines above anchor, end col, url so far.
+    /// `end` is stored explicitly so it survives the offset reset in `carriage_return`.
+    BareLink(u16, usize, u16, String),
     ImageDesc(String),
     ImageUrl(String, String),
 }
@@ -76,11 +79,25 @@ impl LinkTracker {
         self
     }
 
-    pub fn carriage_return(&mut self) {
+    /// `next` is the modifiers of the first span on the following line, if any.
+    /// Used to decide whether a pending bare link continues or ends here.
+    pub fn carriage_return(&mut self, next: Option<Modifier>) {
+        if let LinkState::BareLink(..) = &self.state {
+            let continues =
+                next.is_some_and(|m| m.contains(Modifier::BareLink | Modifier::LinkURL));
+            if !continues {
+                if let LinkState::BareLink(start, lines, end, url) =
+                    std::mem::take(&mut self.state)
+                {
+                    self.urls.push(TrackedUrl::link(url, start, end, lines));
+                }
+            }
+        }
         self.offset = 0;
-        // Only increase line count if we haven't reached "end" yet.
-        // Only links care about the lines count, images just have description and URL.
-        if let LinkState::LinkDesc(_start, lines) = &mut self.state {
+        if let LinkState::LinkDesc(_, lines) = &mut self.state {
+            *lines += 1;
+        }
+        if let LinkState::BareLink(_, lines, ..) = &mut self.state {
             *lines += 1;
         }
     }
@@ -141,16 +158,18 @@ impl LinkTracker {
                 self.urls.push(TrackedUrl::link(url, start, end, lines));
                 None
             }
-            // Bare links are always single-span at the tracker level; reference definitions
-            // that wrap the URL across lines handle TrackedUrl construction themselves.
             None if modifiers.contains(Modifier::BareLink | Modifier::LinkURL) => {
-                self.urls.push(TrackedUrl::link(
-                    content.clone(),
-                    self.offset,
-                    self.offset + span_width,
-                    0,
-                ));
-                None
+                BareLink(self.offset, 0, self.offset + span_width, content.clone())
+            }
+            BareLink(start, lines, _, mut url)
+                if modifiers.contains(Modifier::BareLink | Modifier::LinkURL) =>
+            {
+                url.push_str(content);
+                BareLink(start, lines, self.offset + span_width, url)
+            }
+            BareLink(start, lines, end, url) => {
+                self.urls.push(TrackedUrl::link(url, start, end, lines));
+                self.track_images(None, modifiers, content)
             }
             state => self.track_images(state, modifiers, content),
         };
@@ -311,7 +330,7 @@ mod tests {
             "desc".to_owned(),
             Modifier::Link | Modifier::LinkDescription,
         ));
-        tracker.carriage_return();
+        tracker.carriage_return(None);
 
         tracker.track(&Span::new(
             "cont".to_owned(),
@@ -325,7 +344,7 @@ mod tests {
             "(".to_owned(),
             Modifier::Link | Modifier::LinkURLWrapper,
         ));
-        tracker.carriage_return();
+        tracker.carriage_return(None);
 
         tracker.track(&Span::new(
             "url".to_owned(),
@@ -354,13 +373,13 @@ mod tests {
             "desc1".to_owned(),
             Modifier::Link | Modifier::LinkDescription,
         ));
-        tracker.carriage_return();
+        tracker.carriage_return(None);
 
         tracker.track(&Span::new(
             "desc2".to_owned(),
             Modifier::Link | Modifier::LinkDescription,
         ));
-        tracker.carriage_return();
+        tracker.carriage_return(None);
 
         tracker.track(&Span::new(
             "desc3".to_owned(),
@@ -375,19 +394,19 @@ mod tests {
             "(".to_owned(),
             Modifier::Link | Modifier::LinkURLWrapper,
         ));
-        tracker.carriage_return();
+        tracker.carriage_return(None);
 
         tracker.track(&Span::new(
             "url-1/".to_owned(),
             Modifier::Link | Modifier::LinkURL,
         ));
-        tracker.carriage_return();
+        tracker.carriage_return(None);
 
         tracker.track(&Span::new(
             "url-2".to_owned(),
             Modifier::Link | Modifier::LinkURL,
         ));
-        tracker.carriage_return();
+        tracker.carriage_return(None);
 
         tracker.track(&Span::new(
             ")".to_owned(),
@@ -414,15 +433,55 @@ mod tests {
 
         tracker.track(&Span::new(
             "http://bare".to_owned(),
-            Modifier::Link | Modifier::LinkURL | Modifier::BareLink,
+            Modifier::BareLink | Modifier::LinkURL,
         ));
+        tracker.carriage_return(None);
         let extras = tracker.take_urls();
-        // ```
-        // http://bare
-        // ```
         assert_eq!(
             extras[0],
             TrackedUrl::link("http://bare".to_owned(), 0, 11, 0),
+        );
+    }
+
+    #[test]
+    fn track_bare_link_eol() {
+        // BareLink at end of line, plain text on next line: emitted for the correct line.
+        let mut tracker = LinkTracker::default();
+
+        tracker.track(&Span::new("see ".to_owned(), Modifier::default()));
+        tracker.track(&Span::new(
+            "http://bare".to_owned(),
+            Modifier::BareLink | Modifier::LinkURL,
+        ));
+        tracker.carriage_return(Some(Modifier::default()));
+        let extras = tracker.take_urls();
+        assert_eq!(
+            extras[0],
+            TrackedUrl::link("http://bare".to_owned(), 4, 15, 0),
+        );
+    }
+
+    #[test]
+    fn track_bare_link_wrapped() {
+        // BareLink URL split across two lines by wrapping.
+        let mut tracker = LinkTracker::default();
+
+        tracker.track(&Span::new(
+            "https://ex.com/".to_owned(),
+            Modifier::BareLink | Modifier::LinkURL,
+        ));
+        tracker.carriage_return(Some(Modifier::BareLink | Modifier::LinkURL));
+
+        tracker.track(&Span::new(
+            "rest".to_owned(),
+            Modifier::BareLink | Modifier::LinkURL,
+        ));
+        tracker.carriage_return(None);
+
+        let extras = tracker.take_urls();
+        assert_eq!(
+            extras[0],
+            TrackedUrl::link("https://ex.com/rest".to_owned(), 0, 4, 1),
         );
     }
 }

@@ -44,44 +44,49 @@ pub fn wrap_md_spans<M: Mapper>(
 
     let mut tracker = LinkTracker::default().hide_urls(mapper.hide_urls());
 
-    wrap_md_spans_lines(available_width, mdspans, mapper)
+    let mut lines = wrap_md_spans_lines(available_width, mdspans, mapper)
         .into_iter()
         .filter(|line| !line.is_empty())
-        .map(|mut spans| {
-            for span in &spans {
-                tracker.track(span);
-            }
+        .peekable();
 
-            if let Some(offset) = tracker.is_mid_link()
-                && offset < available_width
-            {
-                // The link has been wrapped, fill it towards the end of the line.
-                // This is important for OSC8 links, which must match the underlying ratatui buffer
-                // exactly to avoid artifacts.
-                spans.push(Span::new(
-                    " ".repeat((available_width - offset) as usize),
-                    Modifier::Link | Modifier::LinkDescription,
-                ));
-            }
-            tracker.carriage_return();
+    let mut result = Vec::new();
+    while let Some(mut spans) = lines.next() {
+        for span in &spans {
+            tracker.track(span);
+        }
 
-            (
-                spans,
-                tracker
-                    .take_urls()
-                    // Shift start-end by prefix_width.
-                    .into_iter()
-                    .map(|mut tracked_url| {
-                        if let TrackedUrl::Link { start, end, .. } = &mut tracked_url {
-                            *start += prefix_width as u16;
-                            *end += prefix_width as u16;
-                        }
-                        tracked_url
-                    })
-                    .collect(),
-            )
-        })
-        .collect()
+        if let Some(offset) = tracker.is_mid_link()
+            && offset < available_width
+        {
+            // The link has been wrapped, fill it towards the end of the line.
+            // This is important for OSC8 links, which must match the underlying ratatui buffer
+            // exactly to avoid artifacts.
+            spans.push(Span::new(
+                " ".repeat((available_width - offset) as usize),
+                Modifier::Link | Modifier::LinkDescription,
+            ));
+        }
+
+        let next_mod = lines.peek().and_then(|l| l.first()).map(|s| s.modifiers);
+        tracker.carriage_return(next_mod);
+
+        result.push((
+            spans,
+            tracker
+                .take_urls()
+                // Shift start-end by prefix_width.
+                .into_iter()
+                .map(|mut tracked_url| {
+                    if let TrackedUrl::Link { start, end, .. } = &mut tracked_url {
+                        *start += prefix_width as u16;
+                        *end += prefix_width as u16;
+                    }
+                    tracked_url
+                })
+                .collect(),
+        ));
+    }
+    result
 }
 
 /// This struct just makes it easier to debug wrapping.
