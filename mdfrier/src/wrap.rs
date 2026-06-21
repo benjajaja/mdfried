@@ -55,20 +55,20 @@ pub fn wrap_md_spans<M: Mapper>(
             tracker.track(span);
         }
 
-        if let Some(offset) = tracker.is_mid_link()
-            && offset < available_width
-        {
-            // The link has been wrapped, fill it towards the end of the line.
-            // This is important for OSC8 links, which must match the underlying ratatui buffer
-            // exactly to avoid artifacts.
-            spans.push(Span::new(
-                " ".repeat((available_width - offset) as usize),
-                Modifier::Link | Modifier::LinkDescription,
-            ));
-        }
-
         let next_mod = lines.peek().and_then(|l| l.first()).map(|s| s.modifiers);
-        tracker.carriage_return(next_mod);
+
+        let mid_link_offset = tracker.carriage_return(next_mod);
+
+        if let Some((offset, last_mods)) =
+            mid_link_offset.and_then(|offset| spans.last().map(|last| (offset, last.modifiers)))
+        {
+            if offset < available_width {
+                spans.push(Span::new(
+                    " ".repeat((available_width - offset) as usize),
+                    last_mods,
+                ));
+            }
+        }
 
         result.push((
             spans,

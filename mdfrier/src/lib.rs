@@ -469,17 +469,17 @@ Quote break.
             lines.map(|line| line.spans).collect::<Vec<Vec<Span>>>(),
             vec![
                 vec![Span::from("See")],
-                vec![Span::with(
-                    "https://",
-                    Modifier::LinkURL | Modifier::BareLink
-                )],
-                vec![Span::with(
-                    "example.com/",
-                    Modifier::LinkURL | Modifier::BareLink
-                )],
                 vec![
-                    Span::with("path", Modifier::LinkURL | Modifier::BareLink),
-                    Span::from(" ok?")
+                    Span::with("https://", Modifier::BareLink | Modifier::LinkURL),
+                    Span::with("       ", Modifier::BareLink | Modifier::LinkURL),
+                ],
+                vec![
+                    Span::with("example.com/", Modifier::BareLink | Modifier::LinkURL),
+                    Span::with("   ", Modifier::BareLink | Modifier::LinkURL),
+                ],
+                vec![
+                    Span::with("path", Modifier::BareLink | Modifier::LinkURL),
+                    Span::from(" ok?"),
                 ],
             ]
         );

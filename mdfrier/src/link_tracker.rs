@@ -81,24 +81,30 @@ impl LinkTracker {
 
     /// `next` is the modifiers of the first span on the following line, if any.
     /// Used to decide whether a pending bare link continues or ends here.
-    pub fn carriage_return(&mut self, next: Option<Modifier>) {
+    /// Returns the last offset (ending) if mid-link.
+    pub fn carriage_return(&mut self, next: Option<Modifier>) -> Option<u16> {
+        let continues = next.is_some_and(|m| m.contains(Modifier::BareLink | Modifier::LinkURL));
         if let LinkState::BareLink(..) = &self.state {
-            let continues =
-                next.is_some_and(|m| m.contains(Modifier::BareLink | Modifier::LinkURL));
             if !continues {
-                if let LinkState::BareLink(start, lines, end, url) =
-                    std::mem::take(&mut self.state)
+                if let LinkState::BareLink(start, lines, end, url) = std::mem::take(&mut self.state)
                 {
                     self.urls.push(TrackedUrl::link(url, start, end, lines));
                 }
             }
         }
+        let end_offset = self.offset;
         self.offset = 0;
         if let LinkState::LinkDesc(_, lines) = &mut self.state {
             *lines += 1;
         }
         if let LinkState::BareLink(_, lines, ..) = &mut self.state {
             *lines += 1;
+        }
+
+        match self.state {
+            LinkState::BareLink(..) if continues => Some(end_offset),
+            LinkState::LinkDesc(..) => Some(end_offset),
+            _ => None,
         }
     }
     pub fn track(&mut self, node: &Span) {
@@ -225,13 +231,6 @@ impl LinkTracker {
             }
             state => state,
         }
-    }
-
-    /// Returns true if we are currently in the middle of a link description that hasn't been
-    /// closed yet. Useful to detect that a link is being line-wrapped, and filling to the end of
-    /// the line with "space with underline" or a similar style.
-    pub fn is_mid_link(&self) -> Option<u16> {
-        matches!(self.state, LinkState::LinkDesc(..)).then_some(self.offset)
     }
 
     pub fn take_urls(&mut self) -> Vec<TrackedUrl> {

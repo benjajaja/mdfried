@@ -353,6 +353,7 @@ fn section_to_lines<M: Mapper>(width: u16, section: MdSection, mapper: &M) -> Ve
                 .map(|(i, mut line_spans)| {
                     if i >= url_line && i + 1 < n {
                         let w: u16 = line_spans.iter().map(|s| s.content.width() as u16).sum();
+                        // Fill to end of line like LinkTracker.
                         if w < width {
                             line_spans.push(Span::new(
                                 " ".repeat((width - w) as usize),
