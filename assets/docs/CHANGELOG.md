@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.22.3] - 2026-06-21
+
 ### Fixed
 - Newlines and spacing  
   List and blockquote items no longer have special treatment and render as most markdown renderers 
