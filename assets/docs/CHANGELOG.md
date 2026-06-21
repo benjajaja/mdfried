@@ -6,6 +6,8 @@
 - Newlines and spacing  
   List and blockquote items no longer have special treatment and render as most markdown renderers 
   do.
+- Link wrapping  
+  Fixed for bare links and reference-style links.
 
 ## [0.22.2] - 2026-06-13
 
