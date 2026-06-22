@@ -40,6 +40,7 @@ use crate::{
 #[derive(Default)]
 pub struct Document {
     sections: Vec<Section>,
+    total_lines: u16,
 }
 
 impl Document {
@@ -48,6 +49,7 @@ impl Document {
             !self.sections.iter().any(|s| s.id == section.id),
             "Document::push expects unique ids"
         );
+        self.total_lines += section.height;
         self.sections.push(section);
     }
 
@@ -76,12 +78,16 @@ impl Document {
         }
 
         if let Some((start, end)) = range {
+            let old_height: u16 = self.sections[start..end].iter().map(|s| s.height).sum();
+            let new_height: u16 = updates.iter().map(|s| s.height).sum();
             self.sections.splice(start..end, updates);
+            self.total_lines = self.total_lines.saturating_sub(old_height) + new_height;
         } else if let Some(last) = self.sections.last()
             && last.id < first_id
         {
             log::debug!("Update section #{first_id} not found but id is higher than last section");
             for section in updates {
+                self.total_lines += section.height;
                 self.sections.push(section);
             }
         } else {
@@ -106,12 +112,15 @@ impl Document {
         };
 
         // Add an extra space if the source had one.
+        let old_height = section.height;
         let trailing_blank: u16 = trailing_blank.into();
+        let new_height = size.height + trailing_blank;
         *section = Section {
             id: section_id,
-            height: size.height + trailing_blank,
+            height: new_height,
             content: SectionContent::Image(link, proto, size, max_size),
         };
+        self.total_lines = self.total_lines.saturating_sub(old_height) + new_height;
     }
 
     pub fn update_header(&mut self, section_id: SectionID, rows: Vec<(String, u8, Protocol)>) {
@@ -144,6 +153,7 @@ impl Document {
             match &mut section.content {
                 SectionContent::Image(url, _, _, _) => {
                     let url = url.clone();
+                    let old_height = section.height;
                     let SectionContent::Image(link, proto, size, max_size) = std::mem::replace(
                         &mut section.content,
                         SectionContent::ImagePlaceholder(url, vec![]),
@@ -154,6 +164,7 @@ impl Document {
                         .images
                         .insert(link.url.clone(), (proto, size, max_size));
                     section.height = 1;
+                    self.total_lines = self.total_lines.saturating_sub(old_height) + section.height;
                 }
                 SectionContent::Header(text, tier, Some(_)) => {
                     let text = text.clone();
@@ -197,7 +208,9 @@ impl Document {
             .position(|section| section.id == last_section_id)
         {
             log::debug!("trim: {idx} + 1");
+            let removed: u16 = self.sections[idx + 1..].iter().map(|s| s.height).sum();
             self.sections.truncate(idx + 1);
+            self.total_lines = self.total_lines.saturating_sub(removed);
         }
     }
 
@@ -439,6 +452,10 @@ impl Document {
                 }
             }
         }
+    }
+
+    pub fn total_lines(&self) -> u16 {
+        self.total_lines
     }
 }
 

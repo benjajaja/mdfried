@@ -124,6 +124,26 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Option<Position> {
     builtin_override_view(model, content_area, buf);
 
     let status_line_y = inner_area.height - 1;
+
+    let total = model.total_lines();
+    let inner_h = model.inner_height();
+    if total > 0 && inner_h > 0 {
+        let inner_h = inner_h as u32;
+        let total_pages = (total as u32).div_ceil(inner_h);
+        let at_end = model.scroll as u32 + inner_h >= total as u32;
+        let page = if at_end {
+            total_pages
+        } else {
+            model.scroll as u32 / inner_h + 1
+        };
+        let page_text = format!("{page}/{total_pages}");
+        let page_width = page_text.len() as u16;
+        let x = buf.area().width.saturating_sub(page_width);
+        Paragraph::new(page_text)
+            .fg(Color::DarkGray)
+            .render(Rect::new(x, status_line_y, page_width, 1), buf);
+    }
+
     let mut cursor_position = None; // Position::from((0, buf.area.height - 1));
     if let Some(err) = &model.last_error {
         let line = Line::from(err.to_string());
@@ -204,6 +224,7 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Option<Position> {
             }
         };
     }
+
     cursor_position
 }
 

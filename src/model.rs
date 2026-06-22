@@ -239,7 +239,7 @@ impl Model {
     }
 
     pub fn total_lines(&self) -> u16 {
-        self.document.iter().map(|s| s.height).sum()
+        self.document.total_lines()
     }
 
     pub fn process_events(&mut self) -> Result<(bool, bool, bool), Error> {
