@@ -858,8 +858,12 @@ Line that should be broken up later
 
     #[test]
     fn multiple_positional_sources_are_rejected_as_unknown_argument() {
-        // Lock the error kind and the offending value so the friendly
-        // message in `main` cannot silently regress to clap's default.
+        // Lock the error shape `main` keys off of for the friendly
+        // multi-positional hint: ErrorKind::UnknownArgument whose
+        // InvalidArg context is the second value (and therefore does
+        // not start with '-'). If clap ever changes how it reports
+        // extra positionals, `main` will silently fall back to its
+        // default error path and this test will surface that.
         use clap::error::{ContextKind, ErrorKind};
         let err = crate::build_cli()
             .try_get_matches_from(["mdfried", "a.md", "b.md"])
