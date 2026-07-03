@@ -27,7 +27,7 @@ use std::{
     },
 };
 
-use clap::{ArgMatches, arg, command, value_parser};
+use clap::{ArgMatches, Command, arg, command, error::ErrorKind, value_parser};
 use ratatui::{
     Terminal,
     crossterm::{
@@ -57,8 +57,8 @@ pub const OK_END: &str = " ok.";
 
 pub static VERSION: OnceLock<String> = OnceLock::new();
 
-fn main() -> io::Result<()> {
-    let mut cmd = command!() // requires `cargo` feature
+fn build_cli() -> Command {
+    command!() // requires `cargo` feature
         .arg(
             arg!([SOURCE] "The markdown source.\nCan be a file path, a URL, a github repo in \"github:[owner]/[repo]\" format, or '-' or omit, for stdin.")
         )
@@ -81,8 +81,35 @@ fn main() -> io::Result<()> {
                 .value_parser(value_parser!(String)),
         )
         .arg(arg!(--"animate" "Animate scrolling on startup (for demo recordings).").hide(true).value_parser(value_parser!(bool)))
-        ;
-    let matches = cmd.get_matches_mut();
+}
+
+fn main() -> io::Result<()> {
+    let mut cmd = build_cli();
+    let matches = match cmd.try_get_matches_from_mut(std::env::args_os()) {
+        Ok(m) => m,
+        Err(err) => {
+            // When the user passes more than one positional arg, clap reports
+            // `ErrorKind::UnknownArgument` for the second one. Detect that
+            // specific shape — the offending value does not start with `-` —
+            // and surface a hint that points at the most common cause: a
+            // shell glob like `mdfried **/*.md` that expanded to multiple
+            // paths. All other argument errors fall through to clap's
+            // default formatter, which already includes usage and `--help`.
+            let is_multi_positional = err.kind() == ErrorKind::UnknownArgument
+                && err
+                    .get(clap::error::ContextKind::InvalidArg)
+                    .is_some_and(|v| !format!("{v}").starts_with('-'));
+            if is_multi_positional {
+                eprintln!(
+                    "error: mdfried accepts a single source. \
+                     If you used a shell glob, quote it (e.g. mdfried '**/*.md') \
+                     or run mdfried once per file."
+                );
+                std::process::exit(2);
+            }
+            err.exit()
+        }
+    };
 
     if let Some(version) = cmd.get_version() {
         #[expect(unused_must_use)]
@@ -827,5 +854,22 @@ Line that should be broken up later
         );
 
         teardown(model, worker);
+    }
+
+    #[test]
+    fn multiple_positional_sources_are_rejected_as_unknown_argument() {
+        // Lock the error kind and the offending value so the friendly
+        // message in `main` cannot silently regress to clap's default.
+        use clap::error::{ContextKind, ErrorKind};
+        let err = crate::build_cli()
+            .try_get_matches_from(["mdfried", "a.md", "b.md"])
+            .expect_err("expected clap to reject more than one positional");
+        assert_eq!(err.kind(), ErrorKind::UnknownArgument);
+        let invalid_arg = err.get(ContextKind::InvalidArg).map(|v| format!("{v}"));
+        assert_eq!(
+            invalid_arg.as_deref(),
+            Some("b.md"),
+            "expected the second positional to be reported as the invalid arg"
+        );
     }
 }
