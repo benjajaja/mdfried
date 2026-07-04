@@ -172,7 +172,6 @@ pub fn worker_thread(
                             event_tx.send(Event::NewDocument(document_id))?;
                             let mut all_post_parse_events: Vec<SectionEvent> = Vec::new();
                             let mut last_section_id: Option<usize> = None;
-                            let mut all_text = String::new();
                             let mut image_cache = image_cache.unwrap_or_default();
                             let has_renderer = thread_renderer.is_some();
                             // Section ids are unique per parsed document. Each file
@@ -212,7 +211,6 @@ pub fn worker_thread(
                                 next_section_id = file_next_id;
                                 last_section_id = file_next_id.checked_sub(1).or(last_section_id);
                                 all_post_parse_events.append(&mut file_events);
-                                all_text.push_str(&text);
                             }
 
                             let uncached_post_parse_events = drain_image_cache(
@@ -224,10 +222,15 @@ pub fn worker_thread(
                                 all_post_parse_events,
                             )?;
 
+                            // `Event::ParseDone`'s text payload is only
+                            // consumed by `DocumentSource::Stdin::return_text`,
+                            // which is not used in multi-file mode, so we
+                            // pass an empty string to avoid duplicating
+                            // every input file in memory.
                             event_tx.send(Event::ParseDone(
                                 document_id,
                                 last_section_id,
-                                all_text,
+                                String::new(),
                             ))?;
 
                             if !uncached_post_parse_events.is_empty() {

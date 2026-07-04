@@ -155,30 +155,33 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     if sources.iter().filter(|s| s.as_str() == "-").count() > 1 {
         return Err(Error::Usage(Some("stdin ('-') can only be used once")));
     }
-    for source in &sources {
-        if source.starts_with("http://")
-            || source.starts_with("https://")
-            || source.starts_with("github:")
-        {
+
+    // Detect multi-file mode up front so all the source-list validation can
+    // happen *before* any I/O. Single-source URLs and github: paths are
+    // still routed through `open_source(...)` below.
+    let is_multi_file = sources.len() > 1 && sources.iter().any(|s| s.as_str() != "-");
+
+    if is_multi_file {
+        if sources.iter().any(|s| s.as_str() == "-") {
             return Err(Error::Usage(Some(
-                "URLs and github repositories are not yet supported alongside file paths; pass only file paths (or a single '-') for now",
+                "stdin ('-') cannot be mixed with file paths",
             )));
         }
+        for source in &sources {
+            if source.starts_with("http://")
+                || source.starts_with("https://")
+                || source.starts_with("github:")
+            {
+                return Err(Error::Usage(Some(
+                    "URLs and github repositories are not yet supported alongside file paths; pass only file paths for now",
+                )));
+            }
+        }
     }
-
-    // Detect multi-file mode: more than one source, and at least one is a
-    // non-stdin path. Mixed stdin + files is already rejected above; mixed
-    // stdin alone is the existing single-source stdin flow.
-    let is_multi_file = sources.len() > 1 && sources.iter().any(|s| s.as_str() != "-");
 
     let (text, document_source) = if is_multi_file {
         let mut entries = Vec::with_capacity(sources.len());
         for source in &sources {
-            if source == "-" {
-                return Err(Error::Usage(Some(
-                    "stdin ('-') cannot be mixed with file paths",
-                )));
-            }
             print!("Reading {source}...");
             let path = PathBuf::from(source);
             let text = std::fs::read_to_string(&path).map_err(|err| {
@@ -510,7 +513,11 @@ impl std::fmt::Debug for Event {
 #[cfg(test)]
 #[expect(clippy::unwrap_used)]
 mod tests {
-    use std::{path::PathBuf, sync::{Arc, mpsc}, thread::JoinHandle};
+    use std::{
+        path::PathBuf,
+        sync::{Arc, mpsc},
+        thread::JoinHandle,
+    };
 
     #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
     use insta::assert_snapshot;
@@ -961,11 +968,8 @@ Line that should be broken up later
             screen_size,
             Config::from(UserConfig::default()),
         );
-        let mut terminal = Terminal::new(TestBackend::new(
-            screen_size.width,
-            screen_size.height,
-        ))
-        .unwrap();
+        let mut terminal =
+            Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
         model.parse_multi(entries).expect("parse_multi");
         poll_parsed(&mut model);
 
@@ -1002,13 +1006,7 @@ Line that should be broken up later
             for y in 0..buffer.area.height {
                 let mut line = String::new();
                 for x in 0..buffer.area.width {
-                    line.push(
-                        buffer[(x, y)]
-                            .symbol()
-                            .chars()
-                            .next()
-                            .unwrap_or(' '),
-                    );
+                    line.push(buffer[(x, y)].symbol().chars().next().unwrap_or(' '));
                 }
                 if line.contains("File: first.md") {
                     found_separator_line = true;

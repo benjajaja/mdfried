@@ -113,16 +113,25 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Option<Position> {
             SectionContent::FileSeparator { filename } => {
                 if y >= 0 && (y as u16) < inner_area.height.saturating_sub(1) {
                     let inner_w = inner_area.width as usize;
+                    // `inner_w` is a terminal cell width, so all width
+                    // math has to be in display columns — the rule
+                    // character (\u{2500}) and any non-ASCII characters in
+                    // the user's filename can otherwise land us mid-UTF-8
+                    // sequence and panic `String::truncate`.
                     let prefix =
                         format!("\u{2500}\u{2500}\u{2500}\u{2500}\u{2500} File: {filename} ");
-                    let mut line = String::with_capacity(inner_w);
-                    line.push_str(&prefix);
-                    if line.len() < inner_w {
-                        for _ in 0..(inner_w - line.len()) {
+                    let prefix_w = prefix.width();
+                    let mut line = prefix;
+                    if prefix_w < inner_w {
+                        for _ in 0..(inner_w - prefix_w) {
                             line.push('\u{2500}');
                         }
                     } else {
-                        line.truncate(inner_w);
+                        // Trim trailing chars until the display width fits
+                        // `inner_w`. Never split a multi-byte codepoint.
+                        while line.width() > inner_w {
+                            line.pop();
+                        }
                     }
                     let p = Paragraph::new(line).fg(Color::DarkGray);
                     render_lines(p, 1, y as u16, inner_area, buf);
