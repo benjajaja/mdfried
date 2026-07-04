@@ -110,6 +110,25 @@ pub fn view(model: &Model, buf: &mut Buffer) -> Option<Position> {
                 }
                 y += 1;
             }
+            SectionContent::FileSeparator { filename } => {
+                if y >= 0 && (y as u16) < inner_area.height.saturating_sub(1) {
+                    let inner_w = inner_area.width as usize;
+                    let prefix =
+                        format!("\u{2500}\u{2500}\u{2500}\u{2500}\u{2500} File: {filename} ");
+                    let mut line = String::with_capacity(inner_w);
+                    line.push_str(&prefix);
+                    if line.len() < inner_w {
+                        for _ in 0..(inner_w - line.len()) {
+                            line.push('\u{2500}');
+                        }
+                    } else {
+                        line.truncate(inner_w);
+                    }
+                    let p = Paragraph::new(line).fg(Color::DarkGray);
+                    render_lines(p, 1, y as u16, inner_area, buf);
+                }
+                y += 1;
+            }
         }
         if y >= inner_area.height as i32 - 1 {
             // Do not render into last line, nor beyond area.

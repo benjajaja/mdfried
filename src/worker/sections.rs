@@ -7,6 +7,7 @@
 //! - All other lines are aggregated into text sections
 
 use std::iter::Peekable;
+use std::path::PathBuf;
 
 use mdfrier::link_tracker::TrackedUrl;
 use mdfrier::ratatui::{Theme as _, render_line};
@@ -18,7 +19,7 @@ use crate::document::{LineExtra, LinkReference, Section, SectionContent, Section
 
 /// Events produced during section iteration that need post-processing.
 pub enum SectionEvent {
-    Image(SectionID, MarkdownLink, bool),
+    Image(SectionID, MarkdownLink, bool, Option<PathBuf>),
     Header(SectionID, String, u8),
     ReferenceDefinition { id: String, url: String },
     Code(SectionID, String, Vec<ratatui::prelude::Line<'static>>),
@@ -27,7 +28,7 @@ pub enum SectionEvent {
 impl std::fmt::Display for SectionEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SectionEvent::Image(_, link, _has_trailing_blank) => write!(f, "Image({link})"),
+            SectionEvent::Image(_, link, _has_trailing_blank, _) => write!(f, "Image({link})"),
             SectionEvent::Header(_, text, level) => write!(f, "H{level}({text})"),
             SectionEvent::ReferenceDefinition { id, url } => write!(f, "Ref({id} => {url})"),
             SectionEvent::Code(_, lang, _) => write!(f, "Code({lang})"),
@@ -44,6 +45,7 @@ pub struct SectionIterator<'a, I: Iterator<Item = Line>> {
 
 impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
     /// Create a new section iterator from a line iterator.
+    #[cfg(test)]
     pub fn new(inner: I, theme: &'a Theme) -> Self {
         SectionIterator {
             inner: inner.peekable(),
@@ -52,13 +54,33 @@ impl<'a, I: Iterator<Item = Line>> SectionIterator<'a, I> {
         }
     }
 
+    /// Like `new` but starts assigning section ids at `starting_id`.
+    /// Used by the worker in multi-file mode so each file's sections do not
+    /// collide with the previous file's section ids.
+    pub fn with_starting_id(inner: I, theme: &'a Theme, starting_id: usize) -> Self {
+        SectionIterator {
+            inner: inner.peekable(),
+            theme,
+            section_id: starting_id,
+        }
+    }
+
     /// Get the last section ID that was assigned (for ParseDone).
+    #[cfg(test)]
+    #[expect(dead_code)]
     pub fn last_section_id(&self) -> Option<usize> {
         if self.section_id == 0 {
             None
         } else {
             Some(self.section_id - 1)
         }
+    }
+
+    /// The next section id that will be assigned. Always > 0 after at least
+    /// one section has been emitted. Useful for the worker to continue the
+    /// id sequence across multiple `SectionIterator`s in multi-file mode.
+    pub fn next_id(&self) -> usize {
+        self.section_id
     }
 
     pub fn next_section_id(&mut self) -> SectionID {

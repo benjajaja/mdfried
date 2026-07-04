@@ -508,6 +508,15 @@ pub enum SectionContent {
     HeaderPlaceholder(String, u8, Vec<(Line<'static>, Vec<LineExtra>)>),
     Lines(Vec<(Line<'static>, Vec<LineExtra>)>),
     Code(String, Vec<(Line<'static>, Vec<LineExtra>)>),
+    /// Visual separator between files in multi-source mode.
+    ///
+    /// Carries the path the user passed on the command line (verbatim) so the
+    /// rendered header mirrors what they typed in their shell glob. The view
+    /// layer renders this as a single muted line of the form
+    /// `── File: <name> ──…` filling the rest of the inner width.
+    FileSeparator {
+        filename: String,
+    },
 }
 
 impl SectionContent {
@@ -585,6 +594,9 @@ impl Debug for SectionContent {
             Self::Code(language, lines) => {
                 f.debug_tuple("Code").field(language).field(lines).finish()
             }
+            Self::FileSeparator { filename } => {
+                f.debug_tuple("FileSeparator").field(filename).finish()
+            }
         }
     }
 }
@@ -602,6 +614,7 @@ impl Display for SectionContent {
             Self::Header(text, tier, _) => write!(f, "Header({text}, {tier})"),
             Self::HeaderPlaceholder(_, _, lines) => write!(f, "HeaderPlaceholder({lines:?})"),
             Self::Code(language, lines) => write!(f, "Code({language}, {lines:?})"),
+            Self::FileSeparator { filename } => write!(f, "FileSeparator({filename})"),
         }
     }
 }
@@ -648,6 +661,9 @@ impl Display for Section {
                     write!(f, "{}", line)?;
                 }
                 Ok(())
+            }
+            SectionContent::FileSeparator { filename } => {
+                write!(f, "<file-separator: {filename}>")
             }
         }
     }
@@ -880,6 +896,7 @@ pub async fn image_section(
     max_height: u16,
     width: u16,
     document_source: SharedDocumentSource,
+    basepath_override: Option<&std::path::Path>,
     client: Arc<RwLock<Client>>,
     id: SectionID,
     link: MarkdownLink,
@@ -890,29 +907,34 @@ pub async fn image_section(
     let image_source = if link_url.starts_with("https://") || link_url.starts_with("http://") {
         download_image(client, fontdb, link_url).await?
     } else {
-        let image_source: Option<ImageSource> = match document_source.read() {
-            Ok(DocumentSource::File {
-                basepath: Some(basepath),
-                ..
-            }) => {
-                let path = basepath.join(link_url).to_str().map(String::from);
-                path.map(ImageSource::Path)
-            }
-            Ok(DocumentSource::Github { repo, branch }) => {
-                if let Ok(repo_url) = github_usercontent_url(&repo, &branch, link_url) {
-                    Some(download_image(client, fontdb, repo_url.as_str()).await?)
-                } else {
-                    None
+        let image_source: Option<ImageSource> = if let Some(basepath) = basepath_override {
+            let path = basepath.join(link_url).to_str().map(String::from);
+            path.map(ImageSource::Path)
+        } else {
+            match document_source.read() {
+                Ok(DocumentSource::File {
+                    basepath: Some(basepath),
+                    ..
+                }) => {
+                    let path = basepath.join(link_url).to_str().map(String::from);
+                    path.map(ImageSource::Path)
                 }
-            }
-            Ok(DocumentSource::HyperText { url }) => {
-                if let Ok(extended_url) = extend_url(url.clone(), link_url) {
-                    Some(download_image(client, fontdb, extended_url.as_str()).await?)
-                } else {
-                    None
+                Ok(DocumentSource::Github { repo, branch }) => {
+                    if let Ok(repo_url) = github_usercontent_url(&repo, &branch, link_url) {
+                        Some(download_image(client, fontdb, repo_url.as_str()).await?)
+                    } else {
+                        None
+                    }
                 }
+                Ok(DocumentSource::HyperText { url }) => {
+                    if let Ok(extended_url) = extend_url(url.clone(), link_url) {
+                        Some(download_image(client, fontdb, extended_url.as_str()).await?)
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
             }
-            _ => None,
         };
         image_source.unwrap_or_else(|| ImageSource::Path(link_url.to_owned()))
     };

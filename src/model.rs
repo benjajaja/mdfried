@@ -153,6 +153,23 @@ impl Model {
         self.parse(self.document_id.open(), text, None)
     }
 
+    /// Send a multi-file parse to the worker.
+    ///
+    /// Each `MultiFileEntry`'s text is parsed in order, with a
+    /// `SectionContent::FileSeparator` rendered between files. The worker
+    /// takes care of attributing each image link to the right file's
+    /// basepath so relative `![](img.png)` references resolve correctly.
+    pub fn parse_multi(&self, entries: Vec<crate::sources::MultiFileEntry>) -> Result<(), Error> {
+        let inner_width = self.config.padding.calculate_width(self.screen_size.width);
+        self.cmd_tx.send(Cmd::ParseMulti(
+            self.document_id.open(),
+            inner_width,
+            entries,
+            None,
+        ))?;
+        Ok(())
+    }
+
     fn open_new_source(&mut self, source: DocumentSource, text: String) -> Result<(), Error> {
         self.document_history.push(DocumentHistoryEntry {
             source: self.document_source.read()?,
@@ -495,6 +512,15 @@ impl Model {
             DocumentSource::Image { .. } | DocumentSource::Pdf { .. } => {
                 return Err(Error::Navigation(NavigationError::UnknownLinkType(
                     link_url,
+                )));
+            }
+            DocumentSource::MultiFile { .. } => {
+                // Multi-file mode is a read-only batch view; there is no concept
+                // of "open the current document" because there are several. v1
+                // surfaces this as an explicit error so users see why their
+                // click did not navigate, instead of silently doing nothing.
+                return Err(Error::Navigation(NavigationError::UnknownLinkType(
+                    "multi-file mode does not support link navigation".to_owned(),
                 )));
             }
         }

@@ -17,6 +17,14 @@ use crate::{
     error::{Error, NavigationError},
 };
 
+/// One entry in a [`DocumentSource::MultiFile`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct MultiFileEntry {
+    pub path: PathBuf,
+    pub basepath: Option<PathBuf>,
+    pub text: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum DocumentSource {
     File {
@@ -40,6 +48,9 @@ pub enum DocumentSource {
     Pdf {
         path: PathBuf,
     },
+    MultiFile {
+        entries: Vec<MultiFileEntry>,
+    },
 }
 
 impl DocumentSource {
@@ -50,6 +61,7 @@ impl DocumentSource {
             }),
             // TODO: Github and HyperText should also return the text to avoid re-fetch.
             // File is OK to just reload from disk.
+            // MultiFile carries its text per-entry; the model already has what it needs.
             _ => None,
         }
     }

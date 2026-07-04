@@ -48,7 +48,7 @@ use crate::{
     error::Error,
     model::{DocumentId, Model},
     renderer::run_loop,
-    sources::{BuiltIn, DocumentSource, SharedDocumentSource, open_source},
+    sources::{BuiltIn, DocumentSource, MultiFileEntry, SharedDocumentSource, open_source},
     watch::watch,
     worker::{ImageCache, worker_thread},
 };
@@ -60,7 +60,7 @@ pub static VERSION: OnceLock<String> = OnceLock::new();
 fn main() -> io::Result<()> {
     let mut cmd = command!() // requires `cargo` feature
         .arg(
-            arg!([SOURCE] "The markdown source.\nCan be a file path, a URL, a github repo in \"github:[owner]/[repo]\" format, or '-' or omit, for stdin.")
+            arg!([SOURCES]... "The markdown source(s).\nOne or more file paths. Multiple files are rendered in sequence, separated by a header. Pass '-' for stdin, or omit entirely to read stdin / show the welcome screen. URLs and github repositories are not yet supported alongside local files.")
         )
         .arg(arg!(-d --"deep-fry" "Extra deep fried images.").value_parser(value_parser!(bool)))
         .arg(arg!(-w --"watch" "Watch markdown file, reload on changes.").value_parser(value_parser!(bool)))
@@ -136,31 +136,90 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let log = matches.get_one::<String>("log");
     debug::init_logger(debug::LogTarget::from(log))?;
 
-    let source: Option<String> = matches.get_one::<String>("SOURCE").cloned();
+    let sources: Vec<String> = matches
+        .get_many::<String>("SOURCES")
+        .map(|v| v.cloned().collect())
+        .unwrap_or_default();
 
     let mut user_config = config::load_or_ask()?;
     let mut config = Config::from(user_config.clone());
 
-    let (text, document_source) = match source {
-        Some(source) if source == "-" => {
-            let mut text = String::new();
-            print!("Reading stdin...");
-            io::stdin().read_to_string(&mut text)?;
-            println!("{OK_END}");
-            (text, DocumentSource::Stdin { text: None })
+    // Validate the source list before doing any I/O so the user gets a clear
+    // error instead of e.g. a partial file read.
+    let watch_requested = *matches.get_one("watch").unwrap_or(&false);
+    if watch_requested && sources.len() > 1 {
+        return Err(Error::Usage(Some(
+            "--watch is only supported with a single source",
+        )));
+    }
+    if sources.iter().filter(|s| s.as_str() == "-").count() > 1 {
+        return Err(Error::Usage(Some("stdin ('-') can only be used once")));
+    }
+    for source in &sources {
+        if source.starts_with("http://")
+            || source.starts_with("https://")
+            || source.starts_with("github:")
+        {
+            return Err(Error::Usage(Some(
+                "URLs and github repositories are not yet supported alongside file paths; pass only file paths (or a single '-') for now",
+            )));
         }
-        None => {
-            if io::stdin().is_tty() {
-                (String::new(), DocumentSource::BuiltIn(BuiltIn::Welcome))
-            } else {
+    }
+
+    // Detect multi-file mode: more than one source, and at least one is a
+    // non-stdin path. Mixed stdin + files is already rejected above; mixed
+    // stdin alone is the existing single-source stdin flow.
+    let is_multi_file = sources.len() > 1 && sources.iter().any(|s| s.as_str() != "-");
+
+    let (text, document_source) = if is_multi_file {
+        let mut entries = Vec::with_capacity(sources.len());
+        for source in &sources {
+            if source == "-" {
+                return Err(Error::Usage(Some(
+                    "stdin ('-') cannot be mixed with file paths",
+                )));
+            }
+            print!("Reading {source}...");
+            let path = PathBuf::from(source);
+            let text = std::fs::read_to_string(&path).map_err(|err| {
+                println!(" error.");
+                Error::Io(err)
+            })?;
+            println!("{OK_END}");
+            let basepath = path.parent().map(std::path::Path::to_path_buf);
+            entries.push(MultiFileEntry {
+                path,
+                basepath,
+                text,
+            });
+        }
+        // The model does not need a single combined text for the
+        // `Event::ParseDone` payload, but we pass an empty string to keep
+        // the existing `DocumentSource::Stdin`-style reload path inert in
+        // the multi-file branch.
+        (String::new(), DocumentSource::MultiFile { entries })
+    } else {
+        match sources.first().map(String::as_str) {
+            Some("-") => {
                 let mut text = String::new();
                 print!("Reading stdin...");
                 io::stdin().read_to_string(&mut text)?;
                 println!("{OK_END}");
                 (text, DocumentSource::Stdin { text: None })
             }
+            None => {
+                if io::stdin().is_tty() {
+                    (String::new(), DocumentSource::BuiltIn(BuiltIn::Welcome))
+                } else {
+                    let mut text = String::new();
+                    print!("Reading stdin...");
+                    io::stdin().read_to_string(&mut text)?;
+                    println!("{OK_END}");
+                    (text, DocumentSource::Stdin { text: None })
+                }
+            }
+            Some(source) => open_source(source, config.url_transform_command.clone())?,
         }
-        Some(source) => open_source(&source, config.url_transform_command.clone())?,
     };
 
     if text.is_empty()
@@ -169,6 +228,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             DocumentSource::BuiltIn(BuiltIn::Welcome)
                 | DocumentSource::Image { .. }
                 | DocumentSource::Pdf { .. }
+                | DocumentSource::MultiFile { .. }
         )
     {
         return Err(Error::Usage(Some("no input or empty")));
@@ -276,7 +336,22 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         cmd_tx.send(Cmd::LoadImage(None))?;
     }
     let model = Model::new(document_source, cmd_tx, event_rx, terminal.size()?, config);
-    model.open(text)?;
+    if is_multi_file {
+        // Pull the entries out of the shared document_source (we still keep
+        // the `DocumentSource::MultiFile` in there for `open_link` and other
+        // code paths that inspect the current source).
+        let DocumentSource::MultiFile { entries } = model
+            .document_source()
+            .ok_or_else(|| Error::Generic("multi-file document_source missing".to_owned()))?
+        else {
+            return Err(Error::Generic(
+                "expected DocumentSource::MultiFile in multi-file mode".to_owned(),
+            ));
+        };
+        model.parse_multi(entries)?;
+    } else {
+        model.open(text)?;
+    }
 
     let debouncer = if let Some(path) = watchmode_path {
         log::info!("watching file");
@@ -309,6 +384,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
 pub enum Cmd {
     Parse(DocumentId, u16, String, Option<ImageCache>),
+    ParseMulti(DocumentId, u16, Vec<MultiFileEntry>, Option<ImageCache>),
     OpenUrl(String),
     LoadImage(Option<(PathBuf, Size)>), // TODO: either included welcome logo, or a path, make an enum?
     LoadPdf(PathBuf, Size),
@@ -327,6 +403,13 @@ impl Display for Cmd {
                 write!(
                     f,
                     "Cmd::Parse({reload_id:?}, {width}, <text>, cache={cache:?})",
+                )
+            }
+            Cmd::ParseMulti(reload_id, width, entries, cache) => {
+                write!(
+                    f,
+                    "Cmd::ParseMulti({reload_id:?}, {width}, {} entries, cache={cache:?})",
+                    entries.len(),
                 )
             }
             Cmd::OpenUrl(url) => write!(f, "Cmd::Open({url})"),
@@ -427,7 +510,7 @@ impl std::fmt::Debug for Event {
 #[cfg(test)]
 #[expect(clippy::unwrap_used)]
 mod tests {
-    use std::{sync::mpsc, thread::JoinHandle};
+    use std::{path::PathBuf, sync::{Arc, mpsc}, thread::JoinHandle};
 
     #[cfg(not(any(target_os = "macos", target_arch = "aarch64")))]
     use insta::assert_snapshot;
@@ -440,7 +523,7 @@ mod tests {
         document::{Section, SectionContent},
         error::Error,
         model::Model,
-        sources::SharedDocumentSource,
+        sources::{DocumentSource, MultiFileEntry, SharedDocumentSource},
         view::view,
         worker::worker_thread,
     };
@@ -824,6 +907,130 @@ Line that should be broken up later
                 (Line::from("broken up later"), Vec::new()),
             ]),
             sections[5].content
+        );
+
+        teardown(model, worker);
+    }
+
+    /// Build a model whose `document_source` is `MultiFile`, send a
+    /// `ParseMulti` for two trivial markdown files, and assert that the
+    /// resulting section list contains a `FileSeparator` between the two
+    /// files' content, with the user-provided path verbatim in the separator.
+    #[test]
+    fn multi_file_renders_with_file_separator() {
+        let entries = vec![
+            MultiFileEntry {
+                path: PathBuf::from("first.md"),
+                basepath: None,
+                text: String::from("# First\n\nFirst file body.\n"),
+            },
+            MultiFileEntry {
+                path: PathBuf::from("subdir/second.md"),
+                basepath: Some(PathBuf::from("subdir")),
+                text: String::from("# Second\n\nSecond file body.\n"),
+            },
+        ];
+
+        // Build a Model whose document_source is MultiFile, mirroring what
+        // `main_with_args` does in the new multi-file branch.
+        let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
+        let (event_tx, event_rx) = mpsc::channel::<Event>();
+        let picker = Picker::halfblocks();
+        let mut worker_config: Config = UserConfig::default().into();
+        worker_config.theme.has_text_size_protocol = Some(true);
+        let document_source = SharedDocumentSource(Arc::new(std::sync::RwLock::new(
+            DocumentSource::MultiFile {
+                entries: entries.clone(),
+            },
+        )));
+        let worker = worker_thread(
+            document_source.clone(),
+            picker,
+            None,
+            worker_config,
+            false,
+            cmd_rx,
+            event_tx,
+            20,
+        );
+        let screen_size: Size = (80, 20).into();
+        let mut model = Model::new(
+            document_source,
+            cmd_tx,
+            event_rx,
+            screen_size,
+            Config::from(UserConfig::default()),
+        );
+        let mut terminal = Terminal::new(TestBackend::new(
+            screen_size.width,
+            screen_size.height,
+        ))
+        .unwrap();
+        model.parse_multi(entries).expect("parse_multi");
+        poll_parsed(&mut model);
+
+        let sections: Vec<&Section> = model.sections().collect();
+
+        // Expect: FileSeparator(first.md) -> Lines(first content) ->
+        // FileSeparator(second.md) -> Lines(second content).
+        assert!(
+            sections.iter().any(|s| matches!(
+                &s.content,
+                SectionContent::FileSeparator { filename } if filename == "first.md"
+            )),
+            "missing FileSeparator for first.md; got: {sections:?}"
+        );
+        assert!(
+            sections.iter().any(|s| matches!(
+                &s.content,
+                SectionContent::FileSeparator { filename } if filename == "subdir/second.md"
+            )),
+            "missing FileSeparator for subdir/second.md; got: {sections:?}"
+        );
+
+        // Render into the test buffer and assert the separator line shows
+        // up as the muted bat-style line we want.
+        terminal
+            .draw(|frame| {
+                view(&model, frame.buffer_mut());
+            })
+            .expect("draw");
+        let mut found_separator_line = false;
+        {
+            let backend = terminal.backend();
+            let buffer = backend.buffer().clone();
+            for y in 0..buffer.area.height {
+                let mut line = String::new();
+                for x in 0..buffer.area.width {
+                    line.push(
+                        buffer[(x, y)]
+                            .symbol()
+                            .chars()
+                            .next()
+                            .unwrap_or(' '),
+                    );
+                }
+                if line.contains("File: first.md") {
+                    found_separator_line = true;
+                    // The line must use the same ─ character that bat uses.
+                    assert!(
+                        line.contains('\u{2500}'),
+                        "separator line for first.md missing the bat-style rule; got: {line:?}"
+                    );
+                }
+                if line.contains("File: subdir/second.md") {
+                    // Second separator must also use the bat-style rule, and
+                    // the user-supplied path must be preserved verbatim.
+                    assert!(
+                        line.contains('\u{2500}'),
+                        "separator line for subdir/second.md missing the bat-style rule; got: {line:?}"
+                    );
+                }
+            }
+        }
+        assert!(
+            found_separator_line,
+            "expected a 'File: first.md' separator line in the rendered buffer",
         );
 
         teardown(model, worker);
