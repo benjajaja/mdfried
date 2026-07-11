@@ -109,6 +109,7 @@ pub struct Theme {
     pub header_color: Option<Color>,
     pub hide_urls: Option<bool>,
     pub has_text_size_protocol: Option<bool>,
+    pub preserve_list_ordinals: Option<bool>,
 }
 
 // Delegate to StyledMapper for defaults
@@ -224,6 +225,9 @@ impl Mapper for Theme {
     fn has_text_size_protocol(&self) -> bool {
         self.has_text_size_protocol.unwrap_or_default()
     }
+    fn preserve_list_ordinals(&self) -> bool {
+        self.preserve_list_ordinals.unwrap_or(false)
+    }
 }
 
 // Delegate to DefaultTheme for defaults
@@ -312,6 +316,7 @@ impl Theme {
             hide_urls: Some(Theme::hide_urls(&theme)),
             header_color: Some(Color::from_str("#FFFFFF").unwrap_or_default()),
             has_text_size_protocol: None,
+            preserve_list_ordinals: Some(false),
         }
     }
 }

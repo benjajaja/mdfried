@@ -255,7 +255,8 @@ impl MdFrier {
         mapper: &'a M,
     ) -> Result<LineIterator<'a, M>, MarkdownParseError> {
         let tree = self.parser.parse(text, None).ok_or(MarkdownParseError)?;
-        let iter = MdIterator::new(tree, &mut self.inline_parser, text);
+        let mut iter = MdIterator::new(tree, &mut self.inline_parser, text);
+        iter.preserve_list_ordinals(mapper.preserve_list_ordinals());
         Ok(LineIterator::new(iter, width, mapper))
     }
 }
@@ -611,6 +612,113 @@ Quote break.
         let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).unwrap().collect();
         let output = lines_to_string(&lines);
         insta::assert_snapshot!(output);
+    }
+
+    struct PreserveMapper;
+    impl Mapper for PreserveMapper {
+        fn preserve_list_ordinals(&self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn ordinals_preserved() {
+        // preserve_list_ordinals = true: source numbers are kept exactly as written
+        let input = "1. a\n3. b\n5. c\n";
+        let mut frier = MdFrier::new().unwrap();
+        let lines: Vec<_> = frier.parse(80, input, &PreserveMapper).unwrap().collect();
+        assert_eq!(lines_to_string(&lines), "1. a\n3. b\n5. c");
+    }
+
+    #[test]
+    fn ordinals_preserved_nested() {
+        // preserve mode must not renumber items in nested structures
+        let input = "3. a\n   - inner\n7. b\n";
+        let mut frier = MdFrier::new().unwrap();
+        let lines: Vec<_> = frier.parse(80, input, &PreserveMapper).unwrap().collect();
+        assert_eq!(lines_to_string(&lines), "3. a\n   - inner\n7. b");
+    }
+
+    #[test]
+    fn ordinals_sequential_from_1() {
+        // Non-sequential source numbers are renumbered starting from the first item's number
+        let input = "1. a\n3. b\n5. c\n";
+        let mut frier = MdFrier::new().unwrap();
+        let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).unwrap().collect();
+        assert_eq!(lines_to_string(&lines), "1. a\n2. b\n3. c");
+    }
+
+    #[test]
+    fn ordinals_sequential_from_first() {
+        // Renumbering starts from the first item's number, not always 1
+        let input = "2. a\n7. b\n4. c\n";
+        let mut frier = MdFrier::new().unwrap();
+        let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).unwrap().collect();
+        assert_eq!(lines_to_string(&lines), "2. a\n3. b\n4. c");
+    }
+
+    #[test]
+    fn ordinals_sequential_nested() {
+        // Each nested ordered list has its own counter independent of the outer list.
+        // Note: tree-sitter-markdown only recognises a tight nested ordered sub-list when
+        // it starts at 1. A sub-list starting at any other number is parsed as paragraph
+        // continuation text of the parent item, so we use 1 here to get a real sub-list.
+        let input = "3. a\n   1. inner-a\n   9. inner-b\n7. b\n";
+        let mut frier = MdFrier::new().unwrap();
+        let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).unwrap().collect();
+        // inner 9 → 2 (continues from 1), outer 7 → 4 (continues from 3)
+        assert_eq!(
+            lines_to_string(&lines),
+            "3. a\n   1. inner-a\n   2. inner-b\n4. b"
+        );
+    }
+
+    #[test]
+    fn ordinals_sequential_nested_unordered() {
+        // A nested unordered list must not reset the outer ordered counter.
+        let input = "3. a\n   - inner-a\n   - inner-b\n7. b\n";
+        let mut frier = MdFrier::new().unwrap();
+        let lines: Vec<_> = frier.parse(80, input, &DefaultMapper).unwrap().collect();
+        // outer 7 → 4 (continues from 3, despite the nested unordered items)
+        assert_eq!(
+            lines_to_string(&lines),
+            "3. a\n   - inner-a\n   - inner-b\n4. b"
+        );
+    }
+
+    #[test]
+    fn ordinals_complex_nested() {
+        // Exercises sequential renumbering and preserve mode together across:
+        // - an outer ordered list starting at a non-1 number
+        // - a nested unordered sub-list (must not disturb the outer counter)
+        // - a nested ordered sub-list with a non-sequential source item (9 → 2)
+        // - a two-digit outer item (11 → 5)
+        //
+        // Inner ordered sub-list starts at 1 because tree-sitter-markdown parses
+        // tight nested ordered sub-lists as paragraph continuation when they start
+        // at any other number.
+        let input = "\
+3. outer-a
+   - unordered-1
+   - unordered-2
+7. outer-b
+   1. inner-1
+   9. inner-2
+11. outer-c
+";
+        let mut frier = MdFrier::new().unwrap();
+
+        let seq_lines: Vec<_> = frier.parse(80, input, &DefaultMapper).unwrap().collect();
+        assert_eq!(
+            lines_to_string(&seq_lines),
+            "3. outer-a\n   - unordered-1\n   - unordered-2\n4. outer-b\n   1. inner-1\n   2. inner-2\n5. outer-c",
+        );
+
+        let pre_lines: Vec<_> = frier.parse(80, input, &PreserveMapper).unwrap().collect();
+        assert_eq!(
+            lines_to_string(&pre_lines),
+            "3. outer-a\n   - unordered-1\n   - unordered-2\n7. outer-b\n   1. inner-1\n   9. inner-2\n11. outer-c",
+        );
     }
 
     #[test]

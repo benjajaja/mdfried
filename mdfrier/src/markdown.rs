@@ -21,10 +21,14 @@ pub(crate) struct MdIterator<'a> {
     depth: usize,
     /// Depth of the last ListItem that has emitted content (for continuation detection).
     list_item_content_depth: Option<usize>,
+    /// Sequential ordered-list counter stack. `None` = preserve-source mode.
+    /// In sequential mode each entry corresponds to one open ordered list (innermost last);
+    /// `None` entry = no item seen yet, `Some(n)` = last assigned number at that depth.
+    list_ordinal: Option<Vec<Option<u32>>>,
 }
 
 impl<'a> MdIterator<'a> {
-    pub fn new(tree: Tree, inline_parser: &'a mut Parser, source: &'a str) -> Self {
+    pub(crate) fn new(tree: Tree, inline_parser: &'a mut Parser, source: &'a str) -> Self {
         let tree = Box::new(tree);
         let cursor =
             // SAFETY:
@@ -41,7 +45,16 @@ impl<'a> MdIterator<'a> {
             context: Vec::new(),
             depth: 0,
             list_item_content_depth: None,
+            list_ordinal: Some(Vec::new()),
         }
+    }
+
+    pub(crate) fn preserve_list_ordinals(&mut self, preserve_list_ordinals: bool) {
+        self.list_ordinal = if preserve_list_ordinals {
+            None
+        } else {
+            Some(Vec::new())
+        };
     }
 }
 
@@ -58,6 +71,17 @@ impl Iterator for MdIterator<'_> {
 
             // Check if current node is a container and push to context
             if let Some(container) = self.node_to_container(node) {
+                if let Some(stack) = &mut self.list_ordinal {
+                    match &container {
+                        MdContainer::List(ListMarker::Ordered(_)) => stack.push(None),
+                        MdContainer::ListItem(ListMarker::Ordered(n)) => {
+                            if let Some(top) = stack.last_mut() {
+                                *top = Some(*n);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 self.context.push((self.depth, container));
             }
 
@@ -71,11 +95,18 @@ impl Iterator for MdIterator<'_> {
                         // Pop containers that are no longer ancestors
                         while self.context.last().is_some_and(|(d, _)| *d >= self.depth) {
                             let popped = self.context.pop();
-                            // If we're leaving a ListItem, reset the content tracking
-                            if let Some((d, MdContainer::ListItem(_))) = popped {
-                                if self.list_item_content_depth == Some(d) {
-                                    self.list_item_content_depth = None;
+                            match popped {
+                                Some((d, MdContainer::ListItem(_))) => {
+                                    if self.list_item_content_depth == Some(d) {
+                                        self.list_item_content_depth = None;
+                                    }
                                 }
+                                Some((_, MdContainer::List(ListMarker::Ordered(_)))) => {
+                                    if let Some(stack) = &mut self.list_ordinal {
+                                        stack.pop();
+                                    }
+                                }
+                                _ => {}
                             }
                         }
                     } else {
@@ -327,19 +358,34 @@ impl<'a> MdIterator<'a> {
             "list" => {
                 for child in node.children(&mut node.walk()) {
                     if child.kind() == "list_item" {
-                        return Some(MdContainer::List(self.extract_list_marker(child)));
+                        return Some(MdContainer::List(self.extract_list_marker(child, None)));
                     }
                 }
                 Some(MdContainer::List(ListMarker::Unordered(BulletStyle::Dash)))
             }
-            "list_item" => Some(MdContainer::ListItem(self.extract_list_marker(node))),
+            "list_item" => {
+                let prev_ordinal = self
+                    .list_ordinal
+                    .as_ref()
+                    .and_then(|list| list.last().copied())
+                    .flatten();
+                Some(MdContainer::ListItem(
+                    self.extract_list_marker(node, prev_ordinal),
+                ))
+            }
             "block_quote" => Some(MdContainer::Blockquote(BlockquoteMarker)),
             _ => None,
         }
     }
 
     #[expect(clippy::string_slice)]
-    fn extract_list_marker(&self, list_item: Node<'a>) -> ListMarker {
+    fn extract_list_marker(
+        &self,
+        list_item: Node<'a>,
+        // None  = use source number (first item in sequential mode, or preserve mode)
+        // Some(n) = last assigned number at this depth; emit n + 1
+        prev_ordinal: Option<u32>,
+    ) -> ListMarker {
         let mut first_char = '-';
         let mut task: Option<bool> = None;
 
@@ -370,12 +416,16 @@ impl<'a> MdIterator<'a> {
             Some(false) => ListMarker::TaskUnchecked(bullet),
             None if first_char.is_ascii_digit() => {
                 // Parse ordered list number
-                let num: u32 = self.source[list_item.byte_range()]
-                    .chars()
-                    .take_while(|c| c.is_ascii_digit())
-                    .fold(0_u32, |acc, c| {
-                        acc.saturating_mul(10)
-                            .saturating_add(c.to_digit(10).unwrap_or(0))
+                let num: u32 = prev_ordinal
+                    .map(|n| n.saturating_add(1))
+                    .unwrap_or_else(|| {
+                        self.source[list_item.byte_range()]
+                            .chars()
+                            .take_while(|c| c.is_ascii_digit())
+                            .fold(0_u32, |acc, c| {
+                                acc.saturating_mul(10)
+                                    .saturating_add(c.to_digit(10).unwrap_or(0))
+                            })
                     });
                 ListMarker::Ordered(if num == 0 { 1 } else { num })
             }

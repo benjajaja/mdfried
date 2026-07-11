@@ -85,9 +85,8 @@ impl<'a, M: Mapper> LineIterator<'a, M> {
 
     /// Process the next MdSection and queue its lines
     fn process_next_section(&mut self) -> bool {
-        let section = match self.inner.next() {
-            Some(s) => s,
-            None => return false,
+        let Some(section) = self.inner.next() else {
+            return false;
         };
 
         let in_list = section

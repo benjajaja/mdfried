@@ -204,6 +204,14 @@ pub trait Mapper {
         false
     }
 
+    /// Preserve original ordinal numbers in ordered lists.
+    ///
+    /// When `false` (default), ordered list items are renumbered sequentially starting from the
+    /// first item's number. When `true`, the original source numbers are preserved.
+    fn preserve_list_ordinals(&self) -> bool {
+        false
+    }
+
     /// Internal "has text-size-protocol" marker
     ///
     /// If true, then header width is adjusted proportionally to the header tier for wrapping.
