@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [3.0.6] - 2026-07-12
+
 ### Added
 - `preserve_list_ordinals` method on `Mapper` trait  
   When `true`, ordered list items keep their original source numbers instead of being renumbered
