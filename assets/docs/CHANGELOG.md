@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+- `preserve_list_ordinals` config option  
+  Set `preserve_list_ordinals = true` under `[theme]` to keep original source numbers in ordered
+  lists instead of renumbering sequentially.
+- Display current and total pages in status line
+
 ## [0.22.4] - 2026-06-21
 
 ### Fixed
