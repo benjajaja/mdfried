@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- `ignore_text_sizing_protocol` config option  
+  Set `ignore_text_sizing_protocol = true` to suppress probing for the Text Sizing Protocol on startup.
+  Headers will always be rendered as images instead. Useful when a terminal falsely reports protocol
+  support, or when the image-rendered look is preferred.
 - `preserve_list_ordinals` config option  
   Set `preserve_list_ordinals = true` under `[theme]` to keep original source numbers in ordered
   lists instead of renumbering sequentially.

@@ -72,7 +72,7 @@ pub fn setup_graphics(
                 .stdio_query_timeout_ms
                 .map(Duration::from_millis)
                 .unwrap_or_else(|| QueryStdioOptions::default().timeout),
-            text_sizing_protocol: true,
+            text_sizing_protocol: !config.ignore_text_sizing_protocol.unwrap_or(false),
             terminal_background_color_osc: true,
             ..Default::default()
         })?;

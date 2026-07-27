@@ -20,6 +20,14 @@ stdio_query_timeout_ms = 2000
 The timeout in milliseconds to wait for a TTY response. It may be necessary to increaso on older or exotic machines, OSs or terminals, such as Windows.
 
 ```toml
+ignore_text_sizing_protocol = false
+```
+Suppress probing for the [Text Sizing Protocol](https://sw.kovidgoyal.net/kitty/text-sizing-protocol/) on startup.
+When `true`, headers are always rendered as images (using the configured font) instead of using the
+terminal's native text scaling. Useful if your terminal falsely reports support for the protocol, or
+if you prefer the image-rendered look regardless.
+
+```toml
 max_image_height = 30
 ```
 The maximum image height as terminal row count. The width is kept proportional at the aspect ratio, and capped at the viewport width.
