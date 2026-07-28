@@ -282,7 +282,7 @@ pub fn worker_thread(
                                             if page_width > 0.0 { pixel_width / page_width } else { 1.0 };
                                         let matrix = Matrix::new_scale(scale, scale);
                                         let pixmap = page
-                                            .to_pixmap(&matrix, &Colorspace::device_rgb(), 0.0, false)?;
+                                            .to_pixmap(&matrix, &Colorspace::device_rgb(), false, false)?;
                                         let width = pixmap.width();
                                         let height = pixmap.height();
                                         let samples = pixmap.samples().to_vec();
