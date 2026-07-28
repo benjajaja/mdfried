@@ -60,6 +60,30 @@
           # and causes a rebuild that fails on read-only cargoArtifacts files.
           updateAutotoolsGnuConfigScriptsPhase = "true";
 
+          # mupdf-sys 0.8's build script uses fs::copy (which preserves mode 444
+          # from the Nix store) then immediately fs::write to those copies. A
+          # writable Nix store path can't be created (fixupPhase resets to a-w).
+          # Instead: build a vendor overlay in $TMPDIR — symlink all crates, but
+          # rsync mupdf-sys-* with D0755/F0644 so its source tree is writable.
+          postConfigure = ''
+            local writableVendor="$TMPDIR/vendor-writable"
+            local hash
+            hash=$(ls "$cargoVendorDir" | grep -v config)
+            mkdir -p "$writableVendor/$hash"
+            for crate in "$cargoVendorDir/$hash/"*; do
+              local name
+              name=$(basename "$crate")
+              if [[ "$name" == mupdf-sys-* ]]; then
+                mkdir -p "$writableVendor/$hash/$name"
+                rsync -r --chmod=D0755,F0644 "$crate/" "$writableVendor/$hash/$name/"
+              else
+                ln -s "$crate" "$writableVendor/$hash/$name"
+              fi
+            done
+            cp "$cargoVendorDir/config.toml" "$writableVendor/config.toml"
+            sed -i "s|$cargoVendorDir|$writableVendor|g" "$CARGO_HOME/config.toml"
+          '';
+
           nativeBuildInputs = with pkgs; [
             makeWrapper
             pkg-config
@@ -67,12 +91,7 @@
             gperf # for mupdf vendored Makefile
             python3 # for mupdf vendored Makefile
             unzip # for mupdf vendored docx_template build
-            # mupdf-sys cp_r copies files from the read-only Nix store, preserving
-            # mode 444. make then fails to regenerate headers. Wrap make to chmod first.
-            (writeShellScriptBin "make" ''
-              chmod -R u+w . 2>/dev/null || true
-              exec ${gnumake}/bin/make "$@"
-            '')
+            gnumake
           ];
 
           buildInputs = [
@@ -131,6 +150,24 @@
               CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
               CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static -C link-arg=-lgcc -C link-arg=-Wl,--start-group -C link-arg=-lbrotlicommon -C link-arg=-lexpat -C link-arg=-lc -C link-arg=-Wl,--end-group";
               CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER = "${pkgs.pkgsCross.musl64.stdenv.cc}/bin/x86_64-unknown-linux-musl-cc";
+              postConfigure = ''
+                local writableVendor="$TMPDIR/vendor-writable"
+                local hash
+                hash=$(ls "$cargoVendorDir" | grep -v config)
+                mkdir -p "$writableVendor/$hash"
+                for crate in "$cargoVendorDir/$hash/"*; do
+                  local name
+                  name=$(basename "$crate")
+                  if [[ "$name" == mupdf-sys-* ]]; then
+                    mkdir -p "$writableVendor/$hash/$name"
+                    rsync -r --chmod=D0755,F0644 "$crate/" "$writableVendor/$hash/$name/"
+                  else
+                    ln -s "$crate" "$writableVendor/$hash/$name"
+                  fi
+                done
+                cp "$cargoVendorDir/config.toml" "$writableVendor/config.toml"
+                sed -i "s|$cargoVendorDir|$writableVendor|g" "$CARGO_HOME/config.toml"
+              '';
               nativeBuildInputs = with pkgs; [
                 pkgsCross.musl64.stdenv.cc
                 pkg-config
@@ -138,6 +175,7 @@
                 gperf # for mupdf vendored Makefile
                 python3 # for mupdf vendored Makefile
                 unzip # for mupdf vendored docx_template build
+                rsync
               ];
               buildInputs = [
                 chafaMuslStatic
