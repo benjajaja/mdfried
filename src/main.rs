@@ -61,6 +61,7 @@ fn main() -> io::Result<()> {
     let mut cmd = command!() // requires `cargo` feature
         .arg(
             arg!([SOURCE] "The markdown source.\nCan be a file path, a URL, a github repo in \"github:[owner]/[repo]\" format, or '-' or omit, for stdin.")
+                .num_args(0..)
         )
         .arg(arg!(-d --"deep-fry" "Extra deep fried images.").value_parser(value_parser!(bool)))
         .arg(arg!(-w --"watch" "Watch markdown file, reload on changes.").value_parser(value_parser!(bool)))
@@ -136,7 +137,15 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let log = matches.get_one::<String>("log");
     debug::init_logger(debug::LogTarget::from(log))?;
 
-    let source: Option<String> = matches.get_one::<String>("SOURCE").cloned();
+    let mut sources: Vec<String> = matches
+        .get_many::<String>("SOURCE")
+        .unwrap_or_default()
+        .cloned()
+        .collect();
+    if sources.len() > 1 {
+        return Err(Error::Usage(Some("multiple files are not supported")));
+    }
+    let source: Option<String> = sources.pop();
 
     let mut user_config = config::load_or_ask()?;
     let mut config = Config::from(user_config.clone());
