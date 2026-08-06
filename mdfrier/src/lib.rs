@@ -1,4 +1,4 @@
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 //! mdfrier - Deep fry markdown for [mdfried](https://crates.io/crates/mdfried).
 //!

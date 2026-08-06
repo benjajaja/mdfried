@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+Change to `doc_cfg` to fix docs.rs builds.
+
 ## [3.0.6] - 2026-07-12
 
 ### Added
