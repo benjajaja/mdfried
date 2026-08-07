@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.22.5] - 2026-08-07
+
 ### Added
 - `ignore_text_sizing_protocol` config option  
   Set `ignore_text_sizing_protocol = true` to suppress probing for the Text Sizing Protocol on startup.
