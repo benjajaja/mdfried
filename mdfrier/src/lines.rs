@@ -813,20 +813,50 @@ fn table_to_lines<M: Mapper>(
         return lines;
     }
 
-    // Calculate cell width
-    let cell_width = |cell: &[Span]| -> usize { cell.iter().map(|n| n.content.width()).sum() };
+    // Pre-apply decorators to all cells before computing column widths so that
+    // mapper transformations (e.g. hide_urls dropping link URL text) are already
+    // reflected in the width calculation. This avoids double-decoration later.
+    let decorated_header: Vec<Vec<Span>> = header
+        .iter()
+        .map(|cell| apply_decorators(cell.clone(), mapper))
+        .collect();
+    let decorated_rows: Vec<Vec<Vec<Span>>> = rows
+        .iter()
+        .map(|row| {
+            row.iter()
+                .map(|cell| apply_decorators(cell.clone(), mapper))
+                .collect()
+        })
+        .collect();
 
-    // Find max width for each column
-    let mut col_widths: Vec<usize> = header.iter().map(|c| cell_width(c)).collect();
-    for row in rows {
-        for (i, cell) in row.iter().enumerate() {
+    // Compute the visual width of a decorated cell, accounting for hide_urls
+    // (link URL spans are invisible when hide_urls is true).
+    // We need to query hide_urls here as a special case, because URLs are not hidden until later,
+    // because LinkTracker needs the actual span content.
+    let hide_urls = mapper.hide_urls();
+    let cell_vis_width = |cell: &[Span]| -> usize {
+        cell.iter()
+            .map(|s| {
+                if hide_urls && s.modifiers.is_link_url() {
+                    0
+                } else {
+                    s.content.width()
+                }
+            })
+            .sum()
+    };
+
+    // Find max visual width for each column across header and all rows.
+    let mut col_widths: Vec<usize> = decorated_header.iter().map(|c| cell_vis_width(c)).collect();
+    for drow in &decorated_rows {
+        for (i, cell) in drow.iter().enumerate() {
             if i < col_widths.len() {
-                col_widths[i] = col_widths[i].max(cell_width(cell));
+                col_widths[i] = col_widths[i].max(cell_vis_width(cell));
             }
         }
     }
 
-    // Add padding
+    // Add padding (1 space on each side).
     let col_widths: Vec<usize> = col_widths.iter().map(|w| w + 2).collect();
 
     // Scale if too wide
@@ -841,6 +871,26 @@ fn table_to_lines<M: Mapper>(
             .collect()
     } else {
         col_widths
+    };
+
+    // Compute the character offset of each column's content-start within a rendered row,
+    // assuming Left alignment (left_pad = 0). The URL positions from wrap_md_spans are
+    // relative to 0, so we shift them by (col_base_offsets[i] + left_pad).
+    //
+    // Layout per row:
+    //   <prefix> "|" (" " <left_pad> <content> <right_pad> " " "|") * num_cols
+    //
+    // base_offsets[i] = prefix_width + |"|"| + sum_{j<i}(col_widths[j] + |"|"|) + 1
+    // where the trailing +1 is the mandatory leading " " of column i.
+    let vertical_w = mapper.table_vertical().width();
+    let col_base_offsets: Vec<usize> = {
+        let mut offsets = Vec::with_capacity(num_cols);
+        let mut pos = prefix_width + vertical_w + 1;
+        for &col_w in &col_widths {
+            offsets.push(pos);
+            pos += col_w + vertical_w;
+        }
+        offsets
     };
 
     // Helper to build border line
@@ -881,21 +931,22 @@ fn table_to_lines<M: Mapper>(
         }
     };
 
-    // Helper to build row lines
+    // Helper to build row lines from pre-decorated cell spans.
     let build_row_lines = |row: &[Vec<Span>], is_header: bool| -> Vec<Line> {
         let vertical = mapper.table_vertical();
 
-        // Wrap each cell's content (apply decorators first, like paragraphs)
-        let wrapped_cells: Vec<Vec<Vec<Span>>> = row
+        // Wrap each already-decorated cell and track links via wrap_md_spans.
+        let wrapped_cells: Vec<Vec<(Vec<Span>, Vec<TrackedUrl>)>> = row
             .iter()
             .enumerate()
             .map(|(i, cell)| {
                 let col_width = col_widths.get(i).copied().unwrap_or(3);
                 let inner_width = col_width.saturating_sub(2).max(1) as u16;
-                let decorated = apply_decorators(cell.clone(), mapper);
-                let wrapped = wrap_md_spans_lines(inner_width, decorated, mapper);
+                // prefix_width=0 so available_width=inner_width and URL positions are
+                // cell-relative (0-based); we shift them to row-absolute below.
+                let wrapped = wrap_md_spans(inner_width, cell.clone(), 0, mapper);
                 if wrapped.is_empty() {
-                    vec![Vec::new()]
+                    vec![(Vec::new(), Vec::new())]
                 } else {
                     wrapped
                 }
@@ -908,15 +959,26 @@ fn table_to_lines<M: Mapper>(
         for line_idx in 0..max_lines {
             let mut spans = prefix_spans.clone();
             spans.push(Span::new(vertical.to_owned(), Modifier::TableBorder));
+            let mut row_urls: Vec<TrackedUrl> = Vec::new();
 
             for (i, col_width) in col_widths.iter().enumerate() {
                 let alignment = alignments.get(i).copied().unwrap_or(TableAlignment::Left);
-                let cell_spans = wrapped_cells
+                let (cell_spans, cell_urls) = wrapped_cells
                     .get(i)
                     .and_then(|c| c.get(line_idx))
-                    .map_or(&[][..], |v| v.as_slice());
+                    .map_or((&[][..], &[][..]), |(s, u)| (s.as_slice(), u.as_slice()));
 
-                let content_width: usize = cell_spans.iter().map(|s| s.content.width()).sum();
+                // Compute visible content width for padding (same rule as wrap_md_spans).
+                let content_width: usize = cell_spans
+                    .iter()
+                    .map(|s| {
+                        if hide_urls && s.modifiers.is_link_url() {
+                            0
+                        } else {
+                            s.content.width()
+                        }
+                    })
+                    .sum();
                 let inner_width = col_width.saturating_sub(2);
                 let padding_total = inner_width.saturating_sub(content_width);
 
@@ -927,6 +989,35 @@ fn table_to_lines<M: Mapper>(
                     TableAlignment::Right => (padding_total, 0),
                     TableAlignment::Left => (0, padding_total),
                 };
+
+                // Shift cell-relative URL positions to row-absolute positions.
+                let base = col_base_offsets.get(i).copied().unwrap_or(0);
+                let content_start = (base + left_pad) as u16;
+                for url in cell_urls {
+                    match url {
+                        TrackedUrl::Link {
+                            start,
+                            lines,
+                            end,
+                            url,
+                            is_reference,
+                        } => {
+                            row_urls.push(TrackedUrl::Link {
+                                start: start + content_start,
+                                lines: *lines,
+                                end: end + content_start,
+                                url: url.clone(),
+                                is_reference: *is_reference,
+                            });
+                        }
+                        TrackedUrl::Image { desc, url } => {
+                            row_urls.push(TrackedUrl::Image {
+                                desc: desc.clone(),
+                                url: url.clone(),
+                            });
+                        }
+                    }
+                }
 
                 // Left padding + space
                 spans.push(Span::new(
@@ -955,7 +1046,7 @@ fn table_to_lines<M: Mapper>(
             result.push(Line {
                 spans,
                 kind: LineKind::TableRow { is_header },
-                urls: Vec::new(),
+                urls: row_urls,
             });
         }
 
@@ -966,14 +1057,14 @@ fn table_to_lines<M: Mapper>(
     lines.push(build_border(BorderPosition::Top));
 
     // Header row
-    lines.extend(build_row_lines(header, true));
+    lines.extend(build_row_lines(&decorated_header, true));
 
     // Header separator
     lines.push(build_border(BorderPosition::HeaderSeparator));
 
     // Data rows
-    for row in rows {
-        lines.extend(build_row_lines(row, false));
+    for drow in &decorated_rows {
+        lines.extend(build_row_lines(drow, false));
     }
 
     // Bottom border
@@ -1265,6 +1356,81 @@ I have searched far **and** wide but I have *yet* to come across a show that wou
         assert_eq!(
             lines[2].urls,
             vec![TrackedUrl::link("https://ex.com/abcdefg", 0, 7, 1)],
+        );
+    }
+
+    #[test]
+    fn table_link_width_with_hide_urls() {
+        // A table cell containing a link must be sized by the *visible* text ("text"), not the
+        // full raw span including the URL. With hide_urls the URL span is zero-width for layout
+        // purposes, so the column width must reflect only the link description.
+        //
+        // "col" header = 3 visible chars. "[text](http://example.com)" cell = 4 visible chars.
+        // → inner_width = 4, col_width = 6. Border: "+" + "------" + "+" = 8 chars total.
+        // Without the fix, the raw cell spans (including the 18-char URL) would inflate
+        // col_width to 28, producing a 30-char border line.
+        let source = "| col |\n|-----|\n| [text](http://example.com) |\n";
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
+        let tree = parser.parse(source, None).unwrap();
+        let iter = MdIterator::new(tree, &mut inline_parser, source);
+
+        struct HideUrlsMapper;
+        impl Mapper for HideUrlsMapper {
+            fn hide_urls(&self) -> bool {
+                true
+            }
+            fn link_desc_open(&self) -> &str {
+                ""
+            }
+            fn link_desc_close(&self) -> &str {
+                ""
+            }
+        }
+
+        let line_iter = LineIterator::new(iter, 80, &HideUrlsMapper {});
+        let lines: Vec<Line> = line_iter.collect();
+
+        // Lines: top border, header row, separator, data row, bottom border.
+        assert_eq!(lines.len(), 5);
+
+        // Border width reflects col_width. Expected: "+" + 6 chars + "+" = 8.
+        // A URL-inflated column would produce "+" + 28 chars + "+" = 30.
+        let top_border: String = lines[0].spans.iter().map(|s| s.content.as_str()).collect();
+        assert_eq!(
+            top_border.len(),
+            8,
+            "border must be sized for visible text only, got: {top_border:?}"
+        );
+
+        // Data row must track the link even with hide_urls.
+        assert_eq!(lines[3].urls.len(), 1, "data row must track the cell link");
+        assert!(
+            matches!(&lines[3].urls[0], TrackedUrl::Link { url, .. } if url == "http://example.com"),
+            "tracked URL must match the cell link"
+        );
+    }
+
+    #[test]
+    fn table_link_tracked() {
+        // Links inside table cells must be tracked (non-empty urls on the row Line).
+        let source = "| Header |\n|---------|\n| [click](http://example.com) |\n";
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
+        let tree = parser.parse(source, None).unwrap();
+        let iter = MdIterator::new(tree, &mut inline_parser, source);
+
+        let line_iter = LineIterator::new(iter, 80, &DefaultMapper {});
+        let lines: Vec<Line> = line_iter.collect();
+
+        // Lines: top border, header row, separator, data row, bottom border.
+        assert_eq!(lines.len(), 5);
+
+        // Data row must have exactly one tracked link.
+        assert_eq!(lines[3].urls.len(), 1, "data row must track the cell link");
+        assert!(
+            matches!(&lines[3].urls[0], TrackedUrl::Link { url, .. } if url == "http://example.com"),
+            "tracked URL must match the cell link"
         );
     }
 }
