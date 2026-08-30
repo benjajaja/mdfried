@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Fix cell widths (especially for URLs), 
+- Track cell URLs like other URLs for navigation.
+
 ## [3.0.7] - 2026-08-06
 
 Change to `doc_cfg` to fix docs.rs builds.
