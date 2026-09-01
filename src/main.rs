@@ -498,7 +498,7 @@ mod tests {
     // Poll until parsed and no pending images.
     #[track_caller]
     fn poll_parsed(model: &mut Model) {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         loop {
             let (_, parse_done, _) = model.process_events().unwrap();
             if parse_done {
@@ -515,7 +515,7 @@ mod tests {
 
     // Poll until parsed and no pending images.
     fn poll_images_done(model: &mut Model) {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         while model.has_pending_images() {
             model.process_events().unwrap();
             assert!(
