@@ -226,8 +226,12 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
                 panic!("invariant InputQueue::Command");
             };
 
-            if let Err(err) = model.user_command_str(command) {
-                model.set_last_error(err);
+            match model.user_command_str(command) {
+                Err(err) => model.set_last_error(err),
+                Ok(quit) if quit => {
+                    return Ok(PollResult::Quit);
+                }
+                _ => {}
             }
         }
         KeyCode::Enter => {

@@ -6,6 +6,7 @@
 
 - Fix cell widths (especially for URLs), 
 - Track cell URLs like other URLs for navigation.
+- Fix `q`/`quit` commands not existing.
 
 ## [3.0.7] - 2026-08-06
 

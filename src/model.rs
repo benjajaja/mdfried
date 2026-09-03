@@ -698,20 +698,21 @@ impl Model {
     }
 
     /// User has typed `:some_command<Enter>`.
-    pub fn user_command_str(&mut self, command: String) -> Result<(), Error> {
+    pub fn user_command_str(&mut self, command: String) -> Result<bool, Error> {
         if let Ok(builtin) = BuiltIn::try_from(command.as_str()) {
             match builtin.source() {
-                (source, Some(text)) => self.open_new_source(source, text),
-                _ => Ok(()),
+                (source, Some(text)) => self.open_new_source(source, text).map(|_| false),
+                _ => Ok(false),
             }
         } else {
             match command.as_str() {
+                "q" | "quit" => Ok(true),
                 // builtin if builtin.starts_with("help") => self.open_builtin(builtin),
                 // builtin @ "changelog" => self.open_builtin(builtin),
-                "back" => self.history_pop(),
+                "back" => self.history_pop().map(|_| false),
                 _ => {
                     if let Some(path) = command.strip_prefix("open ") {
-                        self.open_file(path, None)
+                        self.open_file(path, None).map(|_| false)
                     } else {
                         Err(Error::Command(CommandError::UnknownCommand(command)))
                     }
