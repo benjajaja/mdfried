@@ -7,6 +7,7 @@
 //!
 //! For example, text search could benefit from running in the worker, but it's not clear how the
 //! text should then actually be shared.
+pub mod diagnostics;
 pub mod highlighter;
 pub mod mermaid;
 pub mod sections;
@@ -38,6 +39,7 @@ use crate::{
     setup::FontRenderer,
     sources::{SharedDocumentSource, open_source},
     worker::{
+        diagnostics::Diagnostics,
         highlighter::Highlighter,
         sections::{SectionEvent, SectionIterator},
     },
@@ -332,6 +334,13 @@ pub fn worker_thread(
                                 Ok(())
                             })
                             .await??;
+                        }
+                        Cmd::Diagnose => {
+                            let mut diagnostics = Diagnostics::from_picker(&thread_picker);
+                            if let Some(renderer) = thread_renderer.clone() && let Ok(renderer) = renderer.lock() {
+                                diagnostics = diagnostics.with_renderer(&renderer);
+                            };
+                            event_tx.send(Event::Diagnosed(diagnostics))?;
                         }
                     }
 

@@ -12,7 +12,7 @@ use reqwest::header::CONTENT_TYPE;
 use url::Url;
 
 use crate::{
-    OK_END, VERSION,
+    Cmd, OK_END, VERSION,
     document::Document,
     error::{Error, NavigationError},
 };
@@ -61,34 +61,49 @@ pub enum BuiltIn {
     HelpConfiguration,
     Welcome,
     Changelog,
+    Diagnostics,
+}
+pub enum BuiltInResponse {
+    Content(String),
+    Command(Cmd),
 }
 impl BuiltIn {
-    pub fn source(&self) -> (DocumentSource, Option<String>) {
+    pub fn source(&self) -> (DocumentSource, BuiltInResponse) {
         match self {
             BuiltIn::Help => {
                 const HELP_MD: &str = include_str!("../assets/docs/help.md");
-                (DocumentSource::BuiltIn(*self), Some(String::from(HELP_MD)))
+                (
+                    DocumentSource::BuiltIn(*self),
+                    BuiltInResponse::Content(String::from(HELP_MD)),
+                )
             }
             BuiltIn::HelpConfiguration => {
                 const HELP_CONFIGURATION_MD: &str =
                     include_str!("../assets/docs/help_configuration.md");
                 (
                     DocumentSource::BuiltIn(*self),
-                    Some(String::from(HELP_CONFIGURATION_MD)),
+                    BuiltInResponse::Content(String::from(HELP_CONFIGURATION_MD)),
                 )
             }
             BuiltIn::Changelog => {
                 const CHANGELOG_MD: &str = include_str!("../assets/docs/CHANGELOG.md");
                 (
                     DocumentSource::BuiltIn(*self),
-                    Some(String::from(CHANGELOG_MD)),
+                    BuiltInResponse::Content(String::from(CHANGELOG_MD)),
                 )
             }
-            BuiltIn::Welcome => (DocumentSource::BuiltIn(*self), None),
+            BuiltIn::Welcome => (
+                DocumentSource::BuiltIn(*self),
+                BuiltInResponse::Command(Cmd::LoadImage(None)),
+            ),
+            BuiltIn::Diagnostics => (
+                DocumentSource::BuiltIn(*self),
+                BuiltInResponse::Command(Cmd::Diagnose),
+            ),
         }
     }
 
-    pub fn relative_link(&self, link_url: &str) -> Option<(DocumentSource, Option<String>)> {
+    pub fn relative_link(&self, link_url: &str) -> Option<(DocumentSource, BuiltInResponse)> {
         match link_url {
             "./help_configuration.md" => Some(BuiltIn::HelpConfiguration.source()),
             _ => None,
@@ -105,6 +120,7 @@ impl TryFrom<&str> for BuiltIn {
             "help configuration" => Ok(Self::HelpConfiguration),
             "changelog" => Ok(Self::Changelog),
             "welcome" => Ok(Self::Welcome),
+            "d" | "diagnostics" => Ok(Self::Diagnostics),
             _ => Err(Error::Navigation(NavigationError::UnknownLinkType(
                 value.to_owned(),
             ))),
@@ -122,6 +138,7 @@ impl fmt::Display for BuiltIn {
                 BuiltIn::HelpConfiguration => "help configuration",
                 BuiltIn::Welcome => "welcome",
                 BuiltIn::Changelog => "changelog",
+                BuiltIn::Diagnostics => "diagnostics",
             }
         )
     }

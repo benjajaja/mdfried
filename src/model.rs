@@ -1,6 +1,6 @@
 use std::{
     cmp::min,
-    fmt::Display,
+    fmt::{Display, Write as _},
     fs,
     num::NonZero,
     path::Path,
@@ -25,8 +25,11 @@ use crate::{
     cursor::{Cursor, CursorPointer},
     document::{Document, FindMode, FindTarget, LineExtra, Section, SectionContent},
     error::{CommandError, Error, NavigationError},
-    sources::{BuiltIn, DocumentHistoryEntry, DocumentSource, extend_url, github_usercontent_url},
-    worker::ImageCache,
+    sources::{
+        BuiltIn, BuiltInResponse, DocumentHistoryEntry, DocumentSource, extend_url,
+        github_usercontent_url,
+    },
+    worker::{ImageCache, diagnostics::Diagnostics},
 };
 use crate::{Event, sources::SharedDocumentSource};
 
@@ -361,9 +364,64 @@ impl Model {
                         content: SectionContent::Lines(lines),
                     }])
                 }
+                Event::Diagnosed(diagnostics) => {
+                    let text = self
+                        .diagnostics(&diagnostics)
+                        .map_err(|e| Error::Generic(e.to_string()))?;
+                    self.open_new_source(DocumentSource::BuiltIn(BuiltIn::Diagnostics), text)?;
+                }
             }
         }
         Ok((had_events, had_done, had_reload))
+    }
+
+    fn diagnostics(&self, diagnostics: &Diagnostics) -> Result<String, std::fmt::Error> {
+        let mut text = String::from("# Diagnostics\n");
+        text.push('\n');
+
+        writeln!(text, "#### Graphics")?;
+        writeln!(text, "Protocol Type: `{:?}`  ", diagnostics.protocol_type)?;
+        write!(text, "Terminal Capabilities: `")?;
+        for (i, cap) in diagnostics.caps.iter().enumerate() {
+            write!(text, "{:?}", cap)?;
+            if i < diagnostics.caps.len() - 1 {
+                write!(text, ", ")?;
+            }
+        }
+        writeln!(text, "`  ")?;
+
+        writeln!(
+            text,
+            "Tmux detected: {}  ",
+            if diagnostics.tmux_detected {
+                "Yes"
+            } else {
+                "No"
+            },
+        )?;
+        text.push('\n');
+
+        writeln!(text, "#### Font renderer")?;
+        text.push('\n');
+        if let Some(r) = &diagnostics.font_renderer {
+            writeln!(text, "`font_name`: `{}`  ", r.font_name)?;
+            writeln!(text, "`font_size`: `{:?}`  ", r.font_size)?;
+            writeln!(text, "`font_color`: `{:?}`  ", r.font_color.as_rgba_tuple())?;
+            writeln!(text, "`background_color`: `{:?}`  ", r.background_color)?;
+        } else {
+            writeln!(text, "None  ")?;
+        }
+        text.push('\n');
+
+        writeln!(text, "#### Runtime")?;
+        text.push('\n');
+        writeln!(text, "Configuration:")?;
+        writeln!(text, "```")?;
+        writeln!(text, "{:?}", self.config)?;
+        writeln!(text, "```")?;
+        text.push('\n');
+
+        Ok(text)
     }
 
     fn reload_search(&mut self) {
@@ -466,7 +524,14 @@ impl Model {
             }
             DocumentSource::BuiltIn(builtin) => {
                 return match builtin.relative_link(&link_url) {
-                    Some((source, Some(text))) => self.open_new_source(source, text),
+                    Some((source, BuiltInResponse::Content(text))) => {
+                        self.open_new_source(source, text)
+                    }
+                    Some((_, BuiltInResponse::Command(_))) => Err(Error::Navigation(
+                        NavigationError::UnknownLinkType(format!(
+                            "cannot open builtin with no text and commands: {link_url} (from builtin {builtin})"
+                        )),
+                    )),
                     _ => Err(Error::Navigation(NavigationError::UnknownLinkType(
                         format!("unknown builtin link: {link_url} (from builtin {builtin})"),
                     ))),
@@ -701,8 +766,13 @@ impl Model {
     pub fn user_command_str(&mut self, command: String) -> Result<bool, Error> {
         if let Ok(builtin) = BuiltIn::try_from(command.as_str()) {
             match builtin.source() {
-                (source, Some(text)) => self.open_new_source(source, text).map(|_| false),
-                _ => Ok(false),
+                (source, BuiltInResponse::Content(text)) => {
+                    self.open_new_source(source, text).map(|_| false)
+                }
+                (_, BuiltInResponse::Command(cmd)) => {
+                    self.cmd_tx.send(cmd)?;
+                    Ok(false)
+                }
             }
         } else {
             match command.as_str() {

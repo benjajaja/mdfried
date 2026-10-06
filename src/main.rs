@@ -48,9 +48,9 @@ use crate::{
     error::Error,
     model::{DocumentId, Model},
     renderer::run_loop,
-    sources::{BuiltIn, DocumentSource, SharedDocumentSource, open_source},
+    sources::{BuiltIn, BuiltInResponse, DocumentSource, SharedDocumentSource, open_source},
     watch::watch,
-    worker::{ImageCache, worker_thread},
+    worker::{ImageCache, diagnostics::Diagnostics, worker_thread},
 };
 
 pub const OK_END: &str = " ok.";
@@ -281,8 +281,11 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let watch_debounce_milliseconds = config.watch_debounce_milliseconds;
     terminal.clear()?;
 
-    if document_source.read()? == DocumentSource::BuiltIn(BuiltIn::Welcome) {
-        cmd_tx.send(Cmd::LoadImage(None))?;
+    if document_source.read()? == DocumentSource::BuiltIn(BuiltIn::Welcome)
+        && let BuiltInResponse::Command(cmd) = BuiltIn::Welcome.source().1
+    {
+        // Start loading the welcome image immediately.
+        cmd_tx.send(cmd)?;
     }
     let model = Model::new(document_source, cmd_tx, event_rx, terminal.size()?, config);
     model.open(text)?;
@@ -321,6 +324,7 @@ pub enum Cmd {
     OpenUrl(String),
     LoadImage(Option<(PathBuf, Size)>), // TODO: either included welcome logo, or a path, make an enum?
     LoadPdf(PathBuf, Size),
+    Diagnose,
 }
 
 impl std::fmt::Debug for Cmd {
@@ -341,6 +345,7 @@ impl Display for Cmd {
             Cmd::OpenUrl(url) => write!(f, "Cmd::Open({url})"),
             Cmd::LoadImage(image) => write!(f, "Cmd::LoadImage({image:?})"),
             Cmd::LoadPdf(path, size) => write!(f, "Cmd::LoadPdf({path:?}, {size:?})"),
+            Cmd::Diagnose => write!(f, "Cmd::Diagnose"),
         }
     }
 }
@@ -369,6 +374,7 @@ pub enum Event {
     },
     CodeLoaded(DocumentId, usize, ratatui::prelude::Text<'static>),
     WorkerError(Error),
+    Diagnosed(Diagnostics),
 }
 
 impl Display for Event {
@@ -422,6 +428,7 @@ impl Display for Event {
             Event::Scroll(s) => write!(f, "Event::Scroll({s})"),
             Event::NewSourceContent(_) => write!(f, "Event::NewSource"),
             Event::WorkerError(err) => write!(f, "Event::WorkerError({err})"),
+            Event::Diagnosed(_) => write!(f, "Event::Diagnosed(<Diagnostics>)"),
         }
     }
 }
