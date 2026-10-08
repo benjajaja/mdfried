@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.22.7] - 2026-10-08
+
 ### Changed
 * Do not fall back to TIOCGWINSZ ioctl whic is inaccurate.
 * Kitty protocol works in iTerm2.
