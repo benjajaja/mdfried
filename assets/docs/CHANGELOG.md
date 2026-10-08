@@ -2,7 +2,25 @@
 
 ## [Unreleased]
 
+### Changed
+* Do not fall back to TIOCGWINSZ ioctl whic is inaccurate.
+* Kitty protocol works in iTerm2.
+
+### Fixed
+* Sliced images being cut from top and bottom at the same time, sometimes.
+* Tmux not working sometimes.
+
 ## [0.22.6] - 2026-09-18
+
+### Changed
+* Use Kitty Shared Memory Object for faster image transmission.
+* Kitty uses isolated unicode placeholder, better buffer diffing.
+* Does not spawn a thread for querying the terminal at start anymore.
+
+# Fixed
+* `:q` / `:quit` not working.
+* Table cell width accounts for hidden URLs.
+* Links in tables not working.
 
 ## [0.22.5] - 2026-08-07
 
