@@ -262,6 +262,7 @@ fn match_keycode(key: KeyEvent, model: &mut Model) -> Result<PollResult, Error> 
                     if let Err(err) = model.open_link(url.to_string()) {
                         model.set_last_error(err);
                     }
+                    model.cursor = Cursor::None;
                 }
             }
         }
