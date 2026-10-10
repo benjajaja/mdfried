@@ -339,12 +339,13 @@ mod tests {
             .parse(80, "```rust\nlet x = 1;\n```\n", &DefaultMapper)
             .unwrap()
             .collect();
-        assert_eq!(lines.len(), 1);
+        assert_eq!(lines.len(), 2);
 
-        let line = &lines[0];
-        assert!(matches!(line.kind, LineKind::CodeBlock { .. }));
-        // First span is the code content
-        assert!(line.spans[0].content.starts_with("let x = 1;"));
+        assert!(matches!(lines[0].kind, LineKind::CodeBlock { .. }));
+        // First line is the language "header"
+        assert_eq!(lines[0].spans[0].content, "rust");
+        // First span of second line is the code content
+        assert!(lines[1].spans[0].content.starts_with("let x = 1;"));
     }
 
     #[test]

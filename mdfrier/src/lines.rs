@@ -645,6 +645,29 @@ fn code_block_to_lines<M: Mapper>(
 
     let mut result = Vec::new();
 
+    if !mapper.hide_codeblock_language() && !language.is_empty() {
+        let parts = if language.width() > available_width {
+            let options = Options::new(available_width)
+                .break_words(true)
+                .word_splitter(textwrap::word_splitters::WordSplitter::NoHyphenation);
+            let parts: Vec<_> = wrap(&language, options).into_iter().collect();
+            parts
+        } else {
+            vec![language.clone().into()]
+        };
+        for part in parts {
+            let mut spans = prefix_spans.clone();
+            spans.push(Span::new(part.into_owned(), Modifier::Code));
+            result.push(Line {
+                spans,
+                kind: LineKind::CodeBlock {
+                    language: language.clone(),
+                },
+                urls: Vec::new(),
+            });
+        }
+    }
+
     for line in code_lines {
         let line_width = line.width();
 

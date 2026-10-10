@@ -111,6 +111,7 @@ pub struct Theme {
     pub hide_urls: Option<bool>,
     pub has_text_size_protocol: Option<bool>,
     pub preserve_list_ordinals: Option<bool>,
+    pub hide_codeblock_language: Option<bool>,
 }
 
 // Delegate to StyledMapper for defaults
@@ -229,6 +230,9 @@ impl Mapper for Theme {
     fn preserve_list_ordinals(&self) -> bool {
         self.preserve_list_ordinals.unwrap_or(false)
     }
+    fn hide_codeblock_language(&self) -> bool {
+        self.hide_codeblock_language.unwrap_or(false)
+    }
 }
 
 // Delegate to DefaultTheme for defaults
@@ -318,6 +322,7 @@ impl Theme {
             header_color: Some(Color::from_str("#FFFFFF").unwrap_or_default()),
             has_text_size_protocol: None,
             preserve_list_ordinals: Some(false),
+            hide_codeblock_language: Some(false),
         }
     }
 }

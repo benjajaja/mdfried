@@ -218,6 +218,10 @@ pub trait Mapper {
     fn has_text_size_protocol(&self) -> bool {
         false
     }
+
+    fn hide_codeblock_language(&self) -> bool {
+        false
+    }
 }
 
 /// Default mapper preserving markdown decorators.
