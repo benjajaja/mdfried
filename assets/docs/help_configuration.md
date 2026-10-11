@@ -109,3 +109,11 @@ hide_urls = true
 ```
 The theme, including colors, replacement strings, and some markdown options.
 
+```toml
+[theme]
+code_theme = "GitHub Light"
+```
+The syntax highlighting theme for code blocks, by name. Defaults to "Tokyo Night", which is hard to read on a light background.
+Any of [arborium's built-in themes](https://github.com/bearcove/arborium/tree/main/crates/arborium-theme/themes) works, such as
+"GitHub Light", "Catppuccin Latte", "Solarized Light", "Gruvbox Dark" or "Nord".
+An unknown name falls back to the default.

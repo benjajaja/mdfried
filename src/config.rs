@@ -112,6 +112,8 @@ pub struct Theme {
     pub has_text_size_protocol: Option<bool>,
     pub preserve_list_ordinals: Option<bool>,
     pub hide_codeblock_language: Option<bool>,
+    /// Name of an arborium built-in theme for code blocks, e.g. "GitHub Light".
+    pub code_theme: Option<String>,
 }
 
 // Delegate to StyledMapper for defaults
@@ -323,6 +325,7 @@ impl Theme {
             has_text_size_protocol: None,
             preserve_list_ordinals: Some(false),
             hide_codeblock_language: Some(false),
+            code_theme: Some(arborium::theme::builtin::tokyo_night().name),
         }
     }
 }

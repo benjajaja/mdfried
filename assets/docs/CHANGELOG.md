@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+* `code_theme` setting, to pick the syntax highlighting theme for code blocks.
+
 ## [0.22.7] - 2026-10-08
 
 ### Changed

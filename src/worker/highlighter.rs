@@ -16,7 +16,15 @@ pub struct Highlighter {
 
 impl Highlighter {
     pub fn new(mdfried_theme: &crate::config::Theme) -> Self {
-        let theme = arborium::theme::builtin::tokyo_night().clone();
+        let theme = mdfried_theme
+            .code_theme
+            .as_deref()
+            .and_then(|name| {
+                arborium::theme::builtin::all()
+                    .into_iter()
+                    .find(|theme| theme.name == name)
+            })
+            .unwrap_or_else(arborium::theme::builtin::tokyo_night);
         let bg = mdfried_theme.code_bg();
         let hl = AnsiHighlighter::new(theme);
         Self { hl, bg }
