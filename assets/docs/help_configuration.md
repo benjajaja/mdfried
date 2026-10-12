@@ -106,14 +106,10 @@ table_border_color = "240"
 table_header_color = "255"
 header_color = "#FFFFFF"
 hide_urls = true
+code_theme = "Tokyo Night"
 ```
 The theme, including colors, replacement strings, and some markdown options.
 
-```toml
-[theme]
-code_theme = "GitHub Light"
-```
-The syntax highlighting theme for code blocks, by name. Defaults to "Tokyo Night", which is hard to read on a light background.
-Any of [arborium's built-in themes](https://github.com/bearcove/arborium/tree/main/crates/arborium-theme/themes) works, such as
-"GitHub Light", "Catppuccin Latte", "Solarized Light", "Gruvbox Dark" or "Nord".
-An unknown name falls back to the default.
+The `code_theme` is for the syntax highlighting.
+Any of [arborium's built-in themes](https://github.com/bearcove/arborium/tree/main/crates/arborium-theme/themes) names works, for example "Catppuccin Macchiato".
+
