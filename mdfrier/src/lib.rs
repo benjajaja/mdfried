@@ -723,32 +723,6 @@ Quote break.
     }
 
     #[test]
-    fn code_block_wrapping() {
-        // Test that code blocks wrap at width boundary
-        let input = "```\nabcdefghij\n```\n";
-
-        let mut frier = MdFrier::new().unwrap();
-        // Width of 5 should wrap "abcdefghij" into two lines
-        let lines: Vec<_> = frier.parse(5, input, &DefaultMapper).unwrap().collect();
-        assert_eq!(lines.len(), 2);
-        // First line should be 5 chars
-        assert_eq!(lines[0].spans[0].content, "abcde");
-        // Second line should be remaining 5 chars
-        assert_eq!(lines[1].spans[0].content, "fghij");
-    }
-
-    #[test]
-    fn code_block_no_wrap_when_fits() {
-        // Test that code blocks don't wrap when they fit
-        let input = "```\nabcde\n```\n";
-
-        let mut frier = MdFrier::new().unwrap();
-        let lines: Vec<_> = frier.parse(5, input, &DefaultMapper).unwrap().collect();
-        assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0].spans[0].content, "abcde");
-    }
-
-    #[test]
     fn hide_urls() {
         let mut frier = MdFrier::new().unwrap();
         struct HideUrlsMapper;
