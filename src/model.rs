@@ -114,9 +114,8 @@ impl Model {
         }
     }
 
-    #[cfg(test)]
-    pub fn has_pending_images(&self) -> bool {
-        self.document.has_pending_images()
+    pub fn has_pending_content(&self) -> bool {
+        self.document.has_pending_content()
     }
 
     pub fn reload(&mut self, screen_size: Size) -> Result<(), Error> {
