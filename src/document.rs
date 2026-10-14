@@ -218,7 +218,7 @@ impl Document {
         let mut y = 0;
         for section in &self.sections {
             match &section.content {
-                SectionContent::Lines(lines) => {
+                SectionContent::Lines(lines) | SectionContent::Code(_, lines) => {
                     if section.id != *id {
                         y += section.height as i16;
                         continue;
@@ -261,20 +261,22 @@ impl Document {
         scroll: u16,
     ) -> Option<CursorPointer> {
         let locate = move |section: &Section| -> Option<(u16, CursorPointer)> {
-            if let SectionContent::Lines(lines) = &section.content {
-                let mut flat_index = 0;
-                for (line_y, (_, extras)) in lines.iter().enumerate() {
-                    if let Some(i) = extras.iter().position(|extra| target.matches(extra)) {
-                        return Some((
-                            line_y as u16,
-                            CursorPointer {
-                                id: section.id,
-                                index: flat_index + i,
-                            },
-                        ));
-                    }
-                    flat_index += extras.len();
+            let lines = match &section.content {
+                SectionContent::Lines(lines) | SectionContent::Code(_, lines) => lines,
+                _ => return None,
+            };
+            let mut flat_index = 0;
+            for (line_y, (_, extras)) in lines.iter().enumerate() {
+                if let Some(i) = extras.iter().position(|extra| target.matches(extra)) {
+                    return Some((
+                        line_y as u16,
+                        CursorPointer {
+                            id: section.id,
+                            index: flat_index + i,
+                        },
+                    ));
                 }
+                flat_index += extras.len();
             }
             None
         };
@@ -353,51 +355,30 @@ impl Document {
         >,
         impl Iterator<Item = CursorPointer> + Clone,
     > {
+        let lines = match &section.content {
+            SectionContent::Lines(lines) | SectionContent::Code(_, lines) => lines,
+            _ => return Either::Right(std::iter::empty()),
+        };
+        let id = section.id;
+        let mut flat_index = 0;
+        let mut flattened: Vec<_> = lines
+            .iter()
+            .flat_map(|(_, extras)| {
+                let start = flat_index;
+                flat_index += extras.len();
+                extras
+                    .iter()
+                    .enumerate()
+                    .map(move |(i, extra)| (start + i, extra))
+            })
+            .filter(|(_, extra)| target.matches(extra))
+            .map(move |(index, _)| CursorPointer { id, index })
+            .collect();
         match mode {
-            FindMode::Next => {
-                if let SectionContent::Lines(lines) = &section.content {
-                    let id = section.id;
-                    let mut flat_index = 0;
-                    let flattened: Vec<_> = lines
-                        .iter()
-                        .flat_map(|(_, extras)| {
-                            let start = flat_index;
-                            flat_index += extras.len();
-                            extras
-                                .iter()
-                                .enumerate()
-                                .map(move |(i, extra)| (start + i, extra))
-                        })
-                        .filter(|(_, extra)| target.matches(extra))
-                        .map(move |(index, _)| CursorPointer { id, index })
-                        .collect();
-                    Either::Left(Either::Left(flattened.into_iter()))
-                } else {
-                    Either::Right(std::iter::empty())
-                }
-            }
+            FindMode::Next => Either::Left(Either::Left(flattened.into_iter())),
             FindMode::Prev => {
-                if let SectionContent::Lines(lines) = &section.content {
-                    let id = section.id;
-                    let mut flat_index = 0;
-                    let mut flattened: Vec<_> = lines
-                        .iter()
-                        .flat_map(|(_, extras)| {
-                            let start = flat_index;
-                            flat_index += extras.len();
-                            extras
-                                .iter()
-                                .enumerate()
-                                .map(move |(i, extra)| (start + i, extra))
-                        })
-                        .filter(|(_, extra)| target.matches(extra))
-                        .map(move |(index, _)| CursorPointer { id, index })
-                        .collect();
-                    flattened.reverse();
-                    Either::Left(Either::Right(flattened.into_iter()))
-                } else {
-                    Either::Right(std::iter::empty())
-                }
+                flattened.reverse();
+                Either::Left(Either::Right(flattened.into_iter()))
             }
         }
     }
@@ -408,8 +389,9 @@ impl Document {
             if section.id != pointer.id {
                 continue;
             }
-            let SectionContent::Lines(lines) = &section.content else {
-                continue;
+            let lines = match &section.content {
+                SectionContent::Lines(lines) | SectionContent::Code(_, lines) => lines,
+                _ => continue,
             };
             let mut remaining = pointer.index;
             for (_, extras) in lines {
@@ -512,16 +494,18 @@ pub enum SectionContent {
 
 impl SectionContent {
     pub fn add_search(&mut self, re: Option<&Regex>) {
-        if let SectionContent::Lines(lines) = self {
-            for (line, extras) in lines {
-                let line_string = line.to_string();
-                extras.retain(|extra| !matches!(extra, LineExtra::SearchMatch(_, _, _)));
-                if let Some(re) = re {
-                    extras.extend(
-                        re.find_iter(&line_string)
-                            .map(SectionContent::regex_to_searchmatch(&line_string)),
-                    );
-                }
+        let lines = match self {
+            SectionContent::Lines(lines) | SectionContent::Code(_, lines) => lines,
+            _ => return,
+        };
+        for (line, extras) in lines {
+            let line_string = line.to_string();
+            extras.retain(|extra| !matches!(extra, LineExtra::SearchMatch(_, _, _)));
+            if let Some(re) = re {
+                extras.extend(
+                    re.find_iter(&line_string)
+                        .map(SectionContent::regex_to_searchmatch(&line_string)),
+                );
             }
         }
         // TODO: search in headers

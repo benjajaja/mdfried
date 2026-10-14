@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+* Not searching in codeblocks that are not highlighted.
+* Haskell syntax highlighting (updated arborium).
+
 ## [0.22.8] - 2026-10-13
 
 ### Added
