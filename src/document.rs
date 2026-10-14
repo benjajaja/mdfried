@@ -404,11 +404,54 @@ impl Document {
         None
     }
 
-    #[cfg(test)]
-    pub fn has_pending_images(&self) -> bool {
+    /// A section is settled when no worker result is outstanding for it, so its content and
+    /// height are final.
+    fn is_settled(section: &Section) -> bool {
+        !matches!(
+            &section.content,
+            SectionContent::ImagePlaceholder(..)
+                | SectionContent::HeaderPlaceholder(..)
+                // Replaced by `Lines` (or an image, for mermaid) once highlighted.
+                | SectionContent::Code(..)
+        )
+    }
+
+    pub fn has_pending_content(&self) -> bool {
         self.sections
             .iter()
-            .any(|section| matches!(&section.content, SectionContent::ImagePlaceholder(..)))
+            .any(|section| !Self::is_settled(section))
+    }
+
+    /// Number of lines at the top of the document that can no longer change, i.e. all lines
+    /// before the first section that is still waiting for the worker.
+    pub fn settled_lines(&self) -> u16 {
+        self.sections
+            .iter()
+            .take_while(|section| Self::is_settled(section))
+            .map(|section| section.height)
+            .sum()
+    }
+
+    /// End line (exclusive) of a page that starts at line `from` and has at most `max_rows` lines,
+    /// without cutting a big header in two. Headers are only drawn when they are fully inside the
+    /// page, so a header that straddles the end would be lost entirely.
+    pub fn page_end(&self, from: u16, max_rows: u16) -> u16 {
+        let end = from.saturating_add(max_rows);
+        let mut y: u16 = 0;
+        for section in &self.sections {
+            let next = y.saturating_add(section.height);
+            if y < end && end < next {
+                if matches!(section.content, SectionContent::Header(..)) && y > from {
+                    return y;
+                }
+                break;
+            }
+            if next >= end {
+                break;
+            }
+            y = next;
+        }
+        end
     }
 
     // Update all link URLs that point to the link reference definition.
@@ -1091,6 +1134,38 @@ mod tests {
     #[ctor::ctor]
     fn init_logger() {
         debug::init_test_logger();
+    }
+
+    fn section(id: usize, height: u16, header: bool) -> Section {
+        Section {
+            id,
+            height,
+            content: if header {
+                SectionContent::Header("h".to_owned(), 1, None)
+            } else {
+                SectionContent::Lines(Vec::new())
+            },
+        }
+    }
+
+    #[test]
+    fn page_end_does_not_cut_headers() {
+        let mut doc = Document::default();
+        doc.push(section(0, 4, false)); // lines 0..4
+        doc.push(section(1, 2, true)); // header, lines 4..6
+        doc.push(section(2, 10, false)); // lines 6..16
+
+        // Whole header fits.
+        assert_eq!(doc.page_end(0, 6), 6);
+        // Page would end inside the header: end before the header instead.
+        assert_eq!(doc.page_end(0, 5), 4);
+        // Ends exactly at the start of the header.
+        assert_eq!(doc.page_end(0, 4), 4);
+        // Text can be cut anywhere.
+        assert_eq!(doc.page_end(0, 3), 3);
+        assert_eq!(doc.page_end(6, 3), 9);
+        // A page that starts inside a header cannot avoid cutting it.
+        assert_eq!(doc.page_end(5, 3), 8);
     }
 
     #[test]

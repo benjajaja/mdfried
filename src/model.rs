@@ -114,9 +114,8 @@ impl Model {
         }
     }
 
-    #[cfg(test)]
-    pub fn has_pending_images(&self) -> bool {
-        self.document.has_pending_images()
+    pub fn has_pending_content(&self) -> bool {
+        self.document.has_pending_content()
     }
 
     pub fn reload(&mut self, screen_size: Size) -> Result<(), Error> {
@@ -239,6 +238,14 @@ impl Model {
                     .unwrap_or_default(),
             ),
         }
+    }
+
+    pub fn settled_lines(&self) -> u16 {
+        self.document.settled_lines()
+    }
+
+    pub fn page_end(&self, from: u16, max_rows: u16) -> u16 {
+        self.document.page_end(from, max_rows)
     }
 
     pub fn total_lines(&self) -> u16 {

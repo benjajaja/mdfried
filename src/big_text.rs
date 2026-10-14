@@ -1,6 +1,10 @@
 use std::fmt::Write as _;
 
-use ratatui::{buffer::CellDiffOption, layout::Rect, style::Color, widgets::Widget};
+use crossterm::{Command as _, style::SetForegroundColor};
+use ratatui::{
+    buffer::CellDiffOption, layout::Rect, prelude::IntoCrossterm as _, style::Color,
+    widgets::Widget,
+};
 use unicode_width::UnicodeWidthChar as _;
 
 /// Yields slices of chars where each chunk has unicode width <= max_width.
@@ -71,20 +75,18 @@ impl<'a> BigText<'a> {
         // This must be done before we write the text.
         // Also disable DECAWM, unsure if really necessary.
         write!(symbol, "\x1b[{}X\x1B[?7l", area_width).expect("write to string");
-        write!(symbol, "\x1b[1B").expect("write to string");
+        // IND (not CUD, `ESC [ 1 B`): moves down one line like CUD, but scrolls when the cursor is
+        // on the last row. In the TUI there is always a row below, but when writing sequentially
+        // (dump mode) the cursor is usually on the last row of the screen, and with CUD the
+        // following cursor-up would then put the text one row too high.
+        write!(symbol, "\x1bD").expect("write to string");
         write!(symbol, "\x1b[{}X\x1B[?7l", area_width).expect("write to string");
         write!(symbol, "\x1b[1A").expect("write to string");
 
         if let Some(color) = self.color {
-            match color {
-                Color::Indexed(ansi_index) => {
-                    write!(symbol, "\x1b[{ansi_index}m").expect("write to string");
-                }
-                Color::Rgb(r, g, b) => {
-                    write!(symbol, "\x1b[38;2;{r};{g};{b}m").expect("write to string");
-                }
-                _ => {}
-            }
+            SetForegroundColor(color.into_crossterm())
+                .write_ansi(&mut symbol)
+                .expect("write to string");
         }
 
         let chars: Vec<char> = self.text.chars().collect();
