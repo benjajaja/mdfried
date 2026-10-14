@@ -81,16 +81,49 @@ pub(crate) fn table_to_lines<M: Mapper>(
     // Add padding (1 space on each side).
     let col_widths: Vec<usize> = col_widths.iter().map(|w| w + 2).collect();
 
-    // Scale if too wide
+    // Per-column floor: smallest cell content in that column + padding, min 3.
+    let col_floors: Vec<usize> = (0..num_cols)
+        .map(|i| {
+            let min_content = std::iter::once(cell_vis_width(&decorated_header[i]))
+                .chain(
+                    decorated_rows
+                        .iter()
+                        .filter_map(|row| row.get(i))
+                        .map(|c| cell_vis_width(c)),
+                )
+                .min()
+                .unwrap_or(0);
+            (min_content + 2).max(3)
+        })
+        .collect();
+
+    // Per-column median: lower-median of all cell content widths + padding, min 3.
+    let col_medians: Vec<usize> = (0..num_cols)
+        .map(|i| {
+            let mut widths: Vec<usize> = std::iter::once(cell_vis_width(&decorated_header[i]))
+                .chain(
+                    decorated_rows
+                        .iter()
+                        .filter_map(|row| row.get(i))
+                        .map(|c| cell_vis_width(c)),
+                )
+                .collect();
+            widths.sort_unstable();
+            let median_content = widths[(widths.len() - 1) / 2];
+            (median_content + 2).max(3)
+        })
+        .collect();
+
     let table_width: usize = col_widths.iter().sum::<usize>() + num_cols + 1;
     let col_widths: Vec<usize> = if table_width > available_width && available_width > num_cols + 1
     {
-        let content_width = available_width - num_cols - 1;
-        let total_content: usize = col_widths.iter().sum();
-        col_widths
-            .iter()
-            .map(|w| (w * content_width / total_content).max(3))
-            .collect()
+        shrink_col_widths(
+            col_widths,
+            available_width,
+            num_cols,
+            &col_floors,
+            &col_medians,
+        )
     } else {
         col_widths
     };
@@ -293,6 +326,120 @@ pub(crate) fn table_to_lines<M: Mapper>(
     lines.push(build_border(BorderPosition::Bottom));
 
     lines
+}
+
+/// Shrink column widths to fit within `available_width` using a 3-pass greedy algorithm.
+///
+/// Each `col_width` includes 2 chars of padding (1 on each side). The table's rendered
+/// width is `sum(col_widths) + num_cols + 1` (one `|` separator per column plus one at
+/// the start).
+///
+/// All passes respect `col_floors` as a minimum width per column. If the table still
+/// doesn't fit after all three passes, the algorithm repeats without floor protection.
+fn shrink_col_widths(
+    mut col_widths: Vec<usize>,
+    available_width: usize,
+    num_cols: usize,
+    col_floors: &[usize],
+    col_medians: &[usize],
+) -> Vec<usize> {
+    let no_floor = vec![1_usize; col_widths.len()];
+
+    shrink_dominant(&mut col_widths, available_width, num_cols, col_floors);
+    shrink_above_median(
+        &mut col_widths,
+        available_width,
+        num_cols,
+        col_floors,
+        col_medians,
+    );
+    shrink_widest(&mut col_widths, available_width, num_cols, col_floors);
+
+    if table_width(&col_widths, num_cols) <= available_width {
+        return col_widths;
+    }
+
+    // Last resort: repeat without floor protection.
+    shrink_dominant(&mut col_widths, available_width, num_cols, &no_floor);
+    shrink_above_median(
+        &mut col_widths,
+        available_width,
+        num_cols,
+        &no_floor,
+        col_medians,
+    );
+    shrink_widest(&mut col_widths, available_width, num_cols, &no_floor);
+
+    col_widths
+}
+
+/// Shrink the column hogging more than half the current table width.
+fn shrink_dominant(col_widths: &mut [usize], available: usize, num_cols: usize, floors: &[usize]) {
+    loop {
+        if table_width(col_widths, num_cols) <= available {
+            return;
+        }
+        let t = table_width(col_widths, num_cols);
+        let half = t / 2;
+        let Some(i) = col_widths
+            .iter()
+            .enumerate()
+            .filter(|&(i, &w)| w > half && w > floors[i])
+            .max_by_key(|&(_, &w)| w)
+            .map(|(i, _)| i)
+        else {
+            return;
+        };
+        col_widths[i] -= 1;
+    }
+}
+
+/// Shrink the column most bloated relative to its typical (median) content width.
+fn shrink_above_median(
+    col_widths: &mut [usize],
+    available: usize,
+    num_cols: usize,
+    floors: &[usize],
+    medians: &[usize],
+) {
+    loop {
+        if table_width(col_widths, num_cols) <= available {
+            return;
+        }
+        let Some(i) = col_widths
+            .iter()
+            .enumerate()
+            .filter(|&(i, &w)| w > floors[i] && w > medians[i])
+            .max_by_key(|&(i, &w)| w.saturating_sub(medians[i]))
+            .map(|(i, _)| i)
+        else {
+            return;
+        };
+        col_widths[i] -= 1;
+    }
+}
+
+/// Shrink the widest column.
+fn shrink_widest(col_widths: &mut [usize], available: usize, num_cols: usize, floors: &[usize]) {
+    loop {
+        if table_width(col_widths, num_cols) <= available {
+            return;
+        }
+        let Some(i) = col_widths
+            .iter()
+            .enumerate()
+            .filter(|&(i, &w)| w > floors[i])
+            .max_by_key(|&(_, &w)| w)
+            .map(|(i, _)| i)
+        else {
+            return;
+        };
+        col_widths[i] -= 1;
+    }
+}
+
+fn table_width(col_widths: &[usize], num_cols: usize) -> usize {
+    col_widths.iter().sum::<usize>() + num_cols + 1
 }
 
 #[cfg(test)]
