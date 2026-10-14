@@ -73,6 +73,8 @@ pub fn setup_graphics(
             terminal_background_color_osc: true,
             #[cfg(not(windows))]
             kitty_shared_memory_object: QueryStdioOptions::probe_kitty_smo(),
+            #[cfg(not(windows))]
+            stdio: Some(QueryStdioOptions::stdio_dev_tty()?),
             ..Default::default()
         })?;
         println!(" {:?}.", picker.protocol_type());
