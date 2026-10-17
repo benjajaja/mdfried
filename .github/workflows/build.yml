@@ -8,6 +8,32 @@ on:
   workflow_call:
 
 jobs:
+  check-no-claude-coauthor:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: No claude spam
+        run: |
+          if git log ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} --format="%B" \
+            | grep -qi "^Co-Authored-By: Claude"; then
+            echo "Error: PR contains commits with \"^Co-authored-By: Claude\""
+            echo "To disable: set coAuthorWithClaude: false in ~/.claude/settings.json, or Settings -> Features -> disable 'Add Claude co-authorship to commit messages'."
+            echo "Or just edit these commits and remove the spam."
+            exit 1
+          fi
+      - name: No claude session trailer
+        run: |
+          if git log ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }} --format="%B" \
+            | grep -qi "^Claude-Session:"; then
+            echo "Error: PR contains commits with \"^Claude-Session:\""
+            echo "Edit these commits and remove these links, which become 404 anyway."
+            exit 1
+          fi
+
   nix-flake-test:
     name: Flake check ❄️
     runs-on: ubuntu-latest
