@@ -47,7 +47,7 @@ use crate::{
     document::{Section, SectionID},
     error::Error,
     model::{DocumentId, Model},
-    renderer::run_loop,
+    renderer::{dump as run_dump, run_loop},
     sources::{BuiltIn, BuiltInResponse, DocumentSource, SharedDocumentSource, open_source},
     watch::watch,
     worker::{ImageCache, diagnostics::Diagnostics, worker_thread},
@@ -63,7 +63,8 @@ fn main() -> io::Result<()> {
             arg!([SOURCE] "The markdown source.\nCan be a file path, a URL, a github repo in \"github:[owner]/[repo]\" format, or '-' or omit, for stdin.")
                 .num_args(0..)
         )
-        .arg(arg!(-d --"deep-fry" "Extra deep fried images.").value_parser(value_parser!(bool)))
+        .arg(arg!(--"deep-fry" "Extra deep fried images.").value_parser(value_parser!(bool)))
+        .arg(arg!(-d --"dump" "Render to the main screen and exit (no interactive TUI).").value_parser(value_parser!(bool)))
         .arg(arg!(-w --"watch" "Watch markdown file, reload on changes.").value_parser(value_parser!(bool)))
         .arg(arg!(-s --"setup" "Force font setup (again).").value_parser(value_parser!(bool)))
         .arg(
@@ -153,9 +154,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let (text, document_source) = match source {
         Some(source) if source == "-" => {
             let mut text = String::new();
-            print!("Reading stdin...");
             io::stdin().read_to_string(&mut text)?;
-            println!("{OK_END}");
             (text, DocumentSource::Stdin { text: None })
         }
         None => {
@@ -163,9 +162,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
                 (String::new(), DocumentSource::BuiltIn(BuiltIn::Welcome))
             } else {
                 let mut text = String::new();
-                print!("Reading stdin...");
                 io::stdin().read_to_string(&mut text)?;
-                println!("{OK_END}");
                 (text, DocumentSource::Stdin { text: None })
             }
         }
@@ -183,23 +180,19 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         return Err(Error::Usage(Some("no input or empty")));
     }
 
+    let dump = *matches.get_one("dump").unwrap_or(&false);
+
+    // In TUI mode, replace piped stdin with /dev/tty so keyboard input works.
+    // In dump mode this is unnecessary: setup_graphics uses /dev/tty directly and
+    // dump needs no keyboard input.
     #[cfg(not(windows))]
-    if !io::stdin().is_tty() {
+    if !dump && !io::stdin().is_tty() {
         print!("Setting stdin to /dev/tty...");
-        // Close the current stdin so that ratatui-image can read stuff from tty stdin.
-        // SAFETY:
-        // Calls some libc, not sure if this could be done otherwise.
+        // SAFETY: Calls libc dup2 to replace fd 0 with /dev/tty.
         unsafe {
-            // Attempt to open /dev/tty which will give us a new stdin
             let tty = std::fs::File::open("/dev/tty")?;
-
-            // Get the file descriptor for /dev/tty
             let tty_fd = tty.into_raw_fd();
-
-            // Duplicate the tty file descriptor to stdin (file descriptor 0)
             libc::dup2(tty_fd, libc::STDIN_FILENO);
-
-            // Close the original tty file descriptor
             libc::close(tty_fd);
         }
         println!("{OK_END}");
@@ -216,7 +209,10 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
             _ => ProtocolType::Halfblocks,
         }));
 
-    crossterm::terminal::enable_raw_mode()?;
+    // Raw mode is only needed for TUI interaction; dump writes sequential lines without it.
+    if !dump {
+        crossterm::terminal::enable_raw_mode()?;
+    }
 
     let (picker, renderer, has_text_size_protocol) = {
         let setup_result = setup_graphics(
@@ -237,7 +233,6 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     };
 
     let deep_fry = *matches.get_one("deep-fry").unwrap_or(&false);
-
     let watchmode_path = if *matches.get_one("watch").unwrap_or(&false)
         && let DocumentSource::File { path, .. } = &document_source
     {
@@ -274,12 +269,9 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
 
     let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
+    let terminal_size = terminal.size()?;
     let enable_mouse_capture = config.enable_mouse_capture;
-    if enable_mouse_capture {
-        crossterm::execute!(io::stderr(), EnableMouseCapture)?;
-    }
     let watch_debounce_milliseconds = config.watch_debounce_milliseconds;
-    terminal.clear()?;
 
     if document_source.read()? == DocumentSource::BuiltIn(BuiltIn::Welcome)
         && let BuiltInResponse::Command(cmd) = BuiltIn::Welcome.source().1
@@ -287,7 +279,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         // Start loading the welcome image immediately.
         cmd_tx.send(cmd)?;
     }
-    let model = Model::new(document_source, cmd_tx, event_rx, terminal.size()?, config);
+    let model = Model::new(document_source, cmd_tx, event_rx, terminal_size, config);
     model.open(text)?;
 
     let debouncer = if let Some(path) = watchmode_path {
@@ -298,15 +290,25 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         None
     };
 
-    if let Err(err) = run_loop(terminal, model) {
-        eprintln!("Runtime error: {err}");
-    };
-    drop(debouncer);
-
-    if enable_mouse_capture {
-        crossterm::execute!(io::stderr(), DisableMouseCapture)?;
+    if dump {
+        drop(terminal);
+        if let Err(err) = run_dump(model) {
+            eprintln!("Dump error: {err}");
+        }
+    } else {
+        if enable_mouse_capture {
+            crossterm::execute!(io::stderr(), EnableMouseCapture)?;
+        }
+        terminal.clear()?;
+        if let Err(err) = run_loop(terminal, model) {
+            eprintln!("Runtime error: {err}");
+        }
+        drop(debouncer);
+        if enable_mouse_capture {
+            crossterm::execute!(io::stderr(), DisableMouseCapture)?;
+        }
+        crossterm::terminal::disable_raw_mode()?;
     }
-    crossterm::terminal::disable_raw_mode()?;
 
     match worker_thread.join() {
         Err(e) => eprintln!("Worker thread panic: {e:?}"),
@@ -523,11 +525,11 @@ mod tests {
     // Poll until parsed and no pending images.
     fn poll_images_done(model: &mut Model) {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while model.has_pending_images() {
+        while model.has_pending_content() {
             model.process_events().unwrap();
             assert!(
                 std::time::Instant::now() < deadline,
-                "timed out waiting for has_pending_images to be done"
+                "timed out waiting for has_pending_content to be done"
             );
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
