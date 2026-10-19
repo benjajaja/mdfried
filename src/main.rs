@@ -445,7 +445,12 @@ impl std::fmt::Debug for Event {
 mod tests {
     use std::{sync::mpsc, thread::JoinHandle};
 
-    #[cfg(not(any(target_os = "macos", target_arch = "aarch64", target_arch = "riscv64")))]
+    #[cfg(not(any(
+        target_os = "macos",
+        target_arch = "aarch64",
+        target_arch = "riscv64",
+        target_arch = "loongarch64"
+    )))]
     use insta::assert_snapshot;
     use ratatui::{Terminal, backend::TestBackend, layout::Size, text::Line};
     use ratatui_image::picker::{Picker, ProtocolType};
@@ -564,7 +569,12 @@ Goodbye."#,
                 view(&model, frame.buffer_mut());
             })
             .unwrap();
-        #[cfg(not(any(target_os = "macos", target_arch = "aarch64", target_arch = "riscv64")))]
+        #[cfg(not(any(
+            target_os = "macos",
+            target_arch = "aarch64",
+            target_arch = "riscv64",
+            target_arch = "loongarch64"
+        )))]
         assert_snapshot!("first parse image previews", terminal.backend());
         // Must load an image.
         poll_images_done(&mut model);
@@ -573,7 +583,12 @@ Goodbye."#,
                 view(&model, frame.buffer_mut());
             })
             .unwrap();
-        #[cfg(not(any(target_os = "macos", target_arch = "aarch64", target_arch = "riscv64")))]
+        #[cfg(not(any(
+            target_os = "macos",
+            target_arch = "aarch64",
+            target_arch = "riscv64",
+            target_arch = "loongarch64"
+        )))]
         assert_snapshot!("first parse done", terminal.backend());
 
         teardown(model, worker);
@@ -622,7 +637,12 @@ Goodbye."#,
                 view(&model, frame.buffer_mut());
             })
             .unwrap();
-        #[cfg(not(any(target_os = "macos", target_arch = "aarch64", target_arch = "riscv64")))]
+        #[cfg(not(any(
+            target_os = "macos",
+            target_arch = "aarch64",
+            target_arch = "riscv64",
+            target_arch = "loongarch64"
+        )))]
         assert_snapshot!("reload move image up", terminal.backend());
 
         model
@@ -644,7 +664,12 @@ Goodbye."#,
                 view(&model, frame.buffer_mut());
             })
             .unwrap();
-        #[cfg(not(any(target_os = "macos", target_arch = "aarch64", target_arch = "riscv64")))]
+        #[cfg(not(any(
+            target_os = "macos",
+            target_arch = "aarch64",
+            target_arch = "riscv64",
+            target_arch = "loongarch64"
+        )))]
         assert_snapshot!("reload move image down", terminal.backend());
 
         teardown(model, worker);
@@ -693,7 +718,12 @@ Goodbye."#,
                 view(&model, frame.buffer_mut());
             })
             .unwrap();
-        #[cfg(not(any(target_os = "macos", target_arch = "aarch64", target_arch = "riscv64")))]
+        #[cfg(not(any(
+            target_os = "macos",
+            target_arch = "aarch64",
+            target_arch = "riscv64",
+            target_arch = "loongarch64"
+        )))]
         assert_snapshot!("reload add image preview", terminal.backend());
         // Must load an image.
         poll_images_done(&mut model);
@@ -702,7 +732,12 @@ Goodbye."#,
                 view(&model, frame.buffer_mut());
             })
             .unwrap();
-        #[cfg(not(any(target_os = "macos", target_arch = "aarch64", target_arch = "riscv64")))]
+        #[cfg(not(any(
+            target_os = "macos",
+            target_arch = "aarch64",
+            target_arch = "riscv64",
+            target_arch = "loongarch64"
+        )))]
         assert_snapshot!("reload add image done", terminal.backend());
         teardown(model, worker);
     }
@@ -748,7 +783,12 @@ Goodbye.
                 view(&model, frame.buffer_mut());
             })
             .unwrap();
-        #[cfg(not(any(target_os = "macos", target_arch = "aarch64", target_arch = "riscv64")))]
+        #[cfg(not(any(
+            target_os = "macos",
+            target_arch = "aarch64",
+            target_arch = "riscv64",
+            target_arch = "loongarch64"
+        )))]
         assert_snapshot!("duplicate image preview", terminal.backend());
         // Must load an image.
         poll_images_done(&mut model);
@@ -757,7 +797,12 @@ Goodbye.
                 view(&model, frame.buffer_mut());
             })
             .unwrap();
-        #[cfg(not(any(target_os = "macos", target_arch = "aarch64", target_arch = "riscv64")))]
+        #[cfg(not(any(
+            target_os = "macos",
+            target_arch = "aarch64",
+            target_arch = "riscv64",
+            target_arch = "loongarch64"
+        )))]
         assert_snapshot!("duplicate image done", terminal.backend());
         teardown(model, worker);
     }
