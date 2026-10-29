@@ -64,7 +64,6 @@ pub fn setup_graphics(
     let (mut picker, background_color) = if no_cap_checks {
         (Picker::halfblocks(), None)
     } else {
-        print!("Detecting supported graphics protocols...");
         let picker = Picker::from_query_stdio_with_options(QueryStdioOptions {
             timeout_ms: config
                 .stdio_query_timeout_ms
@@ -73,9 +72,10 @@ pub fn setup_graphics(
             terminal_background_color_osc: true,
             #[cfg(not(windows))]
             kitty_shared_memory_object: QueryStdioOptions::probe_kitty_smo(),
+            #[cfg(not(windows))]
+            stdio: Some(QueryStdioOptions::stdio_dev_tty()?),
             ..Default::default()
         })?;
-        println!(" {:?}.", picker.protocol_type());
         let mut bg = None;
         if picker.protocol_type() == ProtocolType::Sixel {
             for cap in picker.capabilities() {
