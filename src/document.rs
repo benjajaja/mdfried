@@ -404,11 +404,13 @@ impl Document {
         None
     }
 
-    #[cfg(test)]
-    pub fn has_pending_images(&self) -> bool {
-        self.sections
-            .iter()
-            .any(|section| matches!(&section.content, SectionContent::ImagePlaceholder(..)))
+    pub fn has_pending_content(&self) -> bool {
+        self.sections.iter().any(|section| {
+            matches!(
+                &section.content,
+                SectionContent::ImagePlaceholder(..) | SectionContent::HeaderPlaceholder(..)
+            )
+        })
     }
 
     // Update all link URLs that point to the link reference definition.

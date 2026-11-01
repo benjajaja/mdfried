@@ -2,11 +2,9 @@ use std::borrow::Cow;
 use std::num::NonZeroU16;
 
 use crossterm::Command as _;
-use crossterm::style::{
-    Attribute, Attributes, Print, ResetColor, SetAttributes, SetBackgroundColor, SetForegroundColor,
-};
+use crossterm::style::{Print, ResetColor, SetAttributes, SetBackgroundColor, SetForegroundColor};
 use ratatui::buffer::CellDiffOption;
-use ratatui::style::Modifier;
+use ratatui::style::Style;
 use ratatui::text::Span;
 
 use ratatui::prelude::IntoCrossterm as _;
@@ -60,42 +58,16 @@ fn span_to_ansi(span: &Span) -> Result<String, std::fmt::Error> {
     if let Some(bg) = span.style.bg {
         SetBackgroundColor(bg.into_crossterm()).write_ansi(&mut out)?;
     }
-    SetAttributes(modifier_to_attributes(span.style.add_modifier)).write_ansi(&mut out)?;
+    SetAttributes(
+        Style::new()
+            .add_modifier(span.style.add_modifier)
+            .into_crossterm()
+            .attributes,
+    )
+    .write_ansi(&mut out)?;
     Print(&span.content).write_ansi(&mut out)?;
     ResetColor.write_ansi(&mut out)?;
     Ok(out)
-}
-
-fn modifier_to_attributes(m: Modifier) -> Attributes {
-    let mut attrs = Attributes::default();
-    if m.contains(Modifier::BOLD) {
-        attrs.set(Attribute::Bold);
-    }
-    if m.contains(Modifier::DIM) {
-        attrs.set(Attribute::Dim);
-    }
-    if m.contains(Modifier::ITALIC) {
-        attrs.set(Attribute::Italic);
-    }
-    if m.contains(Modifier::UNDERLINED) {
-        attrs.set(Attribute::Underlined);
-    }
-    if m.contains(Modifier::SLOW_BLINK) {
-        attrs.set(Attribute::SlowBlink);
-    }
-    if m.contains(Modifier::RAPID_BLINK) {
-        attrs.set(Attribute::RapidBlink);
-    }
-    if m.contains(Modifier::REVERSED) {
-        attrs.set(Attribute::Reverse);
-    }
-    if m.contains(Modifier::HIDDEN) {
-        attrs.set(Attribute::Hidden);
-    }
-    if m.contains(Modifier::CROSSED_OUT) {
-        attrs.set(Attribute::CrossedOut);
-    }
-    attrs
 }
 
 pub fn render_osc8_link(spans: &[Span], url: &str) -> Result<(String, usize), std::fmt::Error> {
