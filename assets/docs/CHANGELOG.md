@@ -5,6 +5,7 @@
 ### Fixed
 * Not searching in codeblocks that are not highlighted.
 * Haskell syntax highlighting (updated arborium).
+* Mermaid rendering broken (unless explicitly setting hide_codeblock_language=true).
 
 ## [0.22.8] - 2026-10-13
 

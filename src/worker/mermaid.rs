@@ -10,7 +10,7 @@ use image::load_from_memory;
 
 pub async fn render_with_cmd(
     cmd: &str,
-    lines: &Vec<Line<'static>>,
+    lines: &[Line<'static>],
     width: u16,
     max_height: u16,
     picker: Arc<Picker>,
@@ -67,7 +67,7 @@ pub mod internal {
 
     #[cfg(feature = "mermaid")]
     pub async fn render(
-        lines: &Vec<Line<'static>>,
+        lines: &[Line<'static>],
         width: u16,
         max_height: u16,
         fontdb: Arc<Database>,

@@ -393,6 +393,7 @@ async fn process_post_parse_events(
         let highlighter = highlighter.clone();
         let document_source = document_source.clone();
         let mermaid_config = config.mermaid.clone();
+        let hide_codeblock_language = config.theme.hide_codeblock_language.unwrap_or_default();
 
         set.spawn(async move {
             match event {
@@ -459,6 +460,11 @@ async fn process_post_parse_events(
                 SectionEvent::ReferenceDefinition { .. } => {}
                 SectionEvent::Code(section_id, language, lines) => {
                     if language == "mermaid" {
+                        let lines = if !hide_codeblock_language {
+                            lines.get(1..).unwrap_or(&[])
+                        } else {
+                            &lines
+                        };
                         let result = match mermaid_config {
                             MermaidConfig::Disabled => Ok::<_, Error>(None),
                             #[cfg(feature = "mermaid")]
@@ -466,7 +472,7 @@ async fn process_post_parse_events(
                                 if let Some(fontdb) = fontdb {
                                     Ok(Some(
                                         mermaid::internal::render(
-                                            &lines,
+                                            lines,
                                             width,
                                             config_max_image_height,
                                             fontdb,
@@ -482,7 +488,7 @@ async fn process_post_parse_events(
                             MermaidConfig::Command(cmd) => Ok(Some(
                                 mermaid::render_with_cmd(
                                     &cmd,
-                                    &lines,
+                                    lines,
                                     width,
                                     config_max_image_height,
                                     picker,
