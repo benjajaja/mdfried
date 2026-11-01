@@ -8,7 +8,7 @@ use ratatui::{
     DefaultTerminal,
     buffer::Buffer,
     layout::{Position, Rect},
-    style::{Color as RColor, Modifier},
+    style::{Color as RColor, Modifier, Style},
 };
 
 use crate::{
@@ -202,34 +202,11 @@ fn write_buffer_rows(buf: &Buffer, rows: u16, out: &mut impl io::Write) -> io::R
     use ratatui::crossterm::{
         queue,
         style::{
-            Attribute, Color, Print, ResetColor, SetAttribute, SetBackgroundColor,
+            Attribute, Print, ResetColor, SetAttribute, SetAttributes, SetBackgroundColor,
             SetForegroundColor,
         },
     };
-
-    fn to_ct(c: RColor) -> Color {
-        match c {
-            RColor::Reset => Color::Reset,
-            RColor::Black => Color::Black,
-            RColor::Red => Color::DarkRed,
-            RColor::Green => Color::DarkGreen,
-            RColor::Yellow => Color::DarkYellow,
-            RColor::Blue => Color::DarkBlue,
-            RColor::Magenta => Color::DarkMagenta,
-            RColor::Cyan => Color::DarkCyan,
-            RColor::Gray => Color::Grey,
-            RColor::DarkGray => Color::DarkGrey,
-            RColor::LightRed => Color::Red,
-            RColor::LightGreen => Color::Green,
-            RColor::LightBlue => Color::Blue,
-            RColor::LightYellow => Color::Yellow,
-            RColor::LightMagenta => Color::Magenta,
-            RColor::LightCyan => Color::Cyan,
-            RColor::White => Color::White,
-            RColor::Indexed(i) => Color::AnsiValue(i),
-            RColor::Rgb(r, g, b) => Color::Rgb { r, g, b },
-        }
-    }
+    use ratatui::prelude::IntoCrossterm as _;
 
     let area = *buf.area();
     for y in 0..rows.min(area.height) {
@@ -244,27 +221,15 @@ fn write_buffer_rows(buf: &Buffer, rows: u16, out: &mut impl io::Write) -> io::R
                 prev_fg = RColor::Reset;
                 prev_bg = RColor::Reset;
                 prev_mod = cell.modifier;
-                for (bit, attr) in &[
-                    (Modifier::BOLD, Attribute::Bold),
-                    (Modifier::DIM, Attribute::Dim),
-                    (Modifier::ITALIC, Attribute::Italic),
-                    (Modifier::UNDERLINED, Attribute::Underlined),
-                    (Modifier::SLOW_BLINK, Attribute::SlowBlink),
-                    (Modifier::RAPID_BLINK, Attribute::RapidBlink),
-                    (Modifier::REVERSED, Attribute::Reverse),
-                    (Modifier::CROSSED_OUT, Attribute::CrossedOut),
-                ] {
-                    if cell.modifier.contains(*bit) {
-                        queue!(out, SetAttribute(*attr))?;
-                    }
-                }
+                let style = Style::new().add_modifier(cell.modifier);
+                queue!(out, SetAttributes(style.into_crossterm().attributes))?;
             }
             if cell.fg != prev_fg {
-                queue!(out, SetForegroundColor(to_ct(cell.fg)))?;
+                queue!(out, SetForegroundColor(cell.fg.into_crossterm()))?;
                 prev_fg = cell.fg;
             }
             if cell.bg != prev_bg {
-                queue!(out, SetBackgroundColor(to_ct(cell.bg)))?;
+                queue!(out, SetBackgroundColor(cell.bg.into_crossterm()))?;
                 prev_bg = cell.bg;
             }
             queue!(out, Print(cell.symbol()))?;

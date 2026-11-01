@@ -1,6 +1,10 @@
 use std::fmt::Write as _;
 
-use ratatui::{buffer::CellDiffOption, layout::Rect, style::Color, widgets::Widget};
+use crossterm::{Command as _, style::SetForegroundColor};
+use ratatui::{
+    buffer::CellDiffOption, layout::Rect, prelude::IntoCrossterm as _, style::Color,
+    widgets::Widget,
+};
 use unicode_width::UnicodeWidthChar as _;
 
 /// Yields slices of chars where each chunk has unicode width <= max_width.
@@ -76,15 +80,9 @@ impl<'a> BigText<'a> {
         write!(symbol, "\x1b[1A").expect("write to string");
 
         if let Some(color) = self.color {
-            match color {
-                Color::Indexed(ansi_index) => {
-                    write!(symbol, "\x1b[{ansi_index}m").expect("write to string");
-                }
-                Color::Rgb(r, g, b) => {
-                    write!(symbol, "\x1b[38;2;{r};{g};{b}m").expect("write to string");
-                }
-                _ => {}
-            }
+            SetForegroundColor(color.into_crossterm())
+                .write_ansi(&mut symbol)
+                .expect("write to string");
         }
 
         let chars: Vec<char> = self.text.chars().collect();
