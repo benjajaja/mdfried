@@ -27,6 +27,7 @@ use ratatui::layout::Size;
 use ratatui_image::{Resize, picker::Picker, sliced::SlicedProtocol};
 use reqwest::Client;
 use tokio::{runtime::Builder, sync::RwLock, task::JoinSet};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     Cmd, Event, Protocol, VERSION,
@@ -55,6 +56,7 @@ pub fn worker_thread(
     cmd_rx: Receiver<Cmd>,
     event_tx: Sender<Event>,
     config_max_image_height: u16,
+    shutdown: CancellationToken,
 ) -> JoinHandle<Result<(), Error>> {
     thread::spawn(move || {
         let runtime = Builder::new_multi_thread()
@@ -118,7 +120,9 @@ pub fn worker_thread(
 
             for cmd in cmd_rx {
                 log::debug!("Cmd: {cmd}");
-                let result = async {
+                // Dropping the handler future on shutdown drops its `JoinSet`, which aborts the
+                // spawned tasks, including any pending HTTP requests.
+                let Some(result) = shutdown.run_until_cancelled(async {
                     match cmd {
                         Cmd::Parse(document_id, width, text, image_cache) => {
                             event_tx.send(Event::NewDocument(document_id))?;
@@ -345,7 +349,10 @@ pub fn worker_thread(
                     }
 
                     Ok::<(),Error>(())
-                }.await;
+                }).await else {
+                    log::info!("worker shutdown requested, abandoning in-flight command");
+                    break;
+                };
 
                 match result {
                     Err(Error::ThreadClosed) => break, // Goodbye.
@@ -357,8 +364,10 @@ pub fn worker_thread(
             Ok(())
         });
 
-        if let Err(Error::ThreadClosed) = result {
-            log::info!("ThreadClosedError: Abandoning blocking worker threads");
+        // Whoever is listening is gone, so there's no point in waiting for in-flight
+        // `spawn_blocking` work (which cannot be aborted) to finish.
+        if shutdown.is_cancelled() || matches!(result, Err(Error::ThreadClosed)) {
+            log::info!("shutting down: abandoning blocking worker threads");
             runtime.shutdown_background();
         }
         result
