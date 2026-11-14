@@ -539,8 +539,21 @@ async fn process_post_parse_events(
                         }
                     }
                     let mut hl = highlighter.fork();
-                    let text = tokio::task::spawn_blocking(move || hl.highlight(&language, lines))
-                        .await??;
+                    // The section must always be settled, so on failure (e.g. a code fence
+                    // without a language, or an unsupported one) fall back to the plain lines.
+                    let plain = lines.clone();
+                    let highlighted = tokio::task::spawn_blocking(move || {
+                        hl.highlight(&language, lines)
+                            .map_err(|err| (language, err))
+                    })
+                    .await?;
+                    let text = match highlighted {
+                        Ok(text) => text,
+                        Err((language, err)) => {
+                            log::warn!("not highlighting code block ({language:?}): {err}");
+                            ratatui::text::Text::from(plain)
+                        }
+                    };
                     task_tx.send(Event::CodeLoaded(document_id, section_id, text))?;
                 }
             }

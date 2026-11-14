@@ -620,6 +620,22 @@ mod tests {
         teardown(model, worker);
     }
 
+    /// A code fence without a language (or an unsupported one) cannot be highlighted, but must
+    /// still settle.
+    #[test]
+    fn unhighlightable_code_is_settled() {
+        let (mut model, worker, _terminal) = setup(UserConfig::default().into());
+        model
+            .open(String::from(
+                "```\nplain code\n```\n\n```nosuchlang\nmore\n```",
+            ))
+            .unwrap();
+        poll_parsed(&mut model);
+        poll_images_done(&mut model);
+        assert!(!model.has_pending_content());
+        teardown(model, worker);
+    }
+
     #[test]
     fn parse() {
         let config = UserConfig {
