@@ -41,6 +41,7 @@ use ratatui::{
 use mdfrier::MarkdownLink;
 use ratatui_image::{picker::ProtocolType, protocol::Protocol, sliced::SlicedProtocol};
 use setup::{SetupResult, setup_graphics};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     config::Config,
@@ -256,6 +257,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
     let config_max_image_height = config.max_image_height;
     config.theme.has_text_size_protocol = Some(has_text_size_protocol);
     let worker_config = config.clone();
+    let shutdown = CancellationToken::new();
     let worker_thread = worker_thread(
         document_source.clone(),
         picker,
@@ -265,6 +267,7 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         cmd_rx,
         event_tx,
         config_max_image_height,
+        shutdown.clone(),
     );
 
     let backend = CrosstermBackend::new(io::stdout());
@@ -279,7 +282,14 @@ fn main_with_args(matches: &ArgMatches) -> Result<(), Error> {
         // Start loading the welcome image immediately.
         cmd_tx.send(cmd)?;
     }
-    let model = Model::new(document_source, cmd_tx, event_rx, terminal_size, config);
+    let model = Model::new(
+        document_source,
+        cmd_tx,
+        event_rx,
+        terminal_size,
+        config,
+        shutdown,
+    );
     model.open(text)?;
 
     let debouncer = if let Some(path) = watchmode_path {
@@ -447,6 +457,8 @@ impl std::fmt::Debug for Event {
 mod tests {
     use std::{sync::mpsc, thread::JoinHandle};
 
+    use tokio_util::sync::CancellationToken;
+
     #[cfg(not(any(
         target_os = "macos",
         target_arch = "aarch64",
@@ -477,6 +489,7 @@ mod tests {
         let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
         let (event_tx, event_rx) = mpsc::channel::<Event>();
 
+        let shutdown = CancellationToken::new();
         let picker = Picker::halfblocks();
         assert_eq!(picker.protocol_type(), ProtocolType::Halfblocks);
         let mut worker_config = config.clone();
@@ -491,11 +504,19 @@ mod tests {
             cmd_rx,
             event_tx,
             config.max_image_height,
+            shutdown.clone(),
         );
 
         let screen_size = (80, 20).into();
 
-        let model = Model::new(document_source, cmd_tx, event_rx, screen_size, config);
+        let model = Model::new(
+            document_source,
+            cmd_tx,
+            event_rx,
+            screen_size,
+            config,
+            shutdown,
+        );
 
         let terminal =
             Terminal::new(TestBackend::new(screen_size.width, screen_size.height)).unwrap();
@@ -539,6 +560,41 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
         log::debug!("poll_done completed");
+    }
+
+    /// Quitting while an image request is stalled must not wait for the request.
+    #[test]
+    fn shutdown_with_stalled_image_request() {
+        use std::net::TcpListener;
+
+        // Accepts connections, but never responds.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (accepted_tx, accepted_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            for stream in listener.incoming().flatten() {
+                held.push(stream);
+                let _: Result<(), _> = accepted_tx.send(());
+            }
+        });
+
+        let (mut model, worker, _terminal) = setup(UserConfig::default().into());
+        model
+            .open(format!("![stalled](http://127.0.0.1:{port}/image.png)"))
+            .unwrap();
+        poll_parsed(&mut model);
+        accepted_rx
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("worker should have connected for the image");
+
+        let start = std::time::Instant::now();
+        teardown(model, worker);
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(2),
+            "worker shutdown waited on the stalled request: {:?}",
+            start.elapsed()
+        );
     }
 
     #[test]

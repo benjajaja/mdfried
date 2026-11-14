@@ -15,6 +15,7 @@ use ratatui::{
     widgets::Padding,
 };
 use regex::RegexBuilder;
+use tokio_util::sync::{CancellationToken, DropGuard};
 use url::Url;
 
 use ratatui_image::{protocol::Protocol, sliced::SlicedProtocol};
@@ -48,6 +49,8 @@ pub struct Model {
     document_history: Vec<DocumentHistoryEntry>,
     cmd_tx: Sender<Cmd>,
     event_rx: Receiver<Event>,
+    /// Signals the worker to stop when the model is dropped.
+    _shutdown: DropGuard,
 }
 
 // The temporary keypress input queue for operations like search or movement-count prefix.
@@ -95,6 +98,7 @@ impl Model {
         event_rx: Receiver<Event>,
         screen_size: Size,
         config: Config,
+        shutdown: CancellationToken,
     ) -> Model {
         Model {
             screen_size,
@@ -111,6 +115,7 @@ impl Model {
             cmd_tx,
             event_rx,
             last_error: None,
+            _shutdown: shutdown.drop_guard(),
         }
     }
 
@@ -892,6 +897,7 @@ mod tests {
             document: Document::default(),
             cmd_tx,
             event_rx,
+            _shutdown: tokio_util::sync::CancellationToken::new().drop_guard(),
             document_id: DocumentId::default(),
             document_source: SharedDocumentSource::test(),
             document_history: Vec::new(),
