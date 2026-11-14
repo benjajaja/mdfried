@@ -486,6 +486,13 @@ mod tests {
     }
 
     fn setup(config: Config) -> (Model, JoinHandle<Result<(), Error>>, Terminal<TestBackend>) {
+        setup_with_text_size_protocol(config, true)
+    }
+
+    fn setup_with_text_size_protocol(
+        config: Config,
+        has_text_size_protocol: bool,
+    ) -> (Model, JoinHandle<Result<(), Error>>, Terminal<TestBackend>) {
         let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
         let (event_tx, event_rx) = mpsc::channel::<Event>();
 
@@ -493,7 +500,7 @@ mod tests {
         let picker = Picker::halfblocks();
         assert_eq!(picker.protocol_type(), ProtocolType::Halfblocks);
         let mut worker_config = config.clone();
-        worker_config.theme.has_text_size_protocol = Some(true);
+        worker_config.theme.has_text_size_protocol = Some(has_text_size_protocol);
         let document_source = SharedDocumentSource::test();
         let worker = worker_thread(
             document_source.clone(),
@@ -595,6 +602,22 @@ mod tests {
             "worker shutdown waited on the stalled request: {:?}",
             start.elapsed()
         );
+    }
+
+    /// Without text-size-protocol and without a font renderer, headers are rendered as plain
+    /// text and nothing is left pending.
+    #[test]
+    fn headers_without_renderer_are_settled() {
+        let (mut model, worker, _terminal) =
+            setup_with_text_size_protocol(UserConfig::default().into(), false);
+        model.open(String::from("# Title\n\nText.")).unwrap();
+        poll_parsed(&mut model);
+        assert!(!model.has_pending_content());
+        assert_eq!(model.settled_lines(), model.total_lines());
+        let header = model.sections().next().unwrap();
+        assert!(matches!(header.content, SectionContent::Lines(_)));
+        assert_eq!(header.height, 2);
+        teardown(model, worker);
     }
 
     #[test]

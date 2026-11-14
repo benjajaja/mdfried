@@ -23,7 +23,7 @@ use std::{
 
 use cosmic_text::fontdb::Database;
 use mdfrier::MdFrier;
-use ratatui::layout::Size;
+use ratatui::{layout::Size, style::Stylize as _, text::Line};
 use ratatui_image::{Resize, picker::Picker, sliced::SlicedProtocol};
 use reqwest::Client;
 use tokio::{runtime::Builder, sync::RwLock, task::JoinSet};
@@ -130,7 +130,7 @@ pub fn worker_thread(
                             let lines = parser.parse(width, &text, &config.theme)?;
                             let mut section_iter = SectionIterator::new(lines, &config.theme);
                             let mut post_parse_events = Vec::new();
-                            for section in &mut section_iter {
+                            for mut section in &mut section_iter {
                                 match &section.content {
                                     SectionContent::Lines(lines) => {
                                         for (_, extras) in lines {
@@ -163,16 +163,34 @@ pub fn worker_thread(
                                         }
                                         event_tx.send(Event::Parsed(document_id, section))?;
                                     }
-                                    SectionContent::HeaderPlaceholder(text,tier,_) => {
+                                    SectionContent::HeaderPlaceholder(text, tier, lines) => {
                                         if config.theme.has_text_size_protocol.unwrap_or_default() {
                                             unreachable!("SectionIterator produced HeaderPlaceholder with text-size-protocol");
                                         }
-                                        let section_id = section.id;
-                                        let text = text.clone();
-                                        let tier = *tier;
-                                        event_tx.send(Event::Parsed(document_id, section))?;
                                         if thread_renderer.is_some() {
+                                            let section_id = section.id;
+                                            let text = text.clone();
+                                            let tier = *tier;
+                                            event_tx.send(Event::Parsed(document_id, section))?;
                                             post_parse_events.push(SectionEvent::Header(section_id, text, tier));
+                                        } else {
+                                            // Without a font renderer nothing will replace the
+                                            // placeholder, so it is the final rendering of the
+                                            // header, same as `view` draws it.
+                                            let header_color = config.theme.header_color;
+                                            let mut lines: Vec<_> = lines
+                                                .iter()
+                                                .map(|(line, _)| {
+                                                    let line = match header_color {
+                                                        Some(color) => line.clone().fg(color),
+                                                        None => line.clone(),
+                                                    };
+                                                    (line, Vec::new())
+                                                })
+                                                .collect();
+                                            lines.push((Line::default(), Vec::new()));
+                                            section.content = SectionContent::Lines(lines);
+                                            event_tx.send(Event::Parsed(document_id, section))?;
                                         }
                                     }
                                 }
