@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+* Cancel pending image requests on quit instead of blocking.
 * Not searching in codeblocks that are not highlighted.
 * Haskell syntax highlighting (updated arborium).
 * Mermaid rendering broken (unless explicitly setting hide_codeblock_language=true).

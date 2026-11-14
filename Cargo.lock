@@ -3724,6 +3724,7 @@ dependencies = [
  "serde",
  "textwrap",
  "tokio",
+ "tokio-util",
  "unicode-width",
  "url",
  "what-terminal-font",
