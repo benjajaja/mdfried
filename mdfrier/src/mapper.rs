@@ -227,6 +227,12 @@ pub trait Mapper {
     fn table_row_separators(&self) -> bool {
         false
     }
+
+    /// When a table is too wide, keep narrow columns whole and shrink the wide ones in
+    /// proportion to their content, instead of the default greedy shrink.
+    fn table_proportional_columns(&self) -> bool {
+        false
+    }
 }
 
 /// Default mapper preserving markdown decorators.

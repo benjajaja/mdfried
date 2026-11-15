@@ -117,13 +117,19 @@ pub(crate) fn table_to_lines<M: Mapper>(
     let table_width: usize = col_widths.iter().sum::<usize>() + num_cols + 1;
     let col_widths: Vec<usize> = if table_width > available_width && available_width > num_cols + 1
     {
-        shrink_col_widths(
-            col_widths,
-            available_width,
-            num_cols,
-            &col_floors,
-            &col_medians,
-        )
+        let proportional = mapper
+            .table_proportional_columns()
+            .then(|| proportional_col_widths(&col_widths, available_width, num_cols))
+            .flatten();
+        proportional.unwrap_or_else(|| {
+            shrink_col_widths(
+                col_widths,
+                available_width,
+                num_cols,
+                &col_floors,
+                &col_medians,
+            )
+        })
     } else {
         col_widths
     };
@@ -441,6 +447,51 @@ fn shrink_widest(col_widths: &mut [usize], available: usize, num_cols: usize, fl
     }
 }
 
+/// Share `available_width` in proportion to content: a column narrower than an equal share
+/// keeps its width, and the wider columns split the rest by their natural width, so the
+/// longest column stays the widest. `None` if that cannot fit.
+fn proportional_col_widths(
+    col_widths: &[usize],
+    available_width: usize,
+    num_cols: usize,
+) -> Option<Vec<usize>> {
+    // A shrunk column keeps two content cells (plus padding): room for any character,
+    // double-width ones and emoji sequences included.
+    const MIN: usize = 4;
+    let room = available_width.checked_sub(num_cols + 1)?;
+    let equal_share = room / num_cols;
+    let is_wide = |w: usize| w > equal_share;
+    let narrow: usize = col_widths.iter().filter(|&&w| !is_wide(w)).sum();
+    let wide: usize = col_widths.iter().filter(|&&w| is_wide(w)).sum();
+    let spare = room.checked_sub(narrow)?;
+    let mut widths: Vec<usize> = col_widths
+        .iter()
+        .map(|&w| {
+            if is_wide(w) {
+                (w * spare / wide.max(1)).max(MIN)
+            } else {
+                w
+            }
+        })
+        .collect();
+    // Raising a column to the minimum can overshoot: take the excess from the widest columns.
+    while widths.iter().sum::<usize>() > room {
+        let i = (0..num_cols)
+            .filter(|&i| widths[i] > MIN)
+            .max_by_key(|&i| widths[i])?;
+        widths[i] -= 1;
+    }
+    // Rounding down leaves a few cells over: give them one at a time to the column
+    // furthest below its natural width.
+    while widths.iter().sum::<usize>() < room {
+        let i = (0..num_cols)
+            .filter(|&i| widths[i] < col_widths[i])
+            .max_by_key(|&i| col_widths[i] - widths[i])?;
+        widths[i] += 1;
+    }
+    Some(widths)
+}
+
 fn table_width(col_widths: &[usize], num_cols: usize) -> usize {
     col_widths.iter().sum::<usize>() + num_cols + 1
 }
@@ -653,5 +704,117 @@ mod tests {
         );
         // Off by default: only the header separator.
         assert_eq!(render(source, 80).len(), 7);
+    }
+
+    #[test]
+    fn table_proportional_columns_keep_longest_widest() {
+        struct Proportional;
+        impl Mapper for Proportional {
+            fn table_proportional_columns(&self) -> bool {
+                true
+            }
+        }
+        for width in [40, 80, 120] {
+            let mut parser = make_parser();
+            let mut inline_parser = make_inline_parser();
+            let tree = parser.parse(INVARIANTS, None).unwrap();
+            let iter = MdIterator::new(tree, &mut inline_parser, INVARIANTS);
+            let lines: Vec<String> = LineIterator::new(iter, width, &Proportional)
+                .map(|l| l.spans.iter().map(|s| s.content.as_str()).collect())
+                .collect();
+            let first = lines[0].width();
+            assert!(first <= width as usize, "table wider than {width}: {first}");
+            assert!(
+                lines.iter().all(|l| l.width() == first),
+                "ragged at {width}"
+            );
+            if width >= 80 {
+                // "+-----+---…": inner widths of Id, Rule, Enforced by, Check.
+                let cols: Vec<usize> = lines[0]
+                    .trim_matches('+')
+                    .split('+')
+                    .map(|c| c.len() - 2)
+                    .collect();
+                assert_eq!(cols[0], 3, "Id keeps its width at {width}");
+                assert!(
+                    cols[1] > cols[2] && cols[2] > cols[3],
+                    "{cols:?} at {width}"
+                );
+                assert_eq!(first, width as usize, "fills the width at {width}");
+            }
+        }
+    }
+
+    #[test]
+    fn table_proportional_columns_respect_minimums() {
+        struct Proportional;
+        impl Mapper for Proportional {
+            fn table_proportional_columns(&self) -> bool {
+                true
+            }
+        }
+        let render_p = |source: &str, width: u16| -> Vec<String> {
+            let mut parser = make_parser();
+            let mut inline_parser = make_inline_parser();
+            let tree = parser.parse(source, None).unwrap();
+            let iter = MdIterator::new(tree, &mut inline_parser, source);
+            LineIterator::new(iter, width, &Proportional)
+                .map(|l| l.spans.iter().map(|s| s.content.as_str()).collect())
+                .collect()
+        };
+        let inner = |border: &str| -> Vec<usize> {
+            border
+                .trim_matches('+')
+                .split('+')
+                .map(|c| c.len() - 2)
+                .collect()
+        };
+
+        // A column of double-width characters keeps room for one of them per line.
+        let source = format!(
+            "| a | b |\n|---|---|\n| {} | {} |\n",
+            "x".repeat(100),
+            "界".repeat(10)
+        );
+        let lines = render_p(&source, 20);
+        assert!(
+            lines.iter().all(|l| l.width() == lines[0].width()),
+            "ragged: {lines:#?}"
+        );
+        assert!(inner(&lines[0])[1] >= 2, "{lines:#?}");
+
+        // So does a character made of several code points (❤ + VS16, two cells).
+        let source = format!(
+            "| a | ❤️ |\n|---|---|\n| {} | {} |\n",
+            "x".repeat(2000),
+            "y".repeat(40)
+        );
+        let lines = render_p(&source, 79);
+        assert!(
+            lines.iter().all(|l| l.width() == lines[0].width()),
+            "ragged: {lines:#?}"
+        );
+
+        // Columns of nearly equal width share the rounding leftovers instead of one
+        // column taking them all.
+        let source = format!(
+            "{}|\n{}|\n{}|\n",
+            "| abcdefgh ".repeat(8),
+            "|---".repeat(8),
+            "| abcdefgh ".repeat(8)
+        );
+        let lines = render_p(&source, 88);
+        assert_eq!(inner(&lines[0]), [7, 8, 8, 8, 8, 8, 8, 8]);
+
+        // Raising narrow columns to the minimum takes the excess from the widest one,
+        // instead of giving up on proportional widths.
+        let source = format!(
+            "| a | b | c |\n|---|---|---|\n| {} | {} | {} |\n",
+            "x".repeat(2000),
+            "y".repeat(40),
+            "z".repeat(40)
+        );
+        let lines = render_p(&source, 79);
+        assert_eq!(inner(&lines[0]), [65, 2, 2]);
     }
 }

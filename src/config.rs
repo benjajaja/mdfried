@@ -114,6 +114,7 @@ pub struct Theme {
     pub hide_codeblock_language: Option<bool>,
     pub table_row_separators: Option<bool>,
     pub table_rounded_corners: Option<bool>,
+    pub table_proportional_columns: Option<bool>,
     /// Name of an arborium built-in theme for code blocks, e.g. "GitHub Light".
     pub code_theme: Option<String>,
 }
@@ -240,6 +241,9 @@ impl Mapper for Theme {
     fn table_row_separators(&self) -> bool {
         self.table_row_separators.unwrap_or(false)
     }
+    fn table_proportional_columns(&self) -> bool {
+        self.table_proportional_columns.unwrap_or(false)
+    }
 }
 
 // Delegate to DefaultTheme for defaults
@@ -341,6 +345,7 @@ impl Theme {
             hide_codeblock_language: Some(false),
             table_row_separators: Some(false),
             table_rounded_corners: Some(false),
+            table_proportional_columns: Some(false),
             code_theme: Some(arborium::theme::builtin::tokyo_night().name),
         }
     }
