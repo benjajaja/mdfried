@@ -447,6 +447,7 @@ fn table_width(col_widths: &[usize], num_cols: usize) -> usize {
 mod tests {
     use pretty_assertions::assert_eq;
     use tree_sitter::Parser;
+    use unicode_width::UnicodeWidthStr as _;
 
     use crate::link_tracker::TrackedUrl;
     use crate::markdown::MdIterator;
@@ -585,5 +586,43 @@ mod tests {
                     .collect::<String>())
                 .collect::<Vec<_>>(),
         );
+    }
+
+    /// A short Id column beside three long ones.
+    const INVARIANTS: &str = "\
+| Id | Rule | Enforced by | Check |
+|----|------|-------------|-------|
+| A1a | Every order has exactly one invoice address, either postal or electronic, never both at once | `SetPostalAddress` clears `email_invoice` in the same transaction | both fields set |
+| A1b | A shipped order has a tracking number; an order without one is still being packed and not shipped | decided in review; the shipper assigns the number on dispatch | shipped without number |
+| A2b | Prices are in cents | `normalize_price_to_cents` rewrites decimal input when an order is imported | fractional cents, ≥ 2015 |
+";
+
+    fn render(source: &str, width: u16) -> Vec<String> {
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
+        let tree = parser.parse(source, None).unwrap();
+        let iter = MdIterator::new(tree, &mut inline_parser, source);
+        LineIterator::new(iter, width, &DefaultMapper {})
+            .map(|l| l.spans.iter().map(|s| s.content.as_str()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn table_short_id_column_keeps_its_width() {
+        for width in [60, 80, 100, 125, 140] {
+            let lines = render(INVARIANTS, width);
+            for id in ["A1a", "A1b", "A2b"] {
+                assert!(
+                    lines.iter().any(|l| l.starts_with(&format!("| {id} |"))),
+                    "{id} must stay whole in its column at width {width}"
+                );
+            }
+            let first = lines[0].width();
+            assert!(first <= width as usize, "table wider than {width}: {first}");
+            assert!(
+                lines.iter().all(|l| l.width() == first),
+                "all table lines must be equally wide at width {width}"
+            );
+        }
     }
 }
