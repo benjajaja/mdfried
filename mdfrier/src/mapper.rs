@@ -222,6 +222,11 @@ pub trait Mapper {
     fn hide_codeblock_language(&self) -> bool {
         false
     }
+
+    /// Draw a separator line between table data rows, not only below the header.
+    fn table_row_separators(&self) -> bool {
+        false
+    }
 }
 
 /// Default mapper preserving markdown decorators.

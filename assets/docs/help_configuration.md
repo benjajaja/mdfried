@@ -106,9 +106,12 @@ table_border_color = "240"
 table_header_color = "255"
 header_color = "#FFFFFF"
 hide_urls = true
+table_row_separators = false
 code_theme = "Tokyo Night"
 ```
 The theme, including colors, replacement strings, and some markdown options.
+
+`table_row_separators = true` draws a line between every table row, not only below the header.
 
 The `code_theme` is for the syntax highlighting.
 Any of [arborium's built-in themes](https://github.com/bearcove/arborium/tree/main/crates/arborium-theme/themes) names works, for example "Catppuccin Macchiato".

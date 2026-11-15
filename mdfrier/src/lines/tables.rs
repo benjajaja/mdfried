@@ -317,8 +317,11 @@ pub(crate) fn table_to_lines<M: Mapper>(
     // Header separator
     lines.push(build_border(BorderPosition::HeaderSeparator));
 
-    // Data rows
-    for drow in &decorated_rows {
+    // Data rows, optionally with a separator line between them
+    for (i, drow) in decorated_rows.iter().enumerate() {
+        if i > 0 && mapper.table_row_separators() {
+            lines.push(build_border(BorderPosition::HeaderSeparator));
+        }
         lines.extend(build_row_lines(drow, false));
     }
 
@@ -624,5 +627,31 @@ mod tests {
                 "all table lines must be equally wide at width {width}"
             );
         }
+    }
+
+    #[test]
+    fn table_row_separators_between_data_rows() {
+        struct Separated;
+        impl Mapper for Separated {
+            fn table_row_separators(&self) -> bool {
+                true
+            }
+        }
+        let source = "| a |\n|---|\n| 1 |\n| 2 |\n| 3 |\n";
+        let mut parser = make_parser();
+        let mut inline_parser = make_inline_parser();
+        let tree = parser.parse(source, None).unwrap();
+        let iter = MdIterator::new(tree, &mut inline_parser, source);
+        let lines: Vec<String> = LineIterator::new(iter, 80, &Separated)
+            .map(|l| l.spans.iter().map(|s| s.content.as_str()).collect())
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                "+---+", "| a |", "+---+", "| 1 |", "+---+", "| 2 |", "+---+", "| 3 |", "+---+"
+            ]
+        );
+        // Off by default: only the header separator.
+        assert_eq!(render(source, 80).len(), 7);
     }
 }

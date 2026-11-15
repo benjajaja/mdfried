@@ -112,6 +112,7 @@ pub struct Theme {
     pub has_text_size_protocol: Option<bool>,
     pub preserve_list_ordinals: Option<bool>,
     pub hide_codeblock_language: Option<bool>,
+    pub table_row_separators: Option<bool>,
     /// Name of an arborium built-in theme for code blocks, e.g. "GitHub Light".
     pub code_theme: Option<String>,
 }
@@ -235,6 +236,9 @@ impl Mapper for Theme {
     fn hide_codeblock_language(&self) -> bool {
         self.hide_codeblock_language.unwrap_or(false)
     }
+    fn table_row_separators(&self) -> bool {
+        self.table_row_separators.unwrap_or(false)
+    }
 }
 
 // Delegate to DefaultTheme for defaults
@@ -325,6 +329,7 @@ impl Theme {
             has_text_size_protocol: None,
             preserve_list_ordinals: Some(false),
             hide_codeblock_language: Some(false),
+            table_row_separators: Some(false),
             code_theme: Some(arborium::theme::builtin::tokyo_night().name),
         }
     }
