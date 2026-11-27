@@ -23,10 +23,11 @@ use std::{
 
 use cosmic_text::fontdb::Database;
 use mdfrier::MdFrier;
-use ratatui::layout::Size;
+use ratatui::{layout::Size, style::Stylize as _, text::Line};
 use ratatui_image::{Resize, picker::Picker, sliced::SlicedProtocol};
 use reqwest::Client;
 use tokio::{runtime::Builder, sync::RwLock, task::JoinSet};
+use tokio_util::sync::CancellationToken;
 
 use crate::{
     Cmd, Event, Protocol, VERSION,
@@ -55,6 +56,7 @@ pub fn worker_thread(
     cmd_rx: Receiver<Cmd>,
     event_tx: Sender<Event>,
     config_max_image_height: u16,
+    shutdown: CancellationToken,
 ) -> JoinHandle<Result<(), Error>> {
     thread::spawn(move || {
         let runtime = Builder::new_multi_thread()
@@ -118,7 +120,9 @@ pub fn worker_thread(
 
             for cmd in cmd_rx {
                 log::debug!("Cmd: {cmd}");
-                let result = async {
+                // Dropping the handler future on shutdown drops its `JoinSet`, which aborts the
+                // spawned tasks, including any pending HTTP requests.
+                let Some(result) = shutdown.run_until_cancelled(async {
                     match cmd {
                         Cmd::Parse(document_id, width, text, image_cache) => {
                             event_tx.send(Event::NewDocument(document_id))?;
@@ -126,7 +130,7 @@ pub fn worker_thread(
                             let lines = parser.parse(width, &text, &config.theme)?;
                             let mut section_iter = SectionIterator::new(lines, &config.theme);
                             let mut post_parse_events = Vec::new();
-                            for section in &mut section_iter {
+                            for mut section in &mut section_iter {
                                 match &section.content {
                                     SectionContent::Lines(lines) => {
                                         for (_, extras) in lines {
@@ -159,16 +163,34 @@ pub fn worker_thread(
                                         }
                                         event_tx.send(Event::Parsed(document_id, section))?;
                                     }
-                                    SectionContent::HeaderPlaceholder(text,tier,_) => {
+                                    SectionContent::HeaderPlaceholder(text, tier, lines) => {
                                         if config.theme.has_text_size_protocol.unwrap_or_default() {
                                             unreachable!("SectionIterator produced HeaderPlaceholder with text-size-protocol");
                                         }
-                                        let section_id = section.id;
-                                        let text = text.clone();
-                                        let tier = *tier;
-                                        event_tx.send(Event::Parsed(document_id, section))?;
                                         if thread_renderer.is_some() {
+                                            let section_id = section.id;
+                                            let text = text.clone();
+                                            let tier = *tier;
+                                            event_tx.send(Event::Parsed(document_id, section))?;
                                             post_parse_events.push(SectionEvent::Header(section_id, text, tier));
+                                        } else {
+                                            // Without a font renderer nothing will replace the
+                                            // placeholder, so it is the final rendering of the
+                                            // header, same as `view` draws it.
+                                            let header_color = config.theme.header_color;
+                                            let mut lines: Vec<_> = lines
+                                                .iter()
+                                                .map(|(line, _)| {
+                                                    let line = match header_color {
+                                                        Some(color) => line.clone().fg(color),
+                                                        None => line.clone(),
+                                                    };
+                                                    (line, Vec::new())
+                                                })
+                                                .collect();
+                                            lines.push((Line::default(), Vec::new()));
+                                            section.content = SectionContent::Lines(lines);
+                                            event_tx.send(Event::Parsed(document_id, section))?;
                                         }
                                     }
                                 }
@@ -345,7 +367,10 @@ pub fn worker_thread(
                     }
 
                     Ok::<(),Error>(())
-                }.await;
+                }).await else {
+                    log::info!("worker shutdown requested, abandoning in-flight command");
+                    break;
+                };
 
                 match result {
                     Err(Error::ThreadClosed) => break, // Goodbye.
@@ -357,8 +382,10 @@ pub fn worker_thread(
             Ok(())
         });
 
-        if let Err(Error::ThreadClosed) = result {
-            log::info!("ThreadClosedError: Abandoning blocking worker threads");
+        // Whoever is listening is gone, so there's no point in waiting for in-flight
+        // `spawn_blocking` work (which cannot be aborted) to finish.
+        if shutdown.is_cancelled() || matches!(result, Err(Error::ThreadClosed)) {
+            log::info!("shutting down: abandoning blocking worker threads");
             runtime.shutdown_background();
         }
         result
@@ -512,8 +539,21 @@ async fn process_post_parse_events(
                         }
                     }
                     let mut hl = highlighter.fork();
-                    let text = tokio::task::spawn_blocking(move || hl.highlight(&language, lines))
-                        .await??;
+                    // The section must always be settled, so on failure (e.g. a code fence
+                    // without a language, or an unsupported one) fall back to the plain lines.
+                    let plain = lines.clone();
+                    let highlighted = tokio::task::spawn_blocking(move || {
+                        hl.highlight(&language, lines)
+                            .map_err(|err| (language, err))
+                    })
+                    .await?;
+                    let text = match highlighted {
+                        Ok(text) => text,
+                        Err((language, err)) => {
+                            log::warn!("not highlighting code block ({language:?}): {err}");
+                            ratatui::text::Text::from(plain)
+                        }
+                    };
                     task_tx.send(Event::CodeLoaded(document_id, section_id, text))?;
                 }
             }

@@ -4,6 +4,10 @@
 
 ## [3.0.9] - 2026-10-12
 
+### Added
+- Smarter table column spacing with three-step calculation.
+- `--dump`, `-d` mode: dump markdown to stdout instead of running a TUI.
+
 ## [3.0.8] - 2026-09-18
 
 ### Fixed

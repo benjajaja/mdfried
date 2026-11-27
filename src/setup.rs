@@ -4,6 +4,10 @@ pub mod notification;
 
 use cosmic_text::{Color, FontSystem, SwashCache};
 use image::Rgba;
+use ratatui::crossterm::{
+    execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen},
+};
 use ratatui_image::{
     FontSize,
     picker::{Capability, Picker, ProtocolType, cap_parser::QueryStdioOptions},
@@ -55,6 +59,19 @@ pub enum SetupResult {
 static JETBRAINS_MONO: &[u8] = include_bytes!("fonts/JetBrainsMonoNerdFont-Regular.ttf");
 static CASCADIA_CODE: &[u8] = include_bytes!("fonts/CascadiaCode-Regular.otf");
 
+#[cfg(not(windows))]
+fn open_tty_for_cursor_restore() -> Option<std::fs::File> {
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open("/dev/tty")
+        .ok()
+}
+
+#[cfg(windows)]
+fn open_tty_for_cursor_restore() -> Option<std::fs::File> {
+    None
+}
+
 pub fn setup_graphics(
     config: &mut UserConfig,
     force_font_setup: bool,
@@ -64,7 +81,13 @@ pub fn setup_graphics(
     let (mut picker, background_color) = if no_cap_checks {
         (Picker::halfblocks(), None)
     } else {
-        print!("Detecting supported graphics protocols...");
+        // The text sizing probe prints visible (double-height) characters, which can move the
+        // cursor and scroll the screen. Run it on the alternate screen, so the main screen is left
+        // untouched.
+        let mut tty = open_tty_for_cursor_restore();
+        if let Some(tty) = tty.as_mut() {
+            let _ = execute!(tty, EnterAlternateScreen);
+        }
         let picker = Picker::from_query_stdio_with_options(QueryStdioOptions {
             timeout_ms: config
                 .stdio_query_timeout_ms
@@ -73,9 +96,15 @@ pub fn setup_graphics(
             terminal_background_color_osc: true,
             #[cfg(not(windows))]
             kitty_shared_memory_object: QueryStdioOptions::probe_kitty_smo(),
+            #[cfg(not(windows))]
+            stdio: Some(QueryStdioOptions::stdio_dev_tty()?),
             ..Default::default()
-        })?;
-        println!(" {:?}.", picker.protocol_type());
+        });
+        if let Some(tty) = tty.as_mut() {
+            // Leave the alternate screen, restoring the main screen and cursor as they were.
+            let _ = execute!(tty, LeaveAlternateScreen);
+        }
+        let picker = picker?;
         let mut bg = None;
         if picker.protocol_type() == ProtocolType::Sixel {
             for cap in picker.capabilities() {

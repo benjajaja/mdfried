@@ -15,6 +15,7 @@ use ratatui::{
     widgets::Padding,
 };
 use regex::RegexBuilder;
+use tokio_util::sync::{CancellationToken, DropGuard};
 use url::Url;
 
 use ratatui_image::{protocol::Protocol, sliced::SlicedProtocol};
@@ -48,6 +49,8 @@ pub struct Model {
     document_history: Vec<DocumentHistoryEntry>,
     cmd_tx: Sender<Cmd>,
     event_rx: Receiver<Event>,
+    /// Signals the worker to stop when the model is dropped.
+    _shutdown: DropGuard,
 }
 
 // The temporary keypress input queue for operations like search or movement-count prefix.
@@ -95,6 +98,7 @@ impl Model {
         event_rx: Receiver<Event>,
         screen_size: Size,
         config: Config,
+        shutdown: CancellationToken,
     ) -> Model {
         Model {
             screen_size,
@@ -111,12 +115,12 @@ impl Model {
             cmd_tx,
             event_rx,
             last_error: None,
+            _shutdown: shutdown.drop_guard(),
         }
     }
 
-    #[cfg(test)]
-    pub fn has_pending_images(&self) -> bool {
-        self.document.has_pending_images()
+    pub fn has_pending_content(&self) -> bool {
+        self.document.has_pending_content()
     }
 
     pub fn reload(&mut self, screen_size: Size) -> Result<(), Error> {
@@ -239,6 +243,14 @@ impl Model {
                     .unwrap_or_default(),
             ),
         }
+    }
+
+    pub fn settled_lines(&self) -> u16 {
+        self.document.settled_lines()
+    }
+
+    pub fn page_end(&self, from: u16, max_rows: u16) -> u16 {
+        self.document.page_end(from, max_rows)
     }
 
     pub fn total_lines(&self) -> u16 {
@@ -885,6 +897,7 @@ mod tests {
             document: Document::default(),
             cmd_tx,
             event_rx,
+            _shutdown: tokio_util::sync::CancellationToken::new().drop_guard(),
             document_id: DocumentId::default(),
             document_source: SharedDocumentSource::test(),
             document_history: Vec::new(),
