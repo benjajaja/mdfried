@@ -3,10 +3,11 @@
 ## [Unreleased]
 
 ### Fixed
-* Cancel pending image requests on quit instead of blocking.
 * Not searching in codeblocks that are not highlighted.
 * Haskell syntax highlighting (updated arborium).
 * Mermaid rendering broken (unless explicitly setting hide_codeblock_language=true).
+* Cancel pending image requests on quit instead of blocking.
+* Probe text sizing protocol on alternate screen to avoid printing the probe to stdout.
 
 ## [0.22.8] - 2026-10-13
 
