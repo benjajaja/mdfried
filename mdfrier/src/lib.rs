@@ -106,7 +106,7 @@ use std::fmt::Display;
 use tree_sitter::Parser;
 
 pub use lines::LineIterator;
-pub use mapper::{DefaultMapper, Mapper, StyledMapper};
+pub use mapper::{DefaultMapper, Mapper, StyledMapper, TableLayoutAlgorithm, TableSymbol};
 pub use markdown::BulletStyle;
 pub use markdown::{Modifier, SourceContent, Span};
 
