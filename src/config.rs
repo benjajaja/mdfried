@@ -112,6 +112,9 @@ pub struct Theme {
     pub has_text_size_protocol: Option<bool>,
     pub preserve_list_ordinals: Option<bool>,
     pub hide_codeblock_language: Option<bool>,
+    pub table_row_separators: Option<bool>,
+    pub table_rounded_corners: Option<bool>,
+    pub table_proportional_columns: Option<bool>,
     /// Name of an arborium built-in theme for code blocks, e.g. "GitHub Light".
     pub code_theme: Option<String>,
 }
@@ -172,16 +175,16 @@ impl Mapper for Theme {
         STYLED_MAPPER.table_horizontal()
     }
     fn table_top_left(&self) -> &str {
-        STYLED_MAPPER.table_top_left()
+        self.rounded("╭", STYLED_MAPPER.table_top_left())
     }
     fn table_top_right(&self) -> &str {
-        STYLED_MAPPER.table_top_right()
+        self.rounded("╮", STYLED_MAPPER.table_top_right())
     }
     fn table_bottom_left(&self) -> &str {
-        STYLED_MAPPER.table_bottom_left()
+        self.rounded("╰", STYLED_MAPPER.table_bottom_left())
     }
     fn table_bottom_right(&self) -> &str {
-        STYLED_MAPPER.table_bottom_right()
+        self.rounded("╯", STYLED_MAPPER.table_bottom_right())
     }
     fn table_top_junction(&self) -> &str {
         STYLED_MAPPER.table_top_junction()
@@ -234,6 +237,12 @@ impl Mapper for Theme {
     }
     fn hide_codeblock_language(&self) -> bool {
         self.hide_codeblock_language.unwrap_or(false)
+    }
+    fn table_row_separators(&self) -> bool {
+        self.table_row_separators.unwrap_or(false)
+    }
+    fn table_proportional_columns(&self) -> bool {
+        self.table_proportional_columns.unwrap_or(false)
     }
 }
 
@@ -290,6 +299,15 @@ impl mdfrier::ratatui::Theme for Theme {
 }
 
 impl Theme {
+    // A table corner: `round` when `table_rounded_corners` is set, else `square`.
+    fn rounded<'a>(&self, round: &'a str, square: &'a str) -> &'a str {
+        if self.table_rounded_corners.unwrap_or(false) {
+            round
+        } else {
+            square
+        }
+    }
+
     fn defaults_for_print() -> Theme {
         use mdfrier::ratatui::Theme as _;
         let theme = Theme::default();
@@ -325,6 +343,9 @@ impl Theme {
             has_text_size_protocol: None,
             preserve_list_ordinals: Some(false),
             hide_codeblock_language: Some(false),
+            table_row_separators: Some(false),
+            table_rounded_corners: Some(false),
+            table_proportional_columns: Some(false),
             code_theme: Some(arborium::theme::builtin::tokyo_night().name),
         }
     }
@@ -442,4 +463,29 @@ pub fn print_default() -> Result<(), Error> {
     println!("{text}");
     fs::remove_file(tmp_path)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use mdfrier::Mapper as _;
+
+    use super::Theme;
+
+    #[test]
+    fn table_rounded_corners() {
+        let rounded = Theme {
+            table_rounded_corners: Some(true),
+            ..Default::default()
+        };
+        let corners = |t: &Theme| {
+            [
+                t.table_top_left().to_owned(),
+                t.table_top_right().to_owned(),
+                t.table_bottom_left().to_owned(),
+                t.table_bottom_right().to_owned(),
+            ]
+        };
+        assert_eq!(corners(&rounded), ["╭", "╮", "╰", "╯"]);
+        assert_eq!(corners(&Theme::default()), ["┌", "┐", "└", "┘"]);
+    }
 }
