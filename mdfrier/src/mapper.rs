@@ -200,11 +200,22 @@ pub trait Mapper {
         false
     }
 
-    /// When a table is too wide, keep narrow columns whole and shrink the wide ones in
-    /// proportion to their content, instead of the default greedy shrink.
-    fn table_proportional_columns(&self) -> bool {
-        false
+    /// How a table that is too wide for the terminal gets its columns shrunk.
+    fn table_layout_algorithm(&self) -> TableLayoutAlgorithm {
+        TableLayoutAlgorithm::Proportional
     }
+}
+
+/// How the columns of a too-wide table are shrunk to fit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TableLayoutAlgorithm {
+    /// Narrow columns stay whole, and the wider ones share the rest in proportion to their
+    /// content, so the longest column stays the widest.
+    #[default]
+    Proportional,
+    /// Greedy passes: shrink the column hogging half the table, then the one most above its
+    /// median content width, then the widest.
+    Greedy,
 }
 
 /// Default mapper preserving markdown decorators.

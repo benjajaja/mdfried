@@ -4,14 +4,15 @@
 
 ### Added
 - `table_row_separators` method on `Mapper` trait, to draw a line between every table row.
-- `table_proportional_columns` method on `Mapper` trait, to shrink a too-wide table in proportion
-  to its content instead of the greedy shrink.
+- `table_layout_algorithm` method on `Mapper` trait, returning the new `TableLayoutAlgorithm`:
+  `Proportional` (default) or `Greedy` (the previous algorithm).
 
 ### Changed
 - **Breaking:** the 11 `table_*` border methods on `Mapper` (`table_vertical`, `table_top_left`, ...)
   are replaced by a single `table_symbol(TableSymbol)`. Defaults are unchanged (ASCII), but
   implementors that overrode them must switch to matching on `TableSymbol`.
 - `StyledMapper` has rounded table corners (`╭╮╰╯`).
+- Too-wide tables shrink proportionally by default.
 
 ## [3.0.9] - 2026-10-12
 

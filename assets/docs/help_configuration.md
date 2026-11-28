@@ -108,14 +108,14 @@ header_color = "#FFFFFF"
 hide_urls = true
 table_row_separators = false
 table_symbols = "╭╮╰╯─│┬┴├┤┼"
-table_proportional_columns = false
+table_layout_algorithm = "proportional"
 code_theme = "Tokyo Night"
 ```
 The theme, including colors, replacement strings, and some markdown options.
 
 `table_row_separators = true` draws a line between every table row, not only below the header.
 `table_symbols` sets the table border symbols: exactly 11 characters. In order: the corners (top-left, top-right, bottom-left, bottom-right), horizontal, vertical, the junctions (top, bottom, left, right), and cross. The default is rounded; for square corners use `"┌┐└┘─│┬┴├┤┼"`.
-`table_proportional_columns = true` shrinks a too-wide table in proportion to its content: narrow columns stay whole and the longest column stays the widest.
+`table_layout_algorithm` is how a too-wide table gets its columns shrunk. `"proportional"` keeps narrow columns whole and shrinks the wide ones in proportion to their content, so the longest column stays the widest. `"greedy"` shrinks the column hogging most of the table first, then the one most above its typical width, then the widest.
 
 The `code_theme` is for the syntax highlighting.
 Any of [arborium's built-in themes](https://github.com/bearcove/arborium/tree/main/crates/arborium-theme/themes) names works, for example "Catppuccin Macchiato".

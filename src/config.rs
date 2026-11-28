@@ -118,7 +118,7 @@ pub struct Theme {
     /// left, right), and cross.
     #[serde(default, deserialize_with = "deserialize_table_symbols")]
     pub table_symbols: Option<String>,
-    pub table_proportional_columns: Option<bool>,
+    pub table_layout_algorithm: Option<TableLayoutAlgorithm>,
     /// Name of an arborium built-in theme for code blocks, e.g. "GitHub Light".
     pub code_theme: Option<String>,
 }
@@ -239,8 +239,11 @@ impl Mapper for Theme {
     fn table_row_separators(&self) -> bool {
         self.table_row_separators.unwrap_or(false)
     }
-    fn table_proportional_columns(&self) -> bool {
-        self.table_proportional_columns.unwrap_or(false)
+    fn table_layout_algorithm(&self) -> mdfrier::TableLayoutAlgorithm {
+        match self.table_layout_algorithm.unwrap_or_default() {
+            TableLayoutAlgorithm::Proportional => mdfrier::TableLayoutAlgorithm::Proportional,
+            TableLayoutAlgorithm::Greedy => mdfrier::TableLayoutAlgorithm::Greedy,
+        }
     }
 }
 
@@ -334,10 +337,19 @@ impl Theme {
             hide_codeblock_language: Some(false),
             table_row_separators: Some(false),
             table_symbols: Some("╭╮╰╯─│┬┴├┤┼".to_owned()),
-            table_proportional_columns: Some(false),
+            table_layout_algorithm: Some(TableLayoutAlgorithm::Proportional),
             code_theme: Some(arborium::theme::builtin::tokyo_night().name),
         }
     }
+}
+
+/// How the columns of a too-wide table are shrunk, see [`mdfrier::TableLayoutAlgorithm`].
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TableLayoutAlgorithm {
+    #[default]
+    Proportional,
+    Greedy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

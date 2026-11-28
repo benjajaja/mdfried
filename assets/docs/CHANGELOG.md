@@ -4,11 +4,12 @@
 
 ### Added
 * `table_row_separators` setting, to draw a line between every table row.
-* `table_proportional_columns` setting, to shrink a too-wide table in proportion to its content.
+* `table_layout_algorithm` setting: `"proportional"` or `"greedy"`.
 * `table_symbols` setting, to override any of the 11 table border symbols.
 
 ### Changed
 * Tables have rounded corners by default (set `table_symbols` for the old square ones).
+* Too-wide tables shrink proportionally by default: narrow columns stay whole and the longest column stays the widest (`table_layout_algorithm = "greedy"` for the old behavior).
 
 ### Fixed
 * Not searching in codeblocks that are not highlighted.

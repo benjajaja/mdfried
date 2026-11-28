@@ -2,7 +2,7 @@ use unicode_width::UnicodeWidthStr as _;
 
 use super::{MdLineContainer, apply_decorators, nesting_to_prefix_spans};
 use crate::{
-    Line, LineKind, Mapper, TableSymbol,
+    Line, LineKind, Mapper, TableLayoutAlgorithm, TableSymbol,
     link_tracker::TrackedUrl,
     markdown::{Modifier, Span, TableAlignment},
     wrap::wrap_md_spans,
@@ -117,19 +117,26 @@ pub(crate) fn table_to_lines<M: Mapper>(
     let table_width: usize = col_widths.iter().sum::<usize>() + num_cols + 1;
     let col_widths: Vec<usize> = if table_width > available_width && available_width > num_cols + 1
     {
-        let proportional = mapper
-            .table_proportional_columns()
-            .then(|| proportional_col_widths(&col_widths, available_width, num_cols))
-            .flatten();
-        proportional.unwrap_or_else(|| {
-            shrink_col_widths(
+        match mapper.table_layout_algorithm() {
+            TableLayoutAlgorithm::Proportional => {
+                proportional_col_widths(&col_widths, available_width, num_cols).unwrap_or_else(
+                    || {
+                        // Too narrow for the minimums: shrink the widest column until it fits.
+                        let mut col_widths = col_widths;
+                        let no_floor = vec![1; num_cols];
+                        shrink_widest(&mut col_widths, available_width, num_cols, &no_floor);
+                        col_widths
+                    },
+                )
+            }
+            TableLayoutAlgorithm::Greedy => shrink_col_widths(
                 col_widths,
                 available_width,
                 num_cols,
                 &col_floors,
                 &col_medians,
-            )
-        })
+            ),
+        }
     } else {
         col_widths
     };
@@ -505,7 +512,7 @@ mod tests {
 
     use crate::link_tracker::TrackedUrl;
     use crate::markdown::MdIterator;
-    use crate::{DefaultMapper, Line, LineIterator, LineKind, Mapper};
+    use crate::{DefaultMapper, Line, LineIterator, LineKind, Mapper, TableLayoutAlgorithm};
 
     fn make_parser() -> Parser {
         let mut parser = Parser::new();
@@ -652,11 +659,15 @@ mod tests {
 ";
 
     fn render(source: &str, width: u16) -> Vec<String> {
+        render_with(source, width, &DefaultMapper {})
+    }
+
+    fn render_with(source: &str, width: u16, mapper: &impl Mapper) -> Vec<String> {
         let mut parser = make_parser();
         let mut inline_parser = make_inline_parser();
         let tree = parser.parse(source, None).unwrap();
         let iter = MdIterator::new(tree, &mut inline_parser, source);
-        LineIterator::new(iter, width, &DefaultMapper {})
+        LineIterator::new(iter, width, mapper)
             .map(|l| l.spans.iter().map(|s| s.content.as_str()).collect())
             .collect()
     }
@@ -677,6 +688,27 @@ mod tests {
                 lines.iter().all(|l| l.width() == first),
                 "all table lines must be equally wide at width {width}"
             );
+        }
+    }
+
+    #[test]
+    fn table_greedy_short_id_column_keeps_its_width() {
+        struct Greedy;
+        impl Mapper for Greedy {
+            fn table_layout_algorithm(&self) -> TableLayoutAlgorithm {
+                TableLayoutAlgorithm::Greedy
+            }
+        }
+        for width in [60, 80, 100, 125, 140] {
+            let lines = render_with(INVARIANTS, width, &Greedy);
+            for id in ["A1a", "A1b", "A2b"] {
+                assert!(
+                    lines.iter().any(|l| l.starts_with(&format!("| {id} |"))),
+                    "{id} must stay whole in its column at width {width}"
+                );
+            }
+            assert!(lines.iter().all(|l| l.width() == lines[0].width()));
+            assert!(lines[0].width() <= width as usize);
         }
     }
 
@@ -707,21 +739,9 @@ mod tests {
     }
 
     #[test]
-    fn table_proportional_columns_keep_longest_widest() {
-        struct Proportional;
-        impl Mapper for Proportional {
-            fn table_proportional_columns(&self) -> bool {
-                true
-            }
-        }
+    fn table_proportional_keeps_longest_widest() {
         for width in [40, 80, 120] {
-            let mut parser = make_parser();
-            let mut inline_parser = make_inline_parser();
-            let tree = parser.parse(INVARIANTS, None).unwrap();
-            let iter = MdIterator::new(tree, &mut inline_parser, INVARIANTS);
-            let lines: Vec<String> = LineIterator::new(iter, width, &Proportional)
-                .map(|l| l.spans.iter().map(|s| s.content.as_str()).collect())
-                .collect();
+            let lines = render(INVARIANTS, width);
             let first = lines[0].width();
             assert!(first <= width as usize, "table wider than {width}: {first}");
             assert!(
@@ -746,22 +766,7 @@ mod tests {
     }
 
     #[test]
-    fn table_proportional_columns_respect_minimums() {
-        struct Proportional;
-        impl Mapper for Proportional {
-            fn table_proportional_columns(&self) -> bool {
-                true
-            }
-        }
-        let render_p = |source: &str, width: u16| -> Vec<String> {
-            let mut parser = make_parser();
-            let mut inline_parser = make_inline_parser();
-            let tree = parser.parse(source, None).unwrap();
-            let iter = MdIterator::new(tree, &mut inline_parser, source);
-            LineIterator::new(iter, width, &Proportional)
-                .map(|l| l.spans.iter().map(|s| s.content.as_str()).collect())
-                .collect()
-        };
+    fn table_proportional_respects_minimums() {
         let inner = |border: &str| -> Vec<usize> {
             border
                 .trim_matches('+')
@@ -776,7 +781,7 @@ mod tests {
             "x".repeat(100),
             "界".repeat(10)
         );
-        let lines = render_p(&source, 20);
+        let lines = render(&source, 20);
         assert!(
             lines.iter().all(|l| l.width() == lines[0].width()),
             "ragged: {lines:#?}"
@@ -789,7 +794,7 @@ mod tests {
             "x".repeat(2000),
             "y".repeat(40)
         );
-        let lines = render_p(&source, 79);
+        let lines = render(&source, 79);
         assert!(
             lines.iter().all(|l| l.width() == lines[0].width()),
             "ragged: {lines:#?}"
@@ -803,7 +808,7 @@ mod tests {
             "|---".repeat(8),
             "| abcdefgh ".repeat(8)
         );
-        let lines = render_p(&source, 88);
+        let lines = render(&source, 88);
         assert_eq!(inner(&lines[0]), [7, 8, 8, 8, 8, 8, 8, 8]);
 
         // Raising narrow columns to the minimum takes the excess from the widest one,
@@ -814,7 +819,7 @@ mod tests {
             "y".repeat(40),
             "z".repeat(40)
         );
-        let lines = render_p(&source, 79);
+        let lines = render(&source, 79);
         assert_eq!(inner(&lines[0]), [65, 2, 2]);
     }
 }
