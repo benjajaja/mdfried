@@ -40,6 +40,7 @@ jobs:
     permissions:
       pull-requests: write
       actions: read
+      contents: write
     steps:
       - name: Download screenshots artifact
         uses: dawidd6/action-download-artifact@v6
@@ -50,30 +51,56 @@ jobs:
           path: .
           github_token: ${{ github.token }}
 
+      # The artifact is produced by PR code and must not be trusted for anything
+      # that decides where we write: take the PR number from GitHub's metadata.
       - name: Get PR number
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          RUN_PR: ${{ github.event.workflow_run.pull_requests[0].number }}
         run: |
-          if [ ! -f pr_number.txt ]; then
-            echo "pr_number.txt not found"
+          n="$RUN_PR"
+          if [ -z "$n" ]; then
+            # empty for PRs from forks (and the commit->pulls API doesn't know fork commits)
+            n=$(gh api --paginate "repos/${GH_REPO}/pulls?state=open&per_page=100" \
+              --jq ".[] | select(.head.sha == \"${HEAD_SHA}\") | .number" | head -n1)
+          fi
+          if ! [[ "$n" =~ ^[0-9]+$ ]]; then
+            echo "::error::could not determine PR number for $HEAD_SHA"
             exit 1
           fi
-          echo "PR_NUMBER=$(cat pr_number.txt)" >> $GITHUB_ENV
+          echo "PR_NUMBER=$n" >> "$GITHUB_ENV"
 
-      - name: Upload images to catbox.moe
+      # Free image hosts (catbox etc.) reject GitHub's runner IPs, so host the
+      # images as assets of a rolling prerelease on this repo instead.
+      - name: Upload images as release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          declare -A URL_MAP
-          for file in result/diffs/*.png result/images/*.png; do
-            if [ -f "$file" ]; then
-              echo "Uploading $file..."
-              url=$(curl -s -F "reqtype=fileupload" -F "userhash=${{ secrets.CATBOX_USERHASH }}" -F "fileToUpload=@$file" https://catbox.moe/user/api.php)
-              relpath="${file#result/}"
-              URL_MAP["$relpath"]="$url"
-              echo "  -> $url"
-            fi
-          done
+          TAG=pr-screenshots
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" \
+            --prerelease --target "${{ github.event.repository.default_branch }}" \
+            --title "PR screenshots" \
+            --notes "Images for PR comments, managed by CI. Safe to delete."
+          mkdir -p upload
           cp result/body.html comment.html
-          for relpath in "${!URL_MAP[@]}"; do
-            sed -i "s|IMAGE_BASE_URL/${relpath}|${URL_MAP[$relpath]}|g" comment.html
+          for file in result/diffs/*.png result/images/*.png; do
+            [ -f "$file" ] && [ ! -L "$file" ] || continue
+            base=$(basename "$file")
+            if ! [[ "$base" =~ ^[A-Za-z0-9._-]+\.png$ ]]; then
+              echo "skipping unexpected file name: $base"
+              continue
+            fi
+            relpath="${file#result/}"
+            name="pr${PR_NUMBER}-${base}"
+            cp "$file" "upload/$name"
+            url="https://github.com/${GH_REPO}/releases/download/${TAG}/${name}"
+            echo "$relpath -> $url"
+            sed -i "s|IMAGE_BASE_URL/${relpath}|${url}|g" comment.html
           done
+          gh release upload "$TAG" upload/*.png --clobber
 
       - name: Comment on PR
         uses: marocchino/sticky-pull-request-comment@v2

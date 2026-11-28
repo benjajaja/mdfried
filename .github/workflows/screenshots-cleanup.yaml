@@ -1,0 +1,30 @@
+name: screenshots-cleanup
+
+# Delete a PR's screenshot images (and only its own) from the pr-screenshots
+# release when it is closed or merged. Runs from the base branch and never
+# checks out PR code.
+on:
+  pull_request_target:
+    types: [closed]
+
+jobs:
+  cleanup:
+    name: Delete PR screenshot assets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Delete assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          TAG=pr-screenshots
+          gh release view "$TAG" >/dev/null 2>&1 || exit 0
+          gh release view "$TAG" --json assets --jq '.assets[].name' \
+            | grep -E "^pr${PR}-" \
+            | while read -r name; do
+                echo "deleting $name"
+                gh release delete-asset "$TAG" "$name" --yes
+              done || true
