@@ -6,6 +6,24 @@
 
 use crate::markdown::BulletStyle;
 
+/// The symbols a table border is drawn with.
+///
+/// The variants are in the order a `table_symbols` string lists them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TableSymbol {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+    Horizontal,
+    Vertical,
+    TopJunction,
+    BottomJunction,
+    LeftJunction,
+    RightJunction,
+    Cross,
+}
+
 /// Trait for mapping markdown content to decorated output.
 ///
 /// The Mapper controls the symbols/decorators used for various markdown elements.
@@ -80,59 +98,13 @@ pub trait Mapper {
     // Table borders
     // ========================================================================
 
-    /// Vertical border character (default: "|").
-    fn table_vertical(&self) -> &str {
-        "|"
-    }
-
-    /// Horizontal border character (default: "-").
-    fn table_horizontal(&self) -> &str {
-        "-"
-    }
-
-    /// Top-left corner (default: "+").
-    fn table_top_left(&self) -> &str {
-        "+"
-    }
-
-    /// Top-right corner (default: "+").
-    fn table_top_right(&self) -> &str {
-        "+"
-    }
-
-    /// Bottom-left corner (default: "+").
-    fn table_bottom_left(&self) -> &str {
-        "+"
-    }
-
-    /// Bottom-right corner (default: "+").
-    fn table_bottom_right(&self) -> &str {
-        "+"
-    }
-
-    /// Top junction (default: "+").
-    fn table_top_junction(&self) -> &str {
-        "+"
-    }
-
-    /// Bottom junction (default: "+").
-    fn table_bottom_junction(&self) -> &str {
-        "+"
-    }
-
-    /// Left junction (default: "+").
-    fn table_left_junction(&self) -> &str {
-        "+"
-    }
-
-    /// Right junction (default: "+").
-    fn table_right_junction(&self) -> &str {
-        "+"
-    }
-
-    /// Cross junction (default: "+").
-    fn table_cross(&self) -> &str {
-        "+"
+    /// A table border symbol (default: ASCII `+`, `-` and `|`).
+    fn table_symbol(&self, symbol: TableSymbol) -> &str {
+        match symbol {
+            TableSymbol::Horizontal => "-",
+            TableSymbol::Vertical => "|",
+            _ => "+",
+        }
     }
 
     // ========================================================================
@@ -283,38 +255,20 @@ impl Mapper for StyledMapper {
     }
 
     // Fancy table borders
-    fn table_vertical(&self) -> &str {
-        "│"
-    }
-    fn table_horizontal(&self) -> &str {
-        "─"
-    }
-    fn table_top_left(&self) -> &str {
-        "┌"
-    }
-    fn table_top_right(&self) -> &str {
-        "┐"
-    }
-    fn table_bottom_left(&self) -> &str {
-        "└"
-    }
-    fn table_bottom_right(&self) -> &str {
-        "┘"
-    }
-    fn table_top_junction(&self) -> &str {
-        "┬"
-    }
-    fn table_bottom_junction(&self) -> &str {
-        "┴"
-    }
-    fn table_left_junction(&self) -> &str {
-        "├"
-    }
-    fn table_right_junction(&self) -> &str {
-        "┤"
-    }
-    fn table_cross(&self) -> &str {
-        "┼"
+    fn table_symbol(&self, symbol: TableSymbol) -> &str {
+        match symbol {
+            TableSymbol::TopLeft => "╭",
+            TableSymbol::TopRight => "╮",
+            TableSymbol::BottomLeft => "╰",
+            TableSymbol::BottomRight => "╯",
+            TableSymbol::Horizontal => "─",
+            TableSymbol::Vertical => "│",
+            TableSymbol::TopJunction => "┬",
+            TableSymbol::BottomJunction => "┴",
+            TableSymbol::LeftJunction => "├",
+            TableSymbol::RightJunction => "┤",
+            TableSymbol::Cross => "┼",
+        }
     }
 
     // Remove text decorators - styling replaces them

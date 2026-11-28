@@ -8,7 +8,9 @@ use ratatui::{
 };
 
 use crate::{
-    Line as MdLine, LineKind, Span, link_tracker::TrackedUrl, mapper::Mapper,
+    Line as MdLine, LineKind, Span,
+    link_tracker::TrackedUrl,
+    mapper::{Mapper, TableSymbol},
     markdown::Modifier as MdModifier,
 };
 
@@ -198,38 +200,8 @@ impl Mapper for DefaultTheme {
     fn task_checked(&self) -> &str {
         STYLED.task_checked()
     }
-    fn table_vertical(&self) -> &str {
-        STYLED.table_vertical()
-    }
-    fn table_horizontal(&self) -> &str {
-        STYLED.table_horizontal()
-    }
-    fn table_top_left(&self) -> &str {
-        STYLED.table_top_left()
-    }
-    fn table_top_right(&self) -> &str {
-        STYLED.table_top_right()
-    }
-    fn table_bottom_left(&self) -> &str {
-        STYLED.table_bottom_left()
-    }
-    fn table_bottom_right(&self) -> &str {
-        STYLED.table_bottom_right()
-    }
-    fn table_top_junction(&self) -> &str {
-        STYLED.table_top_junction()
-    }
-    fn table_bottom_junction(&self) -> &str {
-        STYLED.table_bottom_junction()
-    }
-    fn table_left_junction(&self) -> &str {
-        STYLED.table_left_junction()
-    }
-    fn table_right_junction(&self) -> &str {
-        STYLED.table_right_junction()
-    }
-    fn table_cross(&self) -> &str {
-        STYLED.table_cross()
+    fn table_symbol(&self, symbol: TableSymbol) -> &str {
+        STYLED.table_symbol(symbol)
     }
     fn emphasis_open(&self) -> &str {
         STYLED.emphasis_open()

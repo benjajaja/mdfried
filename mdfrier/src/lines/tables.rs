@@ -2,7 +2,7 @@ use unicode_width::UnicodeWidthStr as _;
 
 use super::{MdLineContainer, apply_decorators, nesting_to_prefix_spans};
 use crate::{
-    Line, LineKind, Mapper,
+    Line, LineKind, Mapper, TableSymbol,
     link_tracker::TrackedUrl,
     markdown::{Modifier, Span, TableAlignment},
     wrap::wrap_md_spans,
@@ -143,7 +143,7 @@ pub(crate) fn table_to_lines<M: Mapper>(
     //
     // base_offsets[i] = prefix_width + |"|"| + sum_{j<i}(col_widths[j] + |"|"|) + 1
     // where the trailing +1 is the mandatory leading " " of column i.
-    let vertical_w = mapper.table_vertical().width();
+    let vertical_w = mapper.table_symbol(TableSymbol::Vertical).width();
     let col_base_offsets: Vec<usize> = {
         let mut offsets = Vec::with_capacity(num_cols);
         let mut pos = prefix_width + vertical_w + 1;
@@ -158,22 +158,22 @@ pub(crate) fn table_to_lines<M: Mapper>(
     let build_border = |position: BorderPosition| -> Line {
         let (left, mid, right) = match position {
             BorderPosition::Top => (
-                mapper.table_top_left(),
-                mapper.table_top_junction(),
-                mapper.table_top_right(),
+                mapper.table_symbol(TableSymbol::TopLeft),
+                mapper.table_symbol(TableSymbol::TopJunction),
+                mapper.table_symbol(TableSymbol::TopRight),
             ),
             BorderPosition::HeaderSeparator => (
-                mapper.table_left_junction(),
-                mapper.table_cross(),
-                mapper.table_right_junction(),
+                mapper.table_symbol(TableSymbol::LeftJunction),
+                mapper.table_symbol(TableSymbol::Cross),
+                mapper.table_symbol(TableSymbol::RightJunction),
             ),
             BorderPosition::Bottom => (
-                mapper.table_bottom_left(),
-                mapper.table_bottom_junction(),
-                mapper.table_bottom_right(),
+                mapper.table_symbol(TableSymbol::BottomLeft),
+                mapper.table_symbol(TableSymbol::BottomJunction),
+                mapper.table_symbol(TableSymbol::BottomRight),
             ),
         };
-        let horizontal = mapper.table_horizontal();
+        let horizontal = mapper.table_symbol(TableSymbol::Horizontal);
 
         let mut spans = prefix_spans.clone();
         spans.push(Span::new(left.to_owned(), Modifier::TableBorder));
@@ -194,7 +194,7 @@ pub(crate) fn table_to_lines<M: Mapper>(
 
     // Helper to build row lines from pre-decorated cell spans.
     let build_row_lines = |row: &[Vec<Span>], is_header: bool| -> Vec<Line> {
-        let vertical = mapper.table_vertical();
+        let vertical = mapper.table_symbol(TableSymbol::Vertical);
 
         // Wrap each already-decorated cell and track links via wrap_md_spans.
         let wrapped_cells: Vec<Vec<(Vec<Span>, Vec<TrackedUrl>)>> = row

@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf, str::FromStr as _};
 
 use confy::ConfyError;
-use mdfrier::Mapper;
+use mdfrier::{Mapper, TableSymbol};
 use ratatui::style::Color;
 use ratatui_image::picker::ProtocolType;
 use serde::{Deserialize, Serialize};
@@ -113,10 +113,33 @@ pub struct Theme {
     pub preserve_list_ordinals: Option<bool>,
     pub hide_codeblock_language: Option<bool>,
     pub table_row_separators: Option<bool>,
-    pub table_rounded_corners: Option<bool>,
+    /// Exactly 11 table border symbols, one character each. In order: the corners (top-left,
+    /// top-right, bottom-left, bottom-right), horizontal, vertical, the junctions (top, bottom,
+    /// left, right), and cross.
+    #[serde(default, deserialize_with = "deserialize_table_symbols")]
+    pub table_symbols: Option<String>,
     pub table_proportional_columns: Option<bool>,
     /// Name of an arborium built-in theme for code blocks, e.g. "GitHub Light".
     pub code_theme: Option<String>,
+}
+
+/// The number of symbols in `table_symbols`: one per `TableSymbol`.
+const TABLE_SYMBOLS_LEN: usize = 11;
+
+fn deserialize_table_symbols<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let symbols = Option::<String>::deserialize(deserializer)?;
+    if let Some(symbols) = &symbols {
+        let len = symbols.chars().count();
+        if len != TABLE_SYMBOLS_LEN {
+            return Err(serde::de::Error::custom(format!(
+                "table_symbols needs {TABLE_SYMBOLS_LEN} characters, found {len}"
+            )));
+        }
+    }
+    Ok(symbols)
 }
 
 // Delegate to StyledMapper for defaults
@@ -167,39 +190,14 @@ impl Mapper for Theme {
             .as_deref()
             .unwrap_or(STYLED_MAPPER.task_checked())
     }
-    // Table borders - delegate to StyledMapper
-    fn table_vertical(&self) -> &str {
-        STYLED_MAPPER.table_vertical()
-    }
-    fn table_horizontal(&self) -> &str {
-        STYLED_MAPPER.table_horizontal()
-    }
-    fn table_top_left(&self) -> &str {
-        self.rounded("╭", STYLED_MAPPER.table_top_left())
-    }
-    fn table_top_right(&self) -> &str {
-        self.rounded("╮", STYLED_MAPPER.table_top_right())
-    }
-    fn table_bottom_left(&self) -> &str {
-        self.rounded("╰", STYLED_MAPPER.table_bottom_left())
-    }
-    fn table_bottom_right(&self) -> &str {
-        self.rounded("╯", STYLED_MAPPER.table_bottom_right())
-    }
-    fn table_top_junction(&self) -> &str {
-        STYLED_MAPPER.table_top_junction()
-    }
-    fn table_bottom_junction(&self) -> &str {
-        STYLED_MAPPER.table_bottom_junction()
-    }
-    fn table_left_junction(&self) -> &str {
-        STYLED_MAPPER.table_left_junction()
-    }
-    fn table_right_junction(&self) -> &str {
-        STYLED_MAPPER.table_right_junction()
-    }
-    fn table_cross(&self) -> &str {
-        STYLED_MAPPER.table_cross()
+    fn table_symbol(&self, symbol: TableSymbol) -> &str {
+        self.table_symbols
+            .as_deref()
+            .and_then(|symbols| {
+                let (i, c) = symbols.char_indices().nth(symbol as usize)?;
+                symbols.get(i..i + c.len_utf8())
+            })
+            .unwrap_or_else(|| STYLED_MAPPER.table_symbol(symbol))
     }
     // Text decorators - delegate to StyledMapper (removes them)
     fn emphasis_open(&self) -> &str {
@@ -299,15 +297,6 @@ impl mdfrier::ratatui::Theme for Theme {
 }
 
 impl Theme {
-    // A table corner: `round` when `table_rounded_corners` is set, else `square`.
-    fn rounded<'a>(&self, round: &'a str, square: &'a str) -> &'a str {
-        if self.table_rounded_corners.unwrap_or(false) {
-            round
-        } else {
-            square
-        }
-    }
-
     fn defaults_for_print() -> Theme {
         use mdfrier::ratatui::Theme as _;
         let theme = Theme::default();
@@ -344,7 +333,7 @@ impl Theme {
             preserve_list_ordinals: Some(false),
             hide_codeblock_language: Some(false),
             table_row_separators: Some(false),
-            table_rounded_corners: Some(false),
+            table_symbols: Some("╭╮╰╯─│┬┴├┤┼".to_owned()),
             table_proportional_columns: Some(false),
             code_theme: Some(arborium::theme::builtin::tokyo_night().name),
         }
@@ -467,25 +456,42 @@ pub fn print_default() -> Result<(), Error> {
 
 #[cfg(test)]
 mod tests {
-    use mdfrier::Mapper as _;
+    use mdfrier::{Mapper as _, TableSymbol};
 
     use super::Theme;
 
+    fn parse(symbols: &str) -> Result<Theme, confy::ConfyError> {
+        let path = std::env::temp_dir().join(format!(
+            "mdfried_table_symbols_{}_{}",
+            std::process::id(),
+            symbols.chars().count()
+        ));
+        std::fs::write(&path, format!("table_symbols = \"{symbols}\"\n"))
+            .map_err(confy::ConfyError::GeneralLoadError)?;
+        let theme = confy::load_path(&path);
+        let _: std::io::Result<()> = std::fs::remove_file(&path);
+        theme
+    }
+
     #[test]
-    fn table_rounded_corners() {
-        let rounded = Theme {
-            table_rounded_corners: Some(true),
-            ..Default::default()
-        };
-        let corners = |t: &Theme| {
-            [
-                t.table_top_left().to_owned(),
-                t.table_top_right().to_owned(),
-                t.table_bottom_left().to_owned(),
-                t.table_bottom_right().to_owned(),
-            ]
-        };
-        assert_eq!(corners(&rounded), ["╭", "╮", "╰", "╯"]);
-        assert_eq!(corners(&Theme::default()), ["┌", "┐", "└", "┘"]);
+    fn table_symbols_default_is_rounded() {
+        let theme = Theme::default();
+        assert_eq!(theme.table_symbol(TableSymbol::TopLeft), "╭");
+        assert_eq!(theme.table_symbol(TableSymbol::Cross), "┼");
+    }
+
+    #[test]
+    fn table_symbols_override() {
+        let theme = parse("┌┐└┘─│┬┴├┤┼").expect("valid table_symbols");
+        assert_eq!(theme.table_symbol(TableSymbol::TopLeft), "┌");
+        assert_eq!(theme.table_symbol(TableSymbol::Horizontal), "─");
+        assert_eq!(theme.table_symbol(TableSymbol::Cross), "┼");
+    }
+
+    #[test]
+    fn table_symbols_must_be_exactly_11_characters() {
+        assert!(parse("╭╮╰╯").is_err(), "too few");
+        assert!(parse("╭╮╰╯─│┬┴├┤┼+").is_err(), "too many");
+        assert!(parse("┌┐└┘─ │ ┬ ┴ ├ ┤ ┼").is_err(), "spaced");
     }
 }

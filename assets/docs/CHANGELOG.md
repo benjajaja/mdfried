@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+* `table_row_separators` setting, to draw a line between every table row.
+* `table_proportional_columns` setting, to shrink a too-wide table in proportion to its content.
+* `table_symbols` setting, to override any of the 11 table border symbols.
+
+### Changed
+* Tables have rounded corners by default (set `table_symbols` for the old square ones).
+
 ### Fixed
 * Not searching in codeblocks that are not highlighted.
 * Haskell syntax highlighting (updated arborium).

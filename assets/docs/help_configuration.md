@@ -107,14 +107,14 @@ table_header_color = "255"
 header_color = "#FFFFFF"
 hide_urls = true
 table_row_separators = false
-table_rounded_corners = false
+table_symbols = "╭╮╰╯─│┬┴├┤┼"
 table_proportional_columns = false
 code_theme = "Tokyo Night"
 ```
 The theme, including colors, replacement strings, and some markdown options.
 
 `table_row_separators = true` draws a line between every table row, not only below the header.
-`table_rounded_corners = true` gives tables rounded corners (`╭╮╰╯`).
+`table_symbols` sets the table border symbols: exactly 11 characters. In order: the corners (top-left, top-right, bottom-left, bottom-right), horizontal, vertical, the junctions (top, bottom, left, right), and cross. The default is rounded; for square corners use `"┌┐└┘─│┬┴├┤┼"`.
 `table_proportional_columns = true` shrinks a too-wide table in proportion to its content: narrow columns stay whole and the longest column stays the widest.
 
 The `code_theme` is for the syntax highlighting.
